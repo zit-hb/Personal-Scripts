@@ -11,7 +11,7 @@
 # dimensions.
 #
 # Usage:
-# ./delete_small_images.sh [directory] [min_dimension]
+# ./remove_small_images.sh [directory] [min_dimension]
 #
 # - [directory]: The directory to scan for images. 
 #                If not provided, the current directory is used.

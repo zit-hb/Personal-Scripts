@@ -13,7 +13,7 @@
 # already within the limit, it is skipped.
 #
 # Usage:
-# ./resize_images.sh [directory] [max_dimension]
+# ./resize_large_images.sh [directory] [max_dimension]
 #
 # - [directory]: The directory to scan for images.
 #                Defaults to the current directory if not provided.

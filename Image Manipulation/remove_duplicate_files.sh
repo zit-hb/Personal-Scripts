@@ -10,7 +10,7 @@
 # and it does not matter which copy is kept.
 #
 # Usage:
-# ./remove_duplicates.sh [directory]
+# ./remove_duplicate_files.sh [directory]
 #
 # - [directory]: The directory to scan for duplicates. 
 #                If not provided, the current directory is used.
