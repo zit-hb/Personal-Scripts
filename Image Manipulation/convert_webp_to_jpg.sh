@@ -44,6 +44,5 @@ for file in "$DIRECTORY"/*.webp; do
         # Convert to jpg
         convert "$file" "${filename}.jpg"
         echo "Converted $file to ${filename}.jpg"
-        rm "$file"
     fi
 done
