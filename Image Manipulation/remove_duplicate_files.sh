@@ -6,8 +6,7 @@
 # Description:
 # This script recursively searches a given directory for 
 # files and removes duplicate files based on their file 
-# hash (SHA-256). Only one copy of each file is retained, 
-# and it does not matter which copy is kept.
+# hash (SHA-256). Only one copy of each file is retained.
 #
 # Usage:
 # ./remove_duplicate_files.sh [directory]
@@ -20,7 +19,7 @@
 #   file hashes and 'find' to recursively search directories.
 #
 # Example:
-# ./remove_duplicates.sh /path/to/your/folder
+# ./remove_duplicate_files.sh /path/to/your/folder
 # This will scan the /path/to/your/folder and remove duplicate files.
 # -------------------------------------------------------
 
