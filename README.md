@@ -4,5 +4,5 @@ A repository of scripts that solve my problems. There are no guarantees. If you 
 
 ## 🜲 Structure
 
-- **Image Manipulation**: Scripts for transforming and preparing images, mostly for use in generative AI. They do what I need them to—nothing more.
+- **Image Manipulation**: Scripts for transforming and preparing images, mostly for use in generative AI.
 
