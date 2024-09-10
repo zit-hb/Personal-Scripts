@@ -11,7 +11,7 @@
 # of faces are met, 1 otherwise.
 #
 # Usage:
-# ./contains_faces.py [image_file] [-s SCALE] [-n NEIGHBORS] [-m WIDTH,HEIGHT] [-e NUM] [-l NUM] [-g NUM]
+# ./contains_faces.py [image_file] [-s SCALE] [-n NEIGHBORS] [-m WIDTH,HEIGHT] [-e NUM] [-l NUM] [-g NUM] [-c CASCADE_PATH]
 #
 # - [image_file]: The path to the image file to check for faces.
 # - [-s SCALE, --scale-factor SCALE]: Parameter specifying how much the image size is reduced at each image scale (default: 1.1).
@@ -20,6 +20,7 @@
 # - [-e NUM, --exact NUM]: Exit successfully if exactly NUM faces are found.
 # - [-l NUM, --less-than NUM]: Exit successfully if less than NUM faces are found.
 # - [-g NUM, --more-than NUM]: Exit successfully if more than NUM faces are found.
+# - [-c CASCADE_PATH, --cascade-path CASCADE_PATH]: Path to the Haar cascade file (default: /usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml).
 #
 # Requirements:
 # - Python with OpenCV (install via: sudo apt install python3-opencv opencv-data)
@@ -40,6 +41,7 @@ parser.add_argument('-m', '--min-size', type=str, default='30,30', help='Minimum
 parser.add_argument('-e', '--exact', type=int, help='Exit successfully if exactly NUM faces are found.')
 parser.add_argument('-l', '--less-than', type=int, help='Exit successfully if less than NUM faces are found.')
 parser.add_argument('-g', '--more-than', type=int, help='Exit successfully if more than NUM faces are found.')
+parser.add_argument('-c', '--cascade-path', type=str, default='/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml', help='Path to the Haar cascade file.')
 
 args = parser.parse_args()
 
@@ -55,15 +57,12 @@ if image is None:
 # Convert to grayscale
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# Load the pre-trained Haar cascade for face detection
-haar_cascade_path = '/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml'
-
 # Check if the Haar cascade file exists
-if not os.path.exists(haar_cascade_path):
-    print(f"Error: Haar cascade file not found at {haar_cascade_path}")
+if not os.path.exists(args.cascade_path):
+    print(f"Error: Haar cascade file not found at {args.cascade_path}")
     sys.exit(3)
 
-face_cascade = cv2.CascadeClassifier(haar_cascade_path)
+face_cascade = cv2.CascadeClassifier(args.cascade_path)
 
 if face_cascade.empty():
     print("Error: Could not load Haar cascade.")
