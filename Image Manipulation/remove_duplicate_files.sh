@@ -18,9 +18,6 @@
 # - This script relies on the 'sha256sum' command to compute 
 #   file hashes and 'find' to recursively search directories.
 #
-# Example:
-# ./remove_duplicate_files.sh /path/to/your/folder
-# This will scan the /path/to/your/folder and remove duplicate files.
 # -------------------------------------------------------
 
 # Directory to search for duplicates (default is current directory)
