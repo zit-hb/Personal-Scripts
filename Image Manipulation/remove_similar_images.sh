@@ -2,23 +2,18 @@
 
 # -------------------------------------------------------
 # Script: remove_similar_images.sh
-# 
+#
 # Description:
-# This script searches a given directory (recursively) for
-# images and removes those that are extremely visually 
-# similar, based on a configurable similarity threshold.
-# It uses ImageMagick's `compare` tool to calculate 
-# the visual similarity between images. If two images 
-# are found to be similar below the specified threshold, 
-# one of them is deleted.
+# This script searches for images and removes those that are
+# extremely visually similar, based on a configurable similarity
+# threshold.
 #
 # Usage:
-# ./remove_similar_images.sh [directory] [threshold]
+# ./remove_similar_images.sh [directory|image]... [threshold]
 #
-# - [directory]: The directory to scan for images. 
-#                If not provided, the current directory is used.
-# - [threshold]: The similarity threshold for comparison. 
-#                Lower values = stricter comparison. 
+# - [directory|image]: The image or directory to scan for images.
+# - [threshold]: The similarity threshold for comparison.
+#                Lower values = stricter comparison.
 #                Defaults to 5 if not provided.
 #
 # Requirements:
@@ -26,11 +21,22 @@
 #
 # -------------------------------------------------------
 
-# Directory to search for images (default is current directory)
-DIRECTORY=${1:-.}
-
 # Similarity threshold (default to 5 if not provided)
-THRESHOLD=${2:-5}
+THRESHOLD=5
+
+# Arrays to hold options and files
+options=()
+files=()
+
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    if [[ "$1" =~ ^[0-9]+$ ]]; then
+        THRESHOLD="$1"
+    else
+        files+=("$1")
+    fi
+    shift
+done
 
 # Ensure ImageMagick is installed
 if ! command -v compare &> /dev/null; then
@@ -38,16 +44,35 @@ if ! command -v compare &> /dev/null; then
     exit 1
 fi
 
-# Find all image files in the directory
-find "$DIRECTORY" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | while read -r base_image; do
-    # Loop through other images in the directory
-    find "$DIRECTORY" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | while read -r other_image; do
-        # Skip comparing the image with itself
+# Function to process input arguments and extract images
+process_inputs() {
+    local inputs=("$@")
+    local images=()
+
+    for input in "${inputs[@]}"; do
+        if [ -d "$input" ]; then
+            while IFS= read -r -d $'\0' file; do
+                images+=("$file")
+            done < <(find "$input" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) -print0)
+        elif [ -f "$input" ]; then
+            images+=("$input")
+        else
+            echo "Warning: $input is not a valid file or directory, skipping."
+        fi
+    done
+
+    echo "${images[@]}"
+}
+
+# Process input arguments
+images=($(process_inputs "${files[@]}"))
+
+# Remove similar images
+for base_image in "${images[@]}"; do
+    for other_image in "${images[@]}"; do
         if [ "$base_image" != "$other_image" ]; then
-            # Compare the two images and calculate the difference
             difference=$(compare -metric RMSE "$base_image" "$other_image" null: 2>&1 | awk '{print $1}')
-            
-            # Remove the image if the difference is below the threshold
+
             if (( $(echo "$difference < $THRESHOLD" | bc -l) )); then
                 echo "Removing similar image: $other_image (Difference: $difference)"
                 rm "$other_image"

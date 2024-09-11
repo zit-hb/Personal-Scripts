@@ -4,40 +4,61 @@
 # Script: remove_duplicate_files.sh
 #
 # Description:
-# This script recursively searches a given directory for 
-# files and removes duplicate files based on their file 
-# hash (SHA-256). Only one copy of each file is retained.
+# This script searches for files and removes duplicate files
+# based on their file hash (SHA-256). Only one copy of each file
+# is retained.
 #
 # Usage:
-# ./remove_duplicate_files.sh [directory]
+# ./remove_duplicate_files.sh [directory|file]...
 #
-# - [directory]: The directory to scan for duplicates. 
-#                If not provided, the current directory is used.
-#
-# Requirements:
-# - This script relies on the 'sha256sum' command to compute 
-#   file hashes and 'find' to recursively search directories.
+# - [directory|file]: The file or directory to scan for duplicates.
 #
 # -------------------------------------------------------
-
-# Directory to search for duplicates (default is current directory)
-DIRECTORY=${1:-.}
 
 # Declare an associative array to track file hashes
 declare -A file_hashes
 
-# Recursively find all files in the directory
-find "$DIRECTORY" -type f | while read -r file; do
-    # Compute the SHA-256 hash of the file
+# Arrays to hold options and files
+options=()
+files=()
+
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    files+=("$1")
+    shift
+done
+
+# Function to process input arguments and extract files
+process_inputs() {
+    local inputs=("$@")
+    local files=()
+
+    for input in "${inputs[@]}"; do
+        if [ -d "$input" ]; then
+            while IFS= read -r -d $'\0' file; do
+                files+=("$file")
+            done < <(find "$input" -type f -print0)
+        elif [ -f "$input" ]; then
+            files+=("$input")
+        else
+            echo "Warning: $input is not a valid file or directory, skipping."
+        fi
+    done
+
+    echo "${files[@]}"
+}
+
+# Process input arguments
+files=($(process_inputs "${files[@]}"))
+
+# Remove duplicate files
+for file in "${files[@]}"; do
     hash=$(sha256sum "$file" | awk '{print $1}')
-    
-    # Check if the hash already exists
+
     if [[ -n "${file_hashes[$hash]}" ]]; then
-        # If the hash exists, delete the duplicate file
         echo "Removing duplicate: $file"
         rm "$file"
     else
-        # If not, store the hash and the file
         file_hashes[$hash]="$file"
     fi
 done

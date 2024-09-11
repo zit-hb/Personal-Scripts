@@ -2,19 +2,15 @@
 
 # -------------------------------------------------------
 # Script: remove_small_images.sh
-# 
+#
 # Description:
-# This script searches a given directory (recursively) for
-# images and removes those that have a width or height
-# smaller than a specified minimum dimension. The script
-# uses ImageMagick's `identify` tool to check the image
-# dimensions.
+# This script searches for images and removes those that have
+# a width or height smaller than a specified minimum dimension.
 #
 # Usage:
-# ./remove_small_images.sh [directory] [min_dimension]
+# ./remove_small_images.sh [directory|image]... [min_dimension]
 #
-# - [directory]: The directory to scan for images. 
-#                If not provided, the current directory is used.
+# - [directory|image]: The image or directory to scan for images.
 # - [min_dimension]: The minimum allowed width or height in pixels.
 #                    Images smaller than this will be deleted.
 #                    Defaults to 600 pixels if not provided.
@@ -24,11 +20,22 @@
 #
 # -------------------------------------------------------
 
-# Directory to search for images (default is current directory)
-DIRECTORY=${1:-.}
-
 # Minimum allowed width or height (default is 600 pixels)
-MIN_DIMENSION=${2:-600}
+MIN_DIMENSION=600
+
+# Arrays to hold options and files
+options=()
+files=()
+
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    if [[ "$1" =~ ^[0-9]+$ ]]; then
+        MIN_DIMENSION="$1"
+    else
+        files+=("$1")
+    fi
+    shift
+done
 
 # Ensure ImageMagick is installed
 if ! command -v identify &> /dev/null; then
@@ -36,14 +43,35 @@ if ! command -v identify &> /dev/null; then
     exit 1
 fi
 
-# Recursively find all image files in the directory
-find "$DIRECTORY" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | while read -r image; do
-    # Get the dimensions of the image
+# Function to process input arguments and extract images
+process_inputs() {
+    local inputs=("$@")
+    local images=()
+
+    for input in "${inputs[@]}"; do
+        if [ -d "$input" ]; then
+            while IFS= read -r -d $'\0' file; do
+                images+=("$file")
+            done < <(find "$input" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) -print0)
+        elif [ -f "$input" ]; then
+            images+=("$input")
+        else
+            echo "Warning: $input is not a valid file or directory, skipping."
+        fi
+    done
+
+    echo "${images[@]}"
+}
+
+# Process input arguments
+images=($(process_inputs "${files[@]}"))
+
+# Remove small images
+for image in "${images[@]}"; do
     dimensions=$(identify -format "%w %h" "$image")
     width=$(echo "$dimensions" | awk '{print $1}')
     height=$(echo "$dimensions" | awk '{print $2}')
 
-    # Check if the image is smaller than the minimum dimension
     if (( width < MIN_DIMENSION || height < MIN_DIMENSION )); then
         echo "Deleting $image (Size: ${width}x${height})"
         rm "$image"

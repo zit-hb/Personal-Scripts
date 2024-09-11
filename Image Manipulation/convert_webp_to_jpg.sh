@@ -2,47 +2,62 @@
 
 # -------------------------------------------------------
 # Script: convert_webp_to_jpg.sh
-# 
+#
 # Description:
-# This script converts all .webp files in a specified 
-# directory (or the current directory if none is provided)
-# to .jpg format. It utilizes ImageMagick's 'convert' tool
-# to handle the conversion process.
+# This script searches for WEBP image files and converts them to JPG format.
 #
 # Usage:
-# ./convert_webp_to_jpg.sh [directory]
+# ./convert_webp_to_jpg.sh [directory|image]...
 #
-# - [directory]: The directory containing .webp files. 
-#                If not provided, the current directory 
-#                is used.
+# - [directory|image]: The image or directory to scan for WEBP images.
 #
 # Requirements:
 # - ImageMagick (install via: sudo apt install imagemagick)
 #
-# Notes:
-# - The script does not overwrite existing .jpg files; 
-#   it will create new files with the same name but a 
-#   different extension.
-#
 # -------------------------------------------------------
 
-# Directory containing the .webp files
-DIRECTORY=${1:-.}
+# Arrays to hold options and files
+options=()
+files=()
 
-# Check if ImageMagick is installed
-if ! command -v convert &> /dev/null
-then
-    echo "ImageMagick is required but it's not installed. Install it using: sudo apt install imagemagick"
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    files+=("$1")
+    shift
+done
+
+# Ensure ImageMagick is installed
+if ! command -v convert &> /dev/null; then
+    echo "ImageMagick is required but not installed. Install it using: sudo apt install imagemagick"
     exit 1
 fi
 
-# Loop through all .webp files and convert them to .jpg
-for file in "$DIRECTORY"/*.webp; do
-    if [ -f "$file" ]; then
-        # Get the filename without the extension
-        filename="${file%.webp}"
-        # Convert to jpg
-        convert "$file" "${filename}.jpg"
-        echo "Converted $file to ${filename}.jpg"
-    fi
+# Function to process input arguments and extract WEBP images
+process_inputs() {
+    local inputs=("$@")
+    local images=()
+
+    for input in "${inputs[@]}"; do
+        if [ -d "$input" ]; then
+            while IFS= read -r -d $'\0' file; do
+                images+=("$file")
+            done < <(find "$input" -type f -iname '*.webp' -print0)
+        elif [ -f "$input" ]; then
+            images+=("$input")
+        else
+            echo "Warning: $input is not a valid file or directory, skipping."
+        fi
+    done
+
+    echo "${images[@]}"
+}
+
+# Process input arguments
+images=($(process_inputs "${files[@]}"))
+
+# Convert WEBP images to JPG
+for image in "${images[@]}"; do
+    output="${image%.webp}.jpg"
+    echo "Converting $image to $output"
+    convert "$image" "$output"
 done
