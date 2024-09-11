@@ -5,23 +5,27 @@
 #
 # Description:
 # This script searches for images and removes those that have
-# a width or height smaller than a specified minimum dimension.
+# a width or height smaller than specified minimum dimensions.
 #
 # Usage:
-# ./remove_small_images.sh [directory|image]... [min_dimension]
+# ./remove_small_images.sh [directory|image]... [min_width] [min_height]
 #
 # - [directory|image]: The image or directory to scan for images.
-# - [min_dimension]: The minimum allowed width or height in pixels.
-#                    Images smaller than this will be deleted.
-#                    Defaults to 600 pixels if not provided.
+# - [min_width]: The minimum allowed width in pixels.
+#                Images with a width smaller than this will be deleted.
+#                Defaults to 600 pixels if not provided.
+# - [min_height]: The minimum allowed height in pixels.
+#                 Images with a height smaller than this will be deleted.
+#                 Defaults to 600 pixels if not provided.
 #
 # Requirements:
 # - ImageMagick (install via: sudo apt install imagemagick)
 #
 # -------------------------------------------------------
 
-# Minimum allowed width or height (default is 600 pixels)
-MIN_DIMENSION=600
+# Minimum allowed width and height (default is 600 pixels)
+MIN_WIDTH=${!#-1:-600}
+MIN_HEIGHT=${!#:-600}
 
 # Arrays to hold options and files
 options=()
@@ -30,7 +34,12 @@ files=()
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
     if [[ "$1" =~ ^[0-9]+$ ]]; then
-        MIN_DIMENSION="$1"
+        if [[ -z "$MIN_WIDTH_SET" ]]; then
+            MIN_WIDTH="$1"
+            MIN_WIDTH_SET=true
+        else
+            MIN_HEIGHT="$1"
+        fi
     else
         files+=("$1")
     fi
@@ -72,7 +81,7 @@ for image in "${images[@]}"; do
     width=$(echo "$dimensions" | awk '{print $1}')
     height=$(echo "$dimensions" | awk '{print $2}')
 
-    if (( width < MIN_DIMENSION || height < MIN_DIMENSION )); then
+    if (( width < MIN_WIDTH || height < MIN_HEIGHT )); then
         echo "Deleting $image (Size: ${width}x${height})"
         rm "$image"
     fi
