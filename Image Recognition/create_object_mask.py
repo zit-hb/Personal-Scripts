@@ -20,6 +20,7 @@
 # Requirements:
 # - Torch & Torchvision (install via: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117)
 # - Detectron2 (install via: pip install 'git+https://github.com/facebookresearch/detectron2.git')
+#
 # -------------------------------------------------------
 
 import cv2
