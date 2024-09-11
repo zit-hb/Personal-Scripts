@@ -6,7 +6,7 @@
 # Description:
 # This script extracts all frames (images) from a given video
 # file and uses the "contains_faces.py" script and the
-# "detect_blurry_images.py" script to filter and keep only
+# "detect_blurriness.py" script to filter and keep only
 # the frames that contain the specified number of faces and
 # are not blurry.
 #
