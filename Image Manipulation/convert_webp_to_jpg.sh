@@ -7,14 +7,19 @@
 # This script searches for WEBP image files and converts them to JPG format.
 #
 # Usage:
-# ./convert_webp_to_jpg.sh [directory|image]...
+# ./convert_webp_to_jpg.sh [directory|image]... [-o OUTPUT_DIR]
 #
 # - [directory|image]: The image or directory to scan for WEBP images.
+# - [-o OUTPUT_DIR, --output-dir OUTPUT_DIR]: The directory to save converted images.
+#                Defaults to the current working directory if not provided.
 #
 # Requirements:
 # - ImageMagick (install via: sudo apt install imagemagick)
 #
 # -------------------------------------------------------
+
+# Default output directory
+OUTPUT_DIR=$(pwd)
 
 # Arrays to hold options and files
 options=()
@@ -22,8 +27,10 @@ files=()
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
-    files+=("$1")
-    shift
+    case $1 in
+        -o|--output-dir) OUTPUT_DIR="$2"; shift 2 ;;
+        *) files+=("$1"); shift ;;
+    esac
 done
 
 # Ensure ImageMagick is installed
@@ -57,7 +64,7 @@ images=($(process_inputs "${files[@]}"))
 
 # Convert WEBP images to JPG
 for image in "${images[@]}"; do
-    output="${image%.webp}.jpg"
+    output="${OUTPUT_DIR}/$(basename "${image%.webp}.jpg")"
     echo "Converting $image to $output"
     convert "$image" "$output"
 done

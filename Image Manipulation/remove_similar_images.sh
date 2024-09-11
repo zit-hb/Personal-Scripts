@@ -9,10 +9,10 @@
 # threshold.
 #
 # Usage:
-# ./remove_similar_images.sh [directory|image]... [threshold]
+# ./remove_similar_images.sh [directory|image]... [-t THRESHOLD]
 #
 # - [directory|image]: The image or directory to scan for images.
-# - [threshold]: The similarity threshold for comparison.
+# - [-t THRESHOLD, --threshold THRESHOLD]: The similarity threshold for comparison.
 #                Lower values = stricter comparison.
 #                Defaults to 5 if not provided.
 #
@@ -21,7 +21,7 @@
 #
 # -------------------------------------------------------
 
-# Similarity threshold (default to 5 if not provided)
+# Default similarity threshold
 THRESHOLD=5
 
 # Arrays to hold options and files
@@ -30,12 +30,10 @@ files=()
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
-    if [[ "$1" =~ ^[0-9]+$ ]]; then
-        THRESHOLD="$1"
-    else
-        files+=("$1")
-    fi
-    shift
+    case $1 in
+        -t|--threshold) THRESHOLD="$2"; shift 2 ;;
+        *) files+=("$1"); shift ;;
+    esac
 done
 
 # Ensure ImageMagick is installed

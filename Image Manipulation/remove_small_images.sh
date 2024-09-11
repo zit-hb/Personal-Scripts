@@ -8,13 +8,13 @@
 # a width or height smaller than specified minimum dimensions.
 #
 # Usage:
-# ./remove_small_images.sh [directory|image]... [min_width] [min_height]
+# ./remove_small_images.sh [directory|image]... [-w MIN_WIDTH] [-h MIN_HEIGHT]
 #
 # - [directory|image]: The image or directory to scan for images.
-# - [min_width]: The minimum allowed width in pixels.
+# - [-w MIN_WIDTH, --min-width MIN_WIDTH]: The minimum allowed width in pixels.
 #                Images with a width smaller than this will be deleted.
 #                Defaults to 600 pixels if not provided.
-# - [min_height]: The minimum allowed height in pixels.
+# - [-h MIN_HEIGHT, --min-height MIN_HEIGHT]: The minimum allowed height in pixels.
 #                 Images with a height smaller than this will be deleted.
 #                 Defaults to 600 pixels if not provided.
 #
@@ -23,9 +23,9 @@
 #
 # -------------------------------------------------------
 
-# Minimum allowed width and height (default is 600 pixels)
-MIN_WIDTH=${!#-1:-600}
-MIN_HEIGHT=${!#:-600}
+# Default minimum allowed width and height
+MIN_WIDTH=600
+MIN_HEIGHT=600
 
 # Arrays to hold options and files
 options=()
@@ -33,17 +33,11 @@ files=()
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
-    if [[ "$1" =~ ^[0-9]+$ ]]; then
-        if [[ -z "$MIN_WIDTH_SET" ]]; then
-            MIN_WIDTH="$1"
-            MIN_WIDTH_SET=true
-        else
-            MIN_HEIGHT="$1"
-        fi
-    else
-        files+=("$1")
-    fi
-    shift
+    case $1 in
+        -w|--min-width) MIN_WIDTH="$2"; shift 2 ;;
+        -h|--min-height) MIN_HEIGHT="$2"; shift 2 ;;
+        *) files+=("$1"); shift ;;
+    esac
 done
 
 # Ensure ImageMagick is installed

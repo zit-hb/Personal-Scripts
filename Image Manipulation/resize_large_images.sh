@@ -10,12 +10,12 @@
 # proportionally to fit within that limit, while maintaining its aspect ratio.
 #
 # Usage:
-# ./resize_large_images.sh [directory|image]... [max_width] [max_height]
+# ./resize_large_images.sh [directory|image]... [-w MAX_WIDTH] [-h MAX_HEIGHT]
 #
 # - [directory|image]: The image or directory to scan for images.
-# - [max_width]: The maximum width of the images.
+# - [-w MAX_WIDTH, --max-width MAX_WIDTH]: The maximum width of the images.
 #                Defaults to 2048 pixels if not provided.
-# - [max_height]: The maximum height of the images.
+# - [-h MAX_HEIGHT, --max-height MAX_HEIGHT]: The maximum height of the images.
 #                 Defaults to 2048 pixels if not provided.
 #
 # Requirements:
@@ -23,11 +23,22 @@
 #
 # -------------------------------------------------------
 
-# Maximum allowed width (default is 2048 pixels)
-MAX_WIDTH=${!#-1:-2048}
+# Default maximum allowed width and height
+MAX_WIDTH=2048
+MAX_HEIGHT=2048
 
-# Maximum allowed height (default is 2048 pixels)
-MAX_HEIGHT=${!#:-2048}
+# Arrays to hold options and files
+options=()
+files=()
+
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -w|--max-width) MAX_WIDTH="$2"; shift 2 ;;
+        -h|--max-height) MAX_HEIGHT="$2"; shift 2 ;;
+        *) files+=("$1"); shift ;;
+    esac
+done
 
 # Ensure ImageMagick is installed
 if ! command -v convert &> /dev/null; then
@@ -56,7 +67,7 @@ process_inputs() {
 }
 
 # Process input arguments
-images=($(process_inputs "${@:1:$#-2}"))
+images=($(process_inputs "${files[@]}"))
 
 # Resize large images
 for image in "${images[@]}"; do
