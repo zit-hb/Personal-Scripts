@@ -54,9 +54,7 @@ if args.class_names:
     class_names = [name.strip() for name in args.class_names.split(",")]
 else:
     class_names = [
-        "person", "man", "woman", "boy", "girl", "animal", "tree", "plant",
-        "building", "food", "landscape", "painting", "drawing", "text",
-        "logo", "graphic", "pattern", "abstract"
+        "person", "group", "animal", "car", "object", "landscape", "building", "document"
     ]
 
 # Ensure the source directory exists
