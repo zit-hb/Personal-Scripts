@@ -10,41 +10,50 @@
 # proportionally to fit within that limit, while maintaining its aspect ratio.
 #
 # Usage:
-# ./resize_large_images.sh [directory|image]... [-w MAX_WIDTH] [-h MAX_HEIGHT]
+# ./resize_large_images.sh [options] [directory|image]...
+#
+# Options:
+#   -w MAX_WIDTH, --max-width MAX_WIDTH    The maximum width of the images.
+#                                          Defaults to 2048 pixels if not provided.
+#   -h MAX_HEIGHT, --max-height MAX_HEIGHT The maximum height of the images.
+#                                          Defaults to 2048 pixels if not provided.
+#   -n, --dry-run                          Show what would be done without making any changes.
+#   -v, --verbose                          Enable verbose output.
+#   --help                                 Display this help message.
 #
 # - [directory|image]: The image or directory to scan for images.
-# - [-w MAX_WIDTH, --max-width MAX_WIDTH]: The maximum width of the images.
-#                Defaults to 2048 pixels if not provided.
-# - [-h MAX_HEIGHT, --max-height MAX_HEIGHT]: The maximum height of the images.
-#                 Defaults to 2048 pixels if not provided.
 #
 # Requirements:
 # - ImageMagick (install via: sudo apt install imagemagick)
 #
 # -------------------------------------------------------
 
+set -euo pipefail
+
 # Default maximum allowed width and height
 MAX_WIDTH=2048
 MAX_HEIGHT=2048
 
-# Arrays to hold options and files
-options=()
-files=()
+dry_run=false
+verbose=false
+declare -a files=()
 
-# Parse arguments
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        -w|--max-width) MAX_WIDTH="$2"; shift 2 ;;
-        -h|--max-height) MAX_HEIGHT="$2"; shift 2 ;;
-        *) files+=("$1"); shift ;;
-    esac
-done
-
-# Ensure ImageMagick is installed
-if ! command -v convert &> /dev/null; then
-    echo "ImageMagick is required but not installed. Install it using: sudo apt install imagemagick"
+# Function to display usage
+usage() {
+    grep '^#' "$0" | cut -c 4-
     exit 1
-fi
+}
+
+# Function to check dependencies
+check_dependencies() {
+    local deps=("convert" "identify" "find")
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" >/dev/null 2>&1; then
+            echo "Error: Required command '$dep' not found."
+            exit 1
+        fi
+    done
+}
 
 # Function to process input arguments and extract images
 process_inputs() {
@@ -52,33 +61,114 @@ process_inputs() {
     local images=()
 
     for input in "${inputs[@]}"; do
-        if [ -d "$input" ]; then
-            while IFS= read -r -d $'\0' file; do
+        if [[ -d "$input" ]]; then
+            while IFS= read -r -d '' file; do
                 images+=("$file")
             done < <(find "$input" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) -print0)
-        elif [ -f "$input" ]; then
-            images+=("$input")
+        elif [[ -f "$input" ]]; then
+            case "$input" in
+                *.jpg|*.jpeg|*.png|*.webp|*.JPG|*.JPEG|*.PNG|*.WEBP)
+                    images+=("$input")
+                    ;;
+                *)
+                    echo "Warning: '$input' is not a supported image file, skipping."
+                    ;;
+            esac
         else
-            echo "Warning: $input is not a valid file or directory, skipping."
+            echo "Warning: '$input' is not a valid file or directory, skipping."
         fi
     done
 
-    echo "${images[@]}"
+    # Output images via printf with null terminators
+    for img in "${images[@]}"; do
+        printf '%s\0' "$img"
+    done
 }
 
-# Process input arguments
-images=($(process_inputs "${files[@]}"))
+# Main function
+main() {
+    # Parse arguments
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            -w|--max-width)
+                if [[ -n "${2:-}" ]]; then
+                    MAX_WIDTH="$2"
+                    shift 2
+                else
+                    echo "Error: Missing argument for $1"
+                    usage
+                fi
+                ;;
+            -h|--max-height)
+                if [[ -n "${2:-}" ]]; then
+                    MAX_HEIGHT="$2"
+                    shift 2
+                else
+                    echo "Error: Missing argument for $1"
+                    usage
+                fi
+                ;;
+            --help)
+                usage
+                ;;
+            -n|--dry-run)
+                dry_run=true
+                shift
+                ;;
+            -v|--verbose)
+                verbose=true
+                shift
+                ;;
+            -*)
+                echo "Unknown option: $1"
+                usage
+                ;;
+            *)
+                files+=("$1")
+                shift
+                ;;
+        esac
+    done
 
-# Resize large images
-for image in "${images[@]}"; do
-    dimensions=$(identify -format "%w %h" "$image")
-    width=$(echo "$dimensions" | awk '{print $1}')
-    height=$(echo "$dimensions" | awk '{print $2}')
-
-    if (( width > MAX_WIDTH || height > MAX_HEIGHT )); then
-        echo "Resizing $image (Original size: ${width}x${height})"
-        convert "$image" -resize ${MAX_WIDTH}x${MAX_HEIGHT}\> "$image"
-    else
-        echo "Skipping $image (Size: ${width}x${height})"
+    if [[ ${#files[@]} -eq 0 ]]; then
+        echo "Error: No files or directories provided."
+        usage
     fi
-done
+
+    check_dependencies
+
+    # Process input arguments
+    mapfile -d '' images < <(process_inputs "${files[@]}")
+
+    if [[ ${#images[@]} -eq 0 ]]; then
+        echo "No images found to resize."
+        exit 0
+    fi
+
+    # Resize large images
+    for image in "${images[@]}"; do
+        if [[ ! -r "$image" ]]; then
+            echo "Warning: Cannot read file '$image', skipping."
+            continue
+        fi
+
+        dimensions=$(identify -format "%w %h" "$image")
+        width=$(echo "$dimensions" | awk '{print $1}')
+        height=$(echo "$dimensions" | awk '{print $2}')
+
+        if (( width > MAX_WIDTH || height > MAX_HEIGHT )); then
+            if $verbose || $dry_run; then
+                echo "Resizing '$image' (Original size: ${width}x${height})"
+            fi
+            if ! $dry_run; then
+                convert "$image" -resize "${MAX_WIDTH}x${MAX_HEIGHT}>" "$image"
+            fi
+        else
+            if $verbose; then
+                echo "Skipping '$image' (Size: ${width}x${height})"
+            fi
+        fi
+    done
+}
+
+main "$@"
