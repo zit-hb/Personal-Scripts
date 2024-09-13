@@ -9,12 +9,13 @@
 # threshold.
 #
 # Usage:
-# ./remove_similar_images.sh [directory|image]... [-t THRESHOLD]
+# ./remove_similar_images.sh [directory|image]... [-t THRESHOLD] [-d]
 #
 # - [directory|image]: The image or directory to scan for images.
 # - [-t THRESHOLD, --threshold THRESHOLD]: The similarity threshold for comparison.
 #                Lower values = stricter comparison.
 #                Defaults to 5 if not provided.
+# - [-d, --directory-only]: Limit comparisons to images within the same directory.
 #
 # Requirements:
 # - ImageMagick (install via: sudo apt install imagemagick)
@@ -23,6 +24,7 @@
 
 # Default similarity threshold
 THRESHOLD=5
+DIRECTORY_ONLY=false
 
 # Arrays to hold options and files
 options=()
@@ -32,6 +34,7 @@ files=()
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -t|--threshold) THRESHOLD="$2"; shift 2 ;;
+        -d|--directory-only) DIRECTORY_ONLY=true; shift ;;
         *) files+=("$1"); shift ;;
     esac
 done
@@ -65,10 +68,20 @@ process_inputs() {
 # Process input arguments
 images=($(process_inputs "${files[@]}"))
 
+# Function to get the directory of an image
+get_directory() {
+    local image="$1"
+    echo "$(dirname "$image")"
+}
+
 # Remove similar images
 for base_image in "${images[@]}"; do
     for other_image in "${images[@]}"; do
         if [ "$base_image" != "$other_image" ]; then
+            if $DIRECTORY_ONLY && [ "$(get_directory "$base_image")" != "$(get_directory "$other_image")" ]; then
+                continue
+            fi
+
             difference=$(compare -metric RMSE "$base_image" "$other_image" null: 2>&1 | awk '{print $1}')
 
             if (( $(echo "$difference < $THRESHOLD" | bc -l) )); then
