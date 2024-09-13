@@ -93,7 +93,10 @@ process_inputs() {
         fi
     done
 
-    echo "${file_list[@]}"
+    # Output files via printf with null terminators
+    for file in "${file_list[@]}"; do
+        printf '%s\0' "$file"
+    done
 }
 
 # Main function
@@ -101,7 +104,7 @@ main() {
     check_dependencies
 
     # Get list of files to process
-    mapfile -t files < <(process_inputs "${files_to_process[@]}")
+    mapfile -d '' files < <(process_inputs "${files_to_process[@]}")
 
     # Remove duplicate files
     for file in "${files[@]}"; do
