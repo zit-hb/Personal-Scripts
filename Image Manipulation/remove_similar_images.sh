@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # -------------------------------------------------------
 # Script: remove_similar_images.sh
 #
@@ -41,7 +40,12 @@ declare -A hash_to_images=()
 
 # Function to display usage
 usage() {
-    grep '^#' "$0" | cut -c 4-
+    sed -n '
+        1d
+        /^#/! q
+        s/^# \{0,1\}//
+        p
+    ' "$0"
     exit 1
 }
 

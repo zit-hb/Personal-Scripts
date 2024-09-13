@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # -------------------------------------------------------
 # Script: find_largest_files.sh
 #
@@ -33,7 +32,12 @@ DRY_RUN=false
 
 # Function to display usage
 usage() {
-    grep '^#' "$0" | cut -c 4-
+    sed -n '
+        1d
+        /^#/! q
+        s/^# \{0,1\}//
+        p
+    ' "$0"
     exit 1
 }
 
