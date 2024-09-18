@@ -281,7 +281,7 @@ def assign_labels_to_clusters(
             logging.error(f"Error processing image '{image_path}' for centroid computation: {e}")
 
     if not cluster_features:
-        label = f"unlabeled_{cluster_id}"
+        label = f"{cluster_id}_unlabeled"
         logging.warning(f"No features available for cluster {cluster_id}. Using label '{label}'.")
         return label
 
@@ -295,7 +295,7 @@ def assign_labels_to_clusters(
 
     # Ensure the label is not empty
     if not best_label.strip():
-        label = f"unlabeled_{cluster_id}"
+        label = f"{cluster_id}_unlabeled"
     else:
         # Replace spaces with underscores for directory naming
         label = best_label.replace(' ', '_')
