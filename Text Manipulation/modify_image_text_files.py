@@ -21,6 +21,8 @@
 #                       String to append to the first line of the text files.
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 import argparse
 import logging

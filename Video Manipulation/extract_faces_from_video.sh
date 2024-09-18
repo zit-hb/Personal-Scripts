@@ -35,6 +35,8 @@
 # - Python with OpenCV (install via: sudo apt install python3-opencv opencv-data)
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 set -euo pipefail
 

@@ -33,6 +33,8 @@
 # - huggingface-hub (install via: pip install huggingface-hub)
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 import argparse
 import logging

@@ -21,6 +21,8 @@
 # - Shape predictor (http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2)
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 import cv2
 import dlib

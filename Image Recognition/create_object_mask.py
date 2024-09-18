@@ -34,6 +34,8 @@
 # - Detectron2
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 import argparse
 import logging

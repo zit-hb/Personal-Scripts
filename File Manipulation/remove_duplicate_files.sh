@@ -18,6 +18,8 @@
 # - [directory|file]: The file or directory to scan for duplicates.
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 set -euo pipefail
 

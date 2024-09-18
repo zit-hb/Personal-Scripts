@@ -20,6 +20,8 @@
 # - [directory]: The directory to search for files. Defaults to the current directory if not provided.
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 set -euo pipefail
 

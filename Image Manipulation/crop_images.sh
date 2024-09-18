@@ -25,6 +25,8 @@
 # - ImageMagick (install via: sudo apt install imagemagick)
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 set -euo pipefail
 

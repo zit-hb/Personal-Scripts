@@ -27,6 +27,8 @@
 # - imagehash (install via: pip install imagehash)
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 import argparse
 import os

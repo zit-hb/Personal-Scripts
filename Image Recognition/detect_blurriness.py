@@ -32,6 +32,8 @@
 # - OpenCV (install via: sudo apt install python3-opencv)
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 import argparse
 import logging
