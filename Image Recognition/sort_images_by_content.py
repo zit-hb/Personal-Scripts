@@ -5,8 +5,9 @@
 #
 # Description:
 # This script organizes images into hierarchical clusters based on visual similarity.
-# It uses CLIP for feature extraction and the WD14 tagger for labeling clusters.
-# Clustering is performed using HDBSCAN, and dimensionality reduction is done using UMAP.
+# It uses CLIP for feature extraction and generates labels based on the most similar common English nouns.
+# Clustering is performed using Agglomerative Clustering, and dimensionality reduction is done using UMAP.
+# Labels are assigned by selecting the most similar noun to the cluster's centroid.
 #
 # Usage:
 # ./sort_images_by_content.py [source_directory] [options]
@@ -15,10 +16,8 @@
 #
 # Options:
 # -l LEVEL, --level LEVEL                     Maximum directory depth level for sorting (default: 1).
-# --min-cluster-size MIN_CLUSTER_SIZE         Minimum cluster size for HDBSCAN (default: 2).
-# --min-samples MIN_SAMPLES                   Minimum samples for HDBSCAN (default: 1).
-# --tfidf-threshold TFIDF_THRESHOLD           Threshold for TF-IDF scores when labeling clusters (default: 0.0).
-# --tag-probability-threshold TAG_PROB        Probability threshold for including tags (default: 0.001).
+# --max-clusters MAX_CLUSTERS                 Maximum number of clusters per level (default: 10).
+# --min-cluster-size MIN_CLUSTER_SIZE         Minimum cluster size for Agglomerative Clustering (default: 2).
 # --verbose                                   Enable verbose output.
 #
 # Requirements:
@@ -26,9 +25,8 @@
 # - transformers (install via: pip install transformers)
 # - scikit-learn (install via: pip install scikit-learn)
 # - umap-learn (install via: pip install umap-learn)
-# - hdbscan (install via: pip install hdbscan)
+# - nltk (install via: pip install nltk)
 # - Pillow (install via: pip install pillow)
-# - onnxruntime (install via: pip install onnxruntime)
 # - pandas (install via: pip install pandas)
 # - huggingface-hub (install via: pip install huggingface-hub)
 #
@@ -41,27 +39,32 @@ import logging
 import os
 import shutil
 import sys
-from typing import List, Dict, Any
-import warnings
+from typing import List, Dict, Any, Set
 
 import torch
 from PIL import Image
-import hdbscan
+from sklearn.cluster import AgglomerativeClustering
 import umap.umap_ as umap
 import numpy as np
 import pandas as pd
-import onnxruntime as ort
 
 from transformers import CLIPProcessor, CLIPModel
-from huggingface_hub import hf_hub_download
-from numba.core.errors import NumbaWarning
 
 # Suppress specific warnings
+import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='torch._utils')
 warnings.filterwarnings("ignore", category=FutureWarning, module='transformers.tokenization_utils_base')
 warnings.filterwarnings("ignore", category=UserWarning, module='umap')
 warnings.filterwarnings("ignore", category=UserWarning, module='numba')
+from numba.core.errors import NumbaWarning
 warnings.filterwarnings("ignore", category=NumbaWarning)
+
+import nltk
+from nltk.corpus import brown, wordnet as wn
+
+# Ensure WordNet data is downloaded
+nltk.download('brown', quiet=True)
+nltk.download('universal_tagset', quiet=True)
 
 
 def parse_arguments():
@@ -81,28 +84,16 @@ def parse_arguments():
         help='Maximum directory depth level for sorting (default: 1).'
     )
     parser.add_argument(
+        '--max-clusters',
+        type=int,
+        default=10,
+        help='Maximum number of clusters per level (default: 10).'
+    )
+    parser.add_argument(
         '--min-cluster-size',
         type=int,
         default=2,
-        help='Minimum cluster size for HDBSCAN (default: 2).'
-    )
-    parser.add_argument(
-        '--min-samples',
-        type=int,
-        default=1,
-        help='Minimum samples for HDBSCAN (default: 1).'
-    )
-    parser.add_argument(
-        '--tfidf-threshold',
-        type=float,
-        default=0.0,
-        help='Threshold for TF-IDF scores when labeling clusters (default: 0.0).'
-    )
-    parser.add_argument(
-        '--tag-probability-threshold',
-        type=float,
-        default=0.001,
-        help='Probability threshold for including tags (default: 0.001).'
+        help='Minimum cluster size for Agglomerative Clustering (default: 2).'
     )
     parser.add_argument(
         '--verbose',
@@ -123,43 +114,56 @@ def setup_logging(verbose: bool):
 
 def load_models():
     """
-    Loads the CLIP model for feature extraction and sets up the ONNX runtime for WD14 tagger.
+    Loads the CLIP model for feature extraction.
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logging.info(f"Loading CLIP model on device: {device}")
 
-    # Load CLIP model for feature extraction
+    # Load CLIP model
     clip_model_name = 'openai/clip-vit-base-patch32'
+    logging.info(f"Loading CLIP model '{clip_model_name}' for feature extraction...")
     clip_model = CLIPModel.from_pretrained(clip_model_name).to(device)
     clip_processor = CLIPProcessor.from_pretrained(clip_model_name)
 
-    # Setup ONNX runtime session for WD14 tagger
-    wd14_model_name = "SmilingWolf/wd-v1-4-convnext-tagger-v2"
-    wd14_model_path = hf_hub_download(repo_id=wd14_model_name, filename='model.onnx')
-    wd14_session = ort.InferenceSession(wd14_model_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-
-    # Load tag list with categories
-    tags_path = hf_hub_download(repo_id=wd14_model_name, filename='selected_tags.csv')
-    tags_df = pd.read_csv(tags_path)
-    tag_list = tags_df['name'].tolist()
-    tag_categories = tags_df['category'].tolist()
-
-    return clip_model, clip_processor, wd14_session, tag_list, tag_categories, device
+    logging.info("CLIP model loaded successfully.")
+    return clip_model, clip_processor, device
 
 
-def preprocess_image_for_wd14(image: Image.Image) -> np.ndarray:
+def get_common_nouns(top_n: int = 5000) -> List[str]:
     """
-    Preprocesses the image for WD14 tagger.
+    Retrieves a list of the most common English nouns from the Brown Corpus.
+    Limits the list to the top_n most frequent nouns to ensure relevance.
     """
-    image = image.convert('RGB')
-    image = image.resize((448, 448), resample=Image.BICUBIC)
-    image_data = np.array(image, dtype=np.float32)
-    image_data = image_data / 255.0  # Normalize to [0, 1]
-    image_data = (image_data - 0.5) / 0.5  # Scale to [-1, 1]
-    image_data = np.expand_dims(image_data, 0)  # Add batch dimension
-    return image_data
+    logging.info("Generating a list of common nouns from the Brown Corpus...")
+    noun_counts = {}
+    for word, tag in brown.tagged_words(tagset='universal'):
+        if tag == 'NOUN':
+            word = word.lower()
+            noun_counts[word] = noun_counts.get(word, 0) + 1
+
+    # Sort nouns by frequency
+    sorted_nouns = sorted(noun_counts.items(), key=lambda x: x[1], reverse=True)
+    common_nouns = [word for word, count in sorted_nouns[:top_n]]
+    logging.info(f"Selected top {len(common_nouns)} common nouns.")
+    return common_nouns
 
 
-def extract_features(model, processor, device, image_paths: List[str]) -> (np.ndarray, List[str]):
+def compute_label_embeddings(clip_model: CLIPModel, clip_processor: CLIPProcessor, device: torch.device, labels: List[str]) -> np.ndarray:
+    """
+    Computes CLIP text embeddings for a list of labels.
+    """
+    logging.info("Computing text embeddings for labels...")
+    inputs = clip_processor(text=labels, return_tensors="pt", padding=True).to(device)
+    with torch.no_grad():
+        text_embeddings = clip_model.get_text_features(**inputs)
+    text_embeddings = text_embeddings.cpu().numpy()
+    # Normalize embeddings
+    text_embeddings = text_embeddings / np.linalg.norm(text_embeddings, axis=1, keepdims=True)
+    logging.info("Text embeddings computed successfully.")
+    return text_embeddings
+
+
+def extract_features(model: CLIPModel, processor: CLIPProcessor, device: torch.device, image_paths: List[str]) -> (np.ndarray, List[str]):
     """
     Extracts features from all images using CLIP.
     """
@@ -173,11 +177,17 @@ def extract_features(model, processor, device, image_paths: List[str]) -> (np.nd
             with torch.no_grad():
                 image_features = model.get_image_features(**inputs)
             image_features = image_features.cpu().numpy().flatten()
+            # Normalize features
+            image_features /= np.linalg.norm(image_features)
             features.append(image_features)
             valid_image_paths.append(image_path)
             logging.debug(f"Extracted features for '{image_path}'")
         except Exception as e:
             logging.error(f"Error processing image '{image_path}': {e}")
+
+    if not features:
+        logging.error("No features extracted. Exiting.")
+        sys.exit(1)
 
     return np.array(features), valid_image_paths
 
@@ -185,141 +195,148 @@ def extract_features(model, processor, device, image_paths: List[str]) -> (np.nd
 def reduce_dimensions(features: np.ndarray) -> np.ndarray:
     """
     Reduces the dimensionality of the feature vectors using UMAP.
+    Ensures that the number of components is strictly less than the number of samples.
     """
-    reducer = umap.UMAP(n_components=50, random_state=42)
-    reduced_features = reducer.fit_transform(features)
-    logging.info(f"UMAP reduced features to {reduced_features.shape[1]} dimensions.")
+    n_samples = len(features)
+
+    if n_samples < 2:
+        logging.error("Not enough samples to perform dimensionality reduction.")
+        sys.exit(1)
+
+    # Set number of components to be smaller than the number of samples
+    n_components = min(30, n_samples // 2)  # Use half of the samples as the maximum number of components
+
+    logging.info(f"Reducing to {n_components} dimensions using UMAP (for {n_samples} samples).")
+
+    reducer = umap.UMAP(n_components=n_components, random_state=42)
+
+    try:
+        reduced_features = reducer.fit_transform(features)
+        logging.info(f"UMAP reduced features to {reduced_features.shape[1]} dimensions.")
+    except Exception as e:
+        logging.error(f"UMAP dimensionality reduction failed: {e}")
+        sys.exit(1)
+
     return reduced_features
 
 
-def cluster_features(features: np.ndarray, min_cluster_size: int, min_samples: int) -> np.ndarray:
+def cluster_features(features: np.ndarray, min_cluster_size: int, max_clusters: int) -> np.ndarray:
     """
-    Clusters the feature vectors using HDBSCAN.
+    Clusters the feature vectors using Agglomerative Clustering.
+    Limits the number of clusters to 'max_clusters'.
     """
     n_samples = len(features)
-    if n_samples <= min_cluster_size:
-        # Not enough points to cluster, assign all to one cluster
-        labels = np.zeros(n_samples, dtype=int)
-        return labels
+    if n_samples < min_cluster_size:
+        logging.info("Not enough samples to form clusters. Assigning all images to a single cluster.")
+        return np.zeros(n_samples, dtype=int)
 
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_samples)
+    # Determine the number of clusters: min(max_clusters, n_samples // min_cluster_size)
+    possible_clusters = n_samples // min_cluster_size
+    n_clusters = min(max_clusters, possible_clusters) if possible_clusters > 1 else 1
+
+    logging.info(f"Clustering into {n_clusters} clusters using Agglomerative Clustering.")
+
     try:
-        labels = clusterer.fit_predict(features)
-    except ValueError as e:
-        logging.error(f"Clustering failed: {e}. Assigning all points to a single cluster.")
-        labels = np.zeros(n_samples, dtype=int)
-        return labels
+        clustering = AgglomerativeClustering(n_clusters=n_clusters)
+        labels = clustering.fit_predict(features)
+    except Exception as e:
+        logging.error(f"Agglomerative Clustering failed: {e}. Assigning all points to a single cluster.")
+        return np.zeros(n_samples, dtype=int)
 
-    # Check if all points are assigned to noise
-    if np.all(labels == -1):
-        # Assign all points to a single cluster
-        labels = np.zeros(n_samples, dtype=int)
-    else:
-        # Assign noise points (-1) to their own unique clusters
-        noise_indices = np.where(labels == -1)[0]
-        max_label = labels.max() if labels.max() >= 0 else 0
-        for idx in noise_indices:
-            max_label += 1
-            labels[idx] = max_label
+    num_clusters = len(set(labels))
+    logging.info(f"Number of clusters formed: {num_clusters}")
 
     return labels
 
 
-def get_wd14_labels(session, tag_list: List[str], tag_categories: List[str], image_paths: List[str], tag_prob_threshold: float) -> Dict[str, Dict[str, float]]:
+def assign_labels_to_clusters(
+    cluster_image_paths: List[str],
+    labels: List[str],
+    text_embeddings: np.ndarray,
+    clip_model: CLIPModel,
+    clip_processor: CLIPProcessor,
+    device: torch.device,
+    label_embeddings: np.ndarray,
+    cluster_id: int
+) -> str:
     """
-    Assigns labels to images using WD14 tagger, including character tags.
+    Assigns a label to a cluster based on the most similar label from the label list.
+    Appends the cluster ID to ensure directory names are unique.
     """
-    labels = {}
-    for image_path in image_paths:
+    logging.debug(f"Assigning label for cluster {cluster_id} with {len(cluster_image_paths)} images.")
+
+    # Compute the centroid of the cluster's feature vectors
+    cluster_features = []
+    for image_path in cluster_image_paths:
         try:
             image = Image.open(image_path).convert('RGB')
-            image_data = preprocess_image_for_wd14(image)
-            inputs = {session.get_inputs()[0].name: image_data}
-            outputs = session.run(None, inputs)
-            probs = outputs[0][0]
-            tags = {}
-            for idx, prob in enumerate(probs):
-                tag = tag_list[idx]
-                category = tag_categories[idx]
-                # Include general and character tags
-                if category in ['character'] and prob >= tag_prob_threshold:
-                    tags[tag] = prob
-            labels[image_path] = tags
+            inputs = clip_processor(images=image, return_tensors="pt").to(device)
+            with torch.no_grad():
+                image_feature = clip_model.get_image_features(**inputs)
+            image_feature = image_feature.cpu().numpy().flatten()
+            # Normalize
+            image_feature /= np.linalg.norm(image_feature)
+            cluster_features.append(image_feature)
         except Exception as e:
-            logging.error(f"Error assigning tags to image '{image_path}': {e}")
-            labels[image_path] = {}
-    return labels
+            logging.error(f"Error processing image '{image_path}' for centroid computation: {e}")
 
+    if not cluster_features:
+        label = f"unlabeled_{cluster_id}"
+        logging.warning(f"No features available for cluster {cluster_id}. Using label '{label}'.")
+        return label
 
-def label_clusters(image_labels: Dict[str, Dict[str, float]], cluster_image_paths: List[str], parent_labels: set, cluster_id: int, level: int, global_tag_counts: Dict[str, int], tfidf_threshold: float) -> str:
-    """
-    Determines the most informative label for a cluster using adjusted TF-IDF, ensuring it's not in parent labels.
-    """
-    # Calculate term frequencies (TF) for tags in the cluster
-    cluster_tag_counts = {}
-    for image_path in cluster_image_paths:
-        tags = image_labels.get(image_path, {})
-        for tag, prob in tags.items():
-            cluster_tag_counts[tag] = cluster_tag_counts.get(tag, 0) + prob
+    cluster_centroid = np.mean(cluster_features, axis=0)
+    cluster_centroid /= np.linalg.norm(cluster_centroid)
 
-    # Calculate adjusted TF-IDF scores for tags in the cluster
-    tf_idf_scores = {}
-    total_tags_in_cluster = sum(cluster_tag_counts.values())
-    total_documents = len(image_labels)
-    for tag, count in cluster_tag_counts.items():
-        if tag in parent_labels:
-            continue
-        tf = count / total_tags_in_cluster
-        df = global_tag_counts.get(tag, 1)
-        idf = np.log((total_documents + 1) / (df + 1)) + 1  # Smoothing
-        tf_idf = tf * idf
-        tf_idf_scores[tag] = tf_idf
+    # Compute cosine similarity between cluster centroid and all label embeddings
+    similarities = np.dot(label_embeddings, cluster_centroid)
+    best_label_idx = np.argmax(similarities)
+    best_label = labels[best_label_idx]
 
-    # Filter tags based on TF-IDF threshold
-    filtered_tags = {tag: score for tag, score in tf_idf_scores.items() if score >= tfidf_threshold}
-
-    if filtered_tags:
-        cluster_label = max(filtered_tags, key=filtered_tags.get)
+    # Ensure the label is not empty
+    if not best_label.strip():
+        label = f"unlabeled_{cluster_id}"
     else:
-        cluster_label = f"unlabeled_{np.random.randint(1000)}"
+        # Replace spaces with underscores for directory naming
+        label = best_label.replace(' ', '_')
 
-    # Ensure uniqueness by appending cluster_id and level
-    cluster_label = f"{cluster_label}_{cluster_id}_{level}"
-    logging.debug(f"Cluster labeled as '{cluster_label}' with TF-IDF scores: {tf_idf_scores}")
-    return cluster_label
+    # Prepend cluster ID to ensure uniqueness
+    unique_label = f"{cluster_id}_{label}"
+
+    logging.debug(f"Assigned label '{unique_label}' to cluster {cluster_id}.")
+
+    return unique_label
 
 
 def build_hierarchy(
     features: np.ndarray,
     image_paths: List[str],
-    clip_model,
-    clip_processor,
-    wd14_session,
-    tag_list,
-    tag_categories,
-    device,
+    clip_model: CLIPModel,
+    clip_processor: CLIPProcessor,
+    text_labels: List[str],
+    text_embeddings: np.ndarray,
+    cluster_id_start: int,
+    device: torch.device,
     method: str,
     level: int,
     max_level: int,
-    parent_labels: set,
-    global_tag_counts: Dict[str, int],
-    image_labels: Dict[str, Dict[str, float]],
+    max_clusters: int,
     min_cluster_size: int,
-    min_samples: int,
-    tfidf_threshold: float
-):
+    used_labels: Set[str]
+) -> Dict[str, Any]:
     """
-    Builds the hierarchical clustering and labeling.
+    Recursively builds the hierarchical clustering and labeling.
     """
     n_samples = len(image_paths)
     logging.info(f"Building hierarchy at level {level} with {n_samples} images.")
 
-    if level > max_level or n_samples <= min_cluster_size:
+    if level > max_level or n_samples < min_cluster_size:
         return image_paths  # Return list of image paths directly
 
-    # Cluster features
-    labels = cluster_features(features, min_cluster_size, min_samples)
+    # Cluster the features
+    labels = cluster_features(features, min_cluster_size, max_clusters)
 
+    # Organize images into clusters
     clusters = {}
     for idx, label in enumerate(labels):
         clusters.setdefault(label, {'features': [], 'image_paths': []})
@@ -327,59 +344,53 @@ def build_hierarchy(
         clusters[label]['image_paths'].append(image_paths[idx])
 
     hierarchy = {}
+    current_cluster_id = cluster_id_start
+
     for label_id, cluster_data in clusters.items():
         cluster_features_array = np.array(cluster_data['features'])
         cluster_image_paths = cluster_data['image_paths']
 
         logging.info(f"Level {level} Cluster {label_id} contains {len(cluster_image_paths)} images.")
 
-        # Label the cluster
-        cluster_label = label_clusters(
-            image_labels,
+        # Assign a unique label to the cluster
+        cluster_label = assign_labels_to_clusters(
             cluster_image_paths,
-            parent_labels,
-            label_id,
-            level,
-            global_tag_counts,
-            tfidf_threshold
-        ).replace(' ', '_')
-
-        # Update parent labels
-        new_parent_labels = parent_labels.union({cluster_label})
+            text_labels,
+            text_embeddings,
+            clip_model,
+            clip_processor,
+            device,
+            text_embeddings,
+            cluster_id=current_cluster_id
+        )
 
         logging.info(f"Cluster {label_id} at level {level} labeled as '{cluster_label}'.")
 
         # Recursively build hierarchy
         subtree = build_hierarchy(
-            features=np.array(cluster_features_array),
+            features=cluster_features_array,
             image_paths=cluster_image_paths,
             clip_model=clip_model,
             clip_processor=clip_processor,
-            wd14_session=wd14_session,
-            tag_list=tag_list,
-            tag_categories=tag_categories,
+            text_labels=text_labels,
+            text_embeddings=text_embeddings,
+            cluster_id_start=current_cluster_id + 1,
             device=device,
             method=method,
             level=level + 1,
             max_level=max_level,
-            parent_labels=new_parent_labels,
-            global_tag_counts=global_tag_counts,
-            image_labels=image_labels,
+            max_clusters=max_clusters,
             min_cluster_size=min_cluster_size,
-            min_samples=min_samples,
-            tfidf_threshold=tfidf_threshold
+            used_labels=used_labels
         )
 
         hierarchy[cluster_label] = subtree
+        current_cluster_id += 1
 
     return hierarchy
 
 
-def move_images(
-    hierarchy: Any,
-    base_dir: str,
-    path_parts: List[str]
-):
+def move_images(hierarchy: Any, base_dir: str, path_parts: List[str]):
     """
     Moves images to their final destinations based on the hierarchy.
     """
@@ -405,7 +416,7 @@ def move_images(
 
 def organize_images(args):
     """
-    Main function to organize images based on visual similarity and WD14 labels.
+    Main function to organize images based on visual similarity and CLIP-based labels.
     """
     source_dir = args.source_directory
     if not os.path.isdir(source_dir):
@@ -413,7 +424,7 @@ def organize_images(args):
         sys.exit(1)
 
     # Load models
-    clip_model, clip_processor, wd14_session, tag_list, tag_categories, device = load_models()
+    clip_model, clip_processor, device = load_models()
 
     # Collect image paths
     image_files = [
@@ -427,6 +438,7 @@ def organize_images(args):
 
     logging.info(f"Found {len(image_files)} image(s) to process.")
 
+    # Extract features using CLIP
     logging.info("Extracting features from images...")
     features, valid_image_paths = extract_features(clip_model, clip_processor, device, image_files)
 
@@ -434,47 +446,40 @@ def organize_images(args):
         logging.error("No valid images to process.")
         sys.exit(1)
 
+    # Reduce dimensions with UMAP
     logging.info("Reducing feature dimensions...")
     features_reduced = reduce_dimensions(features)
 
-    logging.info("Assigning tags to images using WD14 tagger...")
-    image_labels = get_wd14_labels(
-        wd14_session,
-        tag_list,
-        tag_categories,
-        valid_image_paths,
-        tag_prob_threshold=args.tag_probability_threshold
-    )
+    # Generate label list from Brown Corpus
+    logging.info("Generating label list from Brown Corpus...")
+    label_list = get_common_nouns(top_n=5000)  # Adjust top_n as needed
 
-    logging.info("Calculating global tag counts...")
-    # Calculate how many images each tag appears in
-    global_tag_counts = {}
-    for tags in image_labels.values():
-        unique_tags = set(tags.keys())
-        for tag in unique_tags:
-            global_tag_counts[tag] = global_tag_counts.get(tag, 0) + 1
+    # Compute text embeddings for labels
+    label_embeddings = compute_label_embeddings(clip_model, clip_processor, device, label_list)
 
+    # Build hierarchical clustering and labeling
     logging.info("Building hierarchical clustering and labeling...")
+    used_labels = set()  # Track labels that have been used
+    cluster_id_start = 0  # Initialize cluster ID
+
     hierarchy = build_hierarchy(
         features=features_reduced,
         image_paths=valid_image_paths,
         clip_model=clip_model,
         clip_processor=clip_processor,
-        wd14_session=wd14_session,
-        tag_list=tag_list,
-        tag_categories=tag_categories,
+        text_labels=label_list,
+        text_embeddings=label_embeddings,
+        cluster_id_start=cluster_id_start,
         device=device,
-        method='hdbscan',
+        method='agglomerative',
         level=1,
         max_level=args.level,
-        parent_labels=set(),
-        global_tag_counts=global_tag_counts,
-        image_labels=image_labels,
+        max_clusters=args.max_clusters,
         min_cluster_size=args.min_cluster_size,
-        min_samples=args.min_samples,
-        tfidf_threshold=args.tfidf_threshold
+        used_labels=used_labels
     )
 
+    # Move images to their final destinations
     logging.info("Moving images to final destinations...")
     move_images(hierarchy, source_dir, [])
 
