@@ -261,7 +261,7 @@ def assign_labels_to_clusters(
 ) -> str:
     """
     Assigns a label to a cluster based on the most similar label from the label list.
-    Appends the cluster ID to ensure directory names are unique.
+    Prepends the cluster ID to ensure directory names are unique.
     """
     logging.debug(f"Assigning label for cluster {cluster_id} with {len(cluster_image_paths)} images.")
 
