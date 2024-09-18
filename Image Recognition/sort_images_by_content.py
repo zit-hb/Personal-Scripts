@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # -------------------------------------------------------
-# Script: sort_images_by_content_improved.py
+# Script: sort_images_by_content.py
 #
 # Description:
 # This script organizes images into hierarchical clusters based on visual similarity.
@@ -9,7 +9,7 @@
 # Clustering is performed using HDBSCAN, and dimensionality reduction is done using UMAP.
 #
 # Usage:
-# ./sort_images_by_content_improved.py [source_directory] [options]
+# ./sort_images_by_content.py [source_directory] [options]
 #
 # - [source_directory]: The directory containing the images to be organized.
 #
