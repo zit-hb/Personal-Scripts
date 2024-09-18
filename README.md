@@ -9,4 +9,5 @@ A repository of scripts that solve my problems. There are no guarantees. If you 
 - **Image Manipulation**: Transforming and preparing images.
 - **Image Recognition**: Recognizing and classifying images.
 - **System Analysis**: Analyzing and monitoring system resources.
+- **Text Manipulation**: Modifying and processing text files.
 - **Video Manipulation**: Transforming and processing videos.
