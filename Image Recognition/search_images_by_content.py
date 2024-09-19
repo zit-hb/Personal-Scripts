@@ -23,7 +23,7 @@
 #
 # Options:
 # -t PT, --positive-threshold PT             Similarity threshold for positive queries (default: 0.2).
-# -T NT, --negative-threshold NT           Similarity threshold for negative queries (default: 0.2).
+# -T NT, --negative-threshold NT             Similarity threshold for negative queries (default: 0.2).
 # -n, --names-only                           Output only the file names of matched images.
 # --verbose                                  Enable verbose output.
 #
