@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
 
 # -------------------------------------------------------
-# Script: remove_blurry_images.py
+# Script: remove_artifact_images.py
 #
 # Description:
 # This script scans through all images in a specified directory
-# (optionally recursively) and uses the `detect_blurriness.py`
+# (optionally recursively) and uses the `detect_compression_artifacts.py`
 # script to determine the quality of each image. Images
-# identified as blurry are removed from the directory.
+# identified as having high compression artifacts are removed from the directory.
 #
 # Usage:
-# ./remove_blurry_images.py [directory] [options]
+# ./remove_artifact_images.py [directory] [options]
 #
 # Arguments:
 # - [directory]               The path to the directory containing images.
 #
 # Options:
 # -t THRESHOLD, --threshold THRESHOLD
-#                           Threshold for blurriness detection (default depends on method).
-# --method METHOD           Method to use for blurriness detection (default: laplacian).
-#                           Choices are "laplacian", "sobel", or "tenengrad".
-# --dry-run                 Simulate the removal of blurry images without deleting them.
+#                           Threshold for compression artifact detection (default: 1000.0).
+# --dry-run                 Simulate the removal of images with high artifacts without deleting them.
 # --recursive               Recursively traverse through subdirectories.
 # -o OUTPUT_FILE, --output OUTPUT_FILE
 #                           Output file to save the results.
@@ -38,12 +36,13 @@ import os
 import sys
 import subprocess
 
+
 def parse_arguments():
     """
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Remove blurry images from a directory using detect_blurriness.py.'
+        description='Remove images with high compression artifacts using detect_compression_artifacts.py.'
     )
     parser.add_argument(
         'directory',
@@ -54,19 +53,13 @@ def parse_arguments():
         '-t',
         '--threshold',
         type=float,
-        help='Threshold for blurriness detection (default depends on method).'
-    )
-    parser.add_argument(
-        '--method',
-        type=str,
-        default='laplacian',
-        choices=['laplacian', 'sobel', 'tenengrad'],
-        help='Method to use for blurriness detection (default: laplacian).'
+        default=1000.0,
+        help='Threshold for compression artifact detection (default: 1000.0).'
     )
     parser.add_argument(
         '--dry-run',
         action='store_true',
-        help='Simulate the removal of blurry images without deleting them.'
+        help='Simulate the removal of images with high artifacts without deleting them.'
     )
     parser.add_argument(
         '--recursive',
@@ -79,18 +72,7 @@ def parse_arguments():
         type=str,
         help='Output file to save the results.'
     )
-    args = parser.parse_args()
-
-    # Set default thresholds based on the method if not provided
-    if args.threshold is None:
-        if args.method == 'laplacian':
-            args.threshold = 100.0
-        elif args.method == 'sobel':
-            args.threshold = 100.0
-        elif args.method == 'tenengrad':
-            args.threshold = 300.0  # Tenengrad usually has higher variance values
-
-    return args
+    return parser.parse_args()
 
 
 def setup_logging():
@@ -123,16 +105,15 @@ def get_image_files(directory, recursive=False):
     return image_files
 
 
-def check_image_blurriness(image_path, threshold, method):
+def check_image_artifacts(image_path, threshold):
     """
-    Determines if an image is blurry by invoking detect_blurriness.py.
+    Determines if an image has high compression artifacts by invoking detect_compression_artifacts.py.
     """
-    detect_script = os.path.join(os.path.dirname(__file__), '..', 'Image Recognition', 'detect_blurriness.py')
+    detect_script = os.path.join(os.path.dirname(__file__), '..', 'Image Recognition', 'detect_compression_artifacts.py')
     detect_command = [
         sys.executable, detect_script,
         image_path,
-        '--threshold', str(threshold),
-        '--method', method
+        '--threshold', str(threshold)
     ]
 
     try:
@@ -143,8 +124,8 @@ def check_image_blurriness(image_path, threshold, method):
             text=True
         )
     except Exception as e:
-        logging.error(f"Failed to execute detect_blurriness.py for '{image_path}': {e}")
-        return False  # Assume not blurry if detection fails
+        logging.error(f"Failed to execute detect_compression_artifacts.py for '{image_path}': {e}")
+        return False  # Assume not high artifacts if detection fails
 
     if result.returncode == 1:
         return True
@@ -152,7 +133,7 @@ def check_image_blurriness(image_path, threshold, method):
         return False
     else:
         logging.error(f"Error processing '{image_path}': {result.stderr.strip()}")
-        return False  # Assume not blurry on unexpected return code
+        return False  # Assume not high artifacts on unexpected return code
 
 
 def remove_image(image_path, dry_run=False):
@@ -171,12 +152,12 @@ def remove_image(image_path, dry_run=False):
 
 def save_results(results, output_file):
     """
-    Saves the blurriness results to the specified output file.
+    Saves the artifact detection results to the specified output file.
     """
     try:
         with open(output_file, 'w') as f:
-            for image, is_blurry in results:
-                status = 'blurry' if is_blurry else 'sharp'
+            for image, has_artifacts in results:
+                status = 'high_artifacts' if has_artifacts else 'low_artifacts'
                 f.write(f"{image},{status}\n")
         logging.info(f"Results saved to '{output_file}'.")
     except Exception as e:
@@ -189,7 +170,6 @@ def main():
 
     directory = args.directory
     threshold = args.threshold
-    method = args.method
     dry_run = args.dry_run
     recursive = args.recursive
     output_file = args.output
@@ -203,15 +183,15 @@ def main():
         logging.warning(f"No image files found in directory '{directory}'.")
         sys.exit(0)
 
-    logging.info(f"Processing {len(image_files)} image(s) in '{directory}' with method '{method}' and threshold {threshold}.")
+    logging.info(f"Processing {len(image_files)} image(s) in '{directory}' with threshold {threshold}.")
 
     results = []
     any_removed = False
 
     for img_path in image_files:
-        is_blurry = check_image_blurriness(img_path, threshold, method)
-        results.append((img_path, is_blurry))
-        if is_blurry:
+        has_artifacts = check_image_artifacts(img_path, threshold)
+        results.append((img_path, has_artifacts))
+        if has_artifacts:
             any_removed = True
             remove_image(img_path, dry_run)
 
@@ -220,11 +200,11 @@ def main():
 
     if any_removed:
         if dry_run:
-            logging.info("Some blurry images would be removed (dry run).")
+            logging.info("Some images would be removed due to high compression artifacts (dry run).")
         else:
-            logging.info("Some blurry images were removed.")
+            logging.info("Some images were removed due to high compression artifacts.")
     else:
-        logging.info("No blurry images found.")
+        logging.info("No images with high compression artifacts found.")
 
 
 if __name__ == '__main__':
