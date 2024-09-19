@@ -25,6 +25,7 @@
 # -t PT, --positive-threshold PT             Similarity threshold for positive queries (default: 0.2).
 # -T NT, --negative-threshold NT             Similarity threshold for negative queries (default: 0.2).
 # -n, --names-only                           Output only the file names of matched images.
+# -r, --recursive                            Recursively search for images in subdirectories.
 # --verbose                                  Enable verbose output.
 #
 # Requirements:
@@ -102,6 +103,11 @@ def parse_arguments() -> argparse.Namespace:
         help='Output only the file names of matched images.'
     )
     parser.add_argument(
+        '-r', '--recursive',
+        action='store_true',
+        help='Recursively search for images in subdirectories.'
+    )
+    parser.add_argument(
         '--verbose',
         action='store_true',
         help='Enable verbose output.'
@@ -139,15 +145,25 @@ def load_clip_model(device: torch.device) -> Tuple[CLIPModel, CLIPProcessor]:
     return clip_model, clip_processor
 
 
-def get_image_paths(source_dir: str) -> List[str]:
+def get_image_paths(source_dir: str, recursive: bool) -> List[str]:
     """
     Retrieves a list of image file paths from the source directory.
+    If recursive is True, it searches subdirectories recursively.
     """
     supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')
-    image_paths = [
-        os.path.join(source_dir, f) for f in os.listdir(source_dir)
-        if os.path.isfile(os.path.join(source_dir, f)) and f.lower().endswith(supported_extensions)
-    ]
+    image_paths = []
+
+    if recursive:
+        for root, dirs, files in os.walk(source_dir):
+            for f in files:
+                if f.lower().endswith(supported_extensions):
+                    image_paths.append(os.path.join(root, f))
+    else:
+        image_paths = [
+            os.path.join(source_dir, f) for f in os.listdir(source_dir)
+            if os.path.isfile(os.path.join(source_dir, f)) and f.lower().endswith(supported_extensions)
+        ]
+
     if not image_paths:
         logging.error(f"No image files found in directory '{source_dir}'.")
         sys.exit(1)
@@ -285,7 +301,7 @@ def main():
     clip_model, clip_processor = load_clip_model(device)
 
     # Get list of image paths
-    image_paths = get_image_paths(args.source_directory)
+    image_paths = get_image_paths(args.source_directory, args.recursive)
 
     # Compute similarities
     matched_images = compute_similarity(
