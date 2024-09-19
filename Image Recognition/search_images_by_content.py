@@ -23,7 +23,7 @@
 #
 # Options:
 # -t PT, --positive-threshold PT             Similarity threshold for positive queries (default: 0.2).
-# -nq NT, --negative-threshold NT           Similarity threshold for negative queries (default: 0.2).
+# -T NT, --negative-threshold NT           Similarity threshold for negative queries (default: 0.2).
 # -n, --names-only                           Output only the file names of matched images.
 # --verbose                                  Enable verbose output.
 #
@@ -91,7 +91,7 @@ def parse_arguments() -> argparse.Namespace:
         help='Similarity threshold for positive queries (default: 0.2).'
     )
     parser.add_argument(
-        '-nq', '--negative-threshold',
+        '-T', '--negative-threshold',
         type=float,
         default=0.2,
         help='Similarity threshold for negative queries (default: 0.2).'
