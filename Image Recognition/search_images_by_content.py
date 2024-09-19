@@ -186,27 +186,31 @@ def compute_similarity(
     Images must match all positive queries and must not match any negative queries.
     Returns a list of matched images with their average positive similarity scores and individual similarities.
     """
-    logging.info(f"Processing positive queries: {positive_queries}")
+    # Process Positive Queries
+    if positive_queries:
+        logging.info(f"Processing positive queries: {positive_queries}")
+        pos_text_inputs = processor(text=positive_queries, return_tensors="pt", padding=True).to(device)
+        with torch.no_grad():
+            pos_text_embeddings = model.get_text_features(**pos_text_inputs)
+        pos_text_embeddings /= pos_text_embeddings.norm(p=2, dim=-1, keepdim=True)
+    else:
+        pos_text_embeddings = None
+        logging.info("No positive queries provided.")
+
+    # Process Negative Queries
     if negative_queries:
         logging.info(f"Processing negative queries: {negative_queries}")
-
-    # Prepare text inputs for positive queries
-    pos_text_inputs = processor(text=positive_queries, return_tensors="pt", padding=True).to(device)
-    with torch.no_grad():
-        pos_text_embeddings = model.get_text_features(**pos_text_inputs)
-    pos_text_embeddings /= pos_text_embeddings.norm(p=2, dim=-1, keepdim=True)
-
-    # Prepare text inputs for negative queries, if any
-    if negative_queries:
         neg_text_inputs = processor(text=negative_queries, return_tensors="pt", padding=True).to(device)
         with torch.no_grad():
             neg_text_embeddings = model.get_text_features(**neg_text_inputs)
         neg_text_embeddings /= neg_text_embeddings.norm(p=2, dim=-1, keepdim=True)
     else:
         neg_text_embeddings = None
+        logging.info("No negative queries provided.")
 
     matched_images = []
     logging.info("Computing similarities for images...")
+
     for image_path in tqdm(image_paths, desc="Processing Images", unit="image"):
         try:
             image = Image.open(image_path).convert('RGB')
@@ -215,29 +219,50 @@ def compute_similarity(
                 image_embedding = model.get_image_features(**image_inputs)
             image_embedding /= image_embedding.norm(p=2, dim=-1, keepdim=True)
 
-            # Compute cosine similarity with all positive queries
-            pos_similarities = (image_embedding @ pos_text_embeddings.T).squeeze(0)
-            pos_similarities = pos_similarities.cpu().numpy()
+            # Initialize flags and similarity lists
+            positive_match = True  # Assume true unless proven otherwise
+            negative_match = False  # Assume false unless proven otherwise
+            pos_similarities = []
+            neg_similarities = []
 
-            # Check if all positive similarities meet the threshold
-            if not all(sim >= pos_threshold for sim in pos_similarities):
-                continue  # Skip this image
+            # Compute similarities for Positive Queries
+            if pos_text_embeddings is not None:
+                pos_similarities = (image_embedding @ pos_text_embeddings.T).squeeze(0)
+                pos_similarities = pos_similarities.cpu().numpy()
+                # Check if all positive similarities meet the threshold
+                if not all(sim >= pos_threshold for sim in pos_similarities):
+                    positive_match = False  # Fails to meet all positive queries
 
-            # If negative queries exist, compute similarities and check thresholds
+            # Compute similarities for Negative Queries
             if neg_text_embeddings is not None:
                 neg_similarities = (image_embedding @ neg_text_embeddings.T).squeeze(0)
                 neg_similarities = neg_similarities.cpu().numpy()
+                # Check if any negative similarity meets or exceeds the threshold
                 if any(sim >= neg_threshold for sim in neg_similarities):
-                    continue  # Skip this image
-            else:
-                neg_similarities = []
+                    negative_match = True  # Fails because a negative query matches
 
-            # Calculate average positive similarity for sorting
-            avg_pos_similarity = pos_similarities.mean()
+            # Determine if the image matches the criteria
+            if positive_match and not negative_match:
+                # Calculate average positive similarity if positive queries exist
+                if pos_text_embeddings is not None and pos_similarities.size > 0:
+                    avg_pos_similarity = pos_similarities.mean()
+                    pos_similarities_list = pos_similarities.tolist()
+                else:
+                    avg_pos_similarity = 0.0
+                    pos_similarities_list = []
 
-            matched_images.append((image_path, avg_pos_similarity, pos_similarities.tolist(), neg_similarities.tolist()))
+                # Convert negative similarities to list if any
+                if neg_text_embeddings is not None and neg_similarities.size > 0:
+                    neg_similarities_list = neg_similarities.tolist()
+                else:
+                    neg_similarities_list = []
+
+                # Append the matched image with all required details
+                matched_images.append((image_path, avg_pos_similarity, pos_similarities_list, neg_similarities_list))
+
         except Exception as e:
             logging.error(f"Error processing image '{image_path}': {e}")
+
     logging.info(f"Found {len(matched_images)} image(s) matching the search criteria.")
     return matched_images
 
@@ -261,11 +286,16 @@ def display_matched_images(
             modification_time = datetime.fromtimestamp(stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
             print(f"File: {image_path}")
             print(f"  Average Similarity to Positive Queries: {avg_similarity:.4f}")
-            for idx, query in enumerate(positive_queries):
-                print(f"    Positive Query [{idx+1}]: '{query}' | Similarity: {pos_sims[idx]:.4f}")
+
+            # Display individual positive query similarities
+            for idx, (query, sim) in enumerate(zip(positive_queries, pos_sims), start=1):
+                print(f"    Positive Query [{idx}]: '{query}' | Similarity: {sim:.4f}")
+
+            # Display individual negative query similarities, if any
             if negative_queries:
-                for idx, query in enumerate(negative_queries):
-                    print(f"    Negative Query [{idx+1}]: '{query}' | Similarity: {neg_sims[idx]:.4f}")
+                for idx, (query, sim) in enumerate(zip(negative_queries, neg_sims), start=1):
+                    print(f"    Negative Query [{idx}]: '{query}' | Similarity: {sim:.4f}")
+
             print(f"  Created: {creation_time}")
             print(f"  Modified: {modification_time}")
             print("-" * 60)
@@ -300,7 +330,7 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     clip_model, clip_processor = load_clip_model(device)
 
-    # Get list of image paths
+    # Get list of image paths, passing the recursive flag
     image_paths = get_image_paths(args.source_directory, args.recursive)
 
     # Compute similarities
