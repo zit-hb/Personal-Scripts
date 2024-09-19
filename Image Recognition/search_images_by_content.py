@@ -4,23 +4,28 @@
 # Script: search_images_by_content.py
 #
 # Description:
-# This script searches for images within a specified directory that contain specific content.
+# This script searches for images within a specified directory that match given textual queries.
 # It utilizes the CLIP (Contrastive Language–Image Pretraining) model to compute the similarity
-# between image features and the provided text query. By default, it outputs human-readable
-# information about each matched image, including file details, similarity scores, and relevant labels.
+# between image features and the provided positive and negative text queries.
+# By default, it outputs human-readable information about each matched image,
+# including file details and similarity scores, sorted by relevance.
 # An option is available to output only the file names of matched images for further processing.
-# The output is sorted by similarity, with the most similar images listed first.
+# Images must match all positive queries and must not match any negative queries.
 #
 # Usage:
-# ./search_images_by_content.py [source_directory] [search_term] [options]
+# ./search_images_by_content.py [source_directory] [--query "positive_query1" ...] [--negative-query "negative_query1" ...] [options]
 #
 # - [source_directory]: The directory containing the images to be searched.
-# - [search_term]: The content to search for within the images (e.g., "cat").
+# - --query (-q): The textual content to search for within the images (e.g., "a playful cat sitting on a mat").
+#                 Multiple --query (-q) arguments can be provided. All must match.
+# - --negative-query (-Q): The textual content that should NOT be present in the images.
+#                          Multiple --negative-query (-Q) arguments can be provided. None should match.
 #
 # Options:
-# -t THRESHOLD, --threshold THRESHOLD       Similarity threshold for matching images (default: 0.25).
-# -n, --names-only                          Output only the file names of matched images.
-# --verbose                                 Enable verbose output.
+# -t PT, --positive-threshold PT             Similarity threshold for positive queries (default: 0.2).
+# -nq NT, --negative-threshold NT           Similarity threshold for negative queries (default: 0.2).
+# -n, --names-only                           Output only the file names of matched images.
+# --verbose                                  Enable verbose output.
 #
 # Requirements:
 # - Python 3.7 or higher
@@ -28,7 +33,6 @@
 # - transformers (install via: pip install transformers)
 # - Pillow (install via: pip install pillow)
 # - tqdm (install via: pip install tqdm)
-# - nltk (install via: pip install nltk)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
@@ -46,18 +50,13 @@ from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 from tqdm import tqdm
 
-import warnings
-import nltk
-from nltk.corpus import brown
-
 # Suppress specific warnings
+import warnings
+
 warnings.filterwarnings("ignore", category=UserWarning, module='torch._utils')
 warnings.filterwarnings("ignore", category=FutureWarning, module='transformers.tokenization_utils_base')
 warnings.filterwarnings("ignore", category=UserWarning, module='PIL')
 
-# Ensure NLTK data is downloaded
-nltk.download('brown', quiet=True)
-nltk.download('universal_tagset', quiet=True)
 
 def parse_arguments() -> argparse.Namespace:
     """
@@ -72,15 +71,30 @@ def parse_arguments() -> argparse.Namespace:
         help='The directory containing the images to be searched.'
     )
     parser.add_argument(
-        'search_term',
+        '-q', '--query',
         type=str,
-        help='The content to search for within the images (e.g., "cat").'
+        action='append',
+        help='The textual content to search for within the images (e.g., "a playful cat sitting on a mat"). '
+             'Multiple --query (-q) arguments can be provided. All must match.'
     )
     parser.add_argument(
-        '-t', '--threshold',
+        '-Q', '--negative-query',
+        type=str,
+        action='append',
+        help='The textual content that should NOT be present in the images. '
+             'Multiple --negative-query (-Q) arguments can be provided. None should match.'
+    )
+    parser.add_argument(
+        '-t', '--positive-threshold',
         type=float,
-        default=0.25,
-        help='Similarity threshold for matching images (default: 0.25).'
+        default=0.2,
+        help='Similarity threshold for positive queries (default: 0.2).'
+    )
+    parser.add_argument(
+        '-nq', '--negative-threshold',
+        type=float,
+        default=0.2,
+        help='Similarity threshold for negative queries (default: 0.2).'
     )
     parser.add_argument(
         '-n', '--names-only',
@@ -93,7 +107,13 @@ def parse_arguments() -> argparse.Namespace:
         help='Enable verbose output.'
     )
     args = parser.parse_args()
+
+    # Ensure at least one of --query or --negative-query is provided
+    if not args.query and not args.negative_query:
+        parser.error("At least one of --query (-q) or --negative-query (-Q) must be provided.")
+
     return args
+
 
 def setup_logging(verbose: bool):
     """
@@ -101,6 +121,7 @@ def setup_logging(verbose: bool):
     """
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+
 
 def load_clip_model(device: torch.device) -> Tuple[CLIPModel, CLIPProcessor]:
     """
@@ -117,6 +138,7 @@ def load_clip_model(device: torch.device) -> Tuple[CLIPModel, CLIPProcessor]:
         sys.exit(1)
     return clip_model, clip_processor
 
+
 def get_image_paths(source_dir: str) -> List[str]:
     """
     Retrieves a list of image file paths from the source directory.
@@ -132,63 +154,40 @@ def get_image_paths(source_dir: str) -> List[str]:
     logging.info(f"Found {len(image_paths)} image(s) to process.")
     return image_paths
 
-def get_common_nouns(top_n: int = 1000) -> List[str]:
-    """
-    Retrieves a list of the most common English nouns from the Brown Corpus.
-    """
-    logging.info("Generating a list of common nouns from the Brown Corpus...")
-    noun_counts = {}
-    for word, tag in brown.tagged_words(tagset='universal'):
-        if tag == 'NOUN':
-            word = word.lower()
-            noun_counts[word] = noun_counts.get(word, 0) + 1
-
-    # Sort nouns by frequency
-    sorted_nouns = sorted(noun_counts.items(), key=lambda x: x[1], reverse=True)
-    common_nouns = [word for word, count in sorted_nouns[:top_n]]
-    logging.info(f"Selected top {len(common_nouns)} common nouns.")
-    return common_nouns
-
-def compute_label_embeddings(
-    clip_model: CLIPModel,
-    clip_processor: CLIPProcessor,
-    device: torch.device,
-    labels: List[str]
-) -> torch.Tensor:
-    """
-    Computes CLIP text embeddings for a list of labels.
-    """
-    logging.info("Computing text embeddings for labels...")
-    batch_size = 100  # Adjust batch size based on memory constraints
-    label_embeddings = []
-    for i in tqdm(range(0, len(labels), batch_size), desc="Processing Labels", unit="batch"):
-        batch_labels = labels[i:i+batch_size]
-        inputs = clip_processor(text=batch_labels, return_tensors="pt", padding=True).to(device)
-        with torch.no_grad():
-            embeddings = clip_model.get_text_features(**inputs)
-        embeddings /= embeddings.norm(p=2, dim=-1, keepdim=True)
-        label_embeddings.append(embeddings)
-    label_embeddings = torch.cat(label_embeddings, dim=0)
-    logging.info("Label embeddings computed successfully.")
-    return label_embeddings
 
 def compute_similarity(
     model: CLIPModel,
     processor: CLIPProcessor,
     device: torch.device,
     image_paths: List[str],
-    search_term: str,
-    threshold: float
-) -> List[Tuple[str, float]]:
+    positive_queries: List[str],
+    negative_queries: List[str],
+    pos_threshold: float,
+    neg_threshold: float
+) -> List[Tuple[str, float, List[float], List[float]]]:
     """
-    Computes the similarity between each image and the search term.
+    Computes the similarity between each image and the search queries.
+    Images must match all positive queries and must not match any negative queries.
+    Returns a list of matched images with their average positive similarity scores and individual similarities.
     """
-    logging.info(f"Processing search term: '{search_term}'")
-    # Prepare text inputs
-    text_inputs = processor(text=[search_term], return_tensors="pt", padding=True).to(device)
+    logging.info(f"Processing positive queries: {positive_queries}")
+    if negative_queries:
+        logging.info(f"Processing negative queries: {negative_queries}")
+
+    # Prepare text inputs for positive queries
+    pos_text_inputs = processor(text=positive_queries, return_tensors="pt", padding=True).to(device)
     with torch.no_grad():
-        text_embeddings = model.get_text_features(**text_inputs)
-    text_embeddings /= text_embeddings.norm(p=2, dim=-1, keepdim=True)
+        pos_text_embeddings = model.get_text_features(**pos_text_inputs)
+    pos_text_embeddings /= pos_text_embeddings.norm(p=2, dim=-1, keepdim=True)
+
+    # Prepare text inputs for negative queries, if any
+    if negative_queries:
+        neg_text_inputs = processor(text=negative_queries, return_tensors="pt", padding=True).to(device)
+        with torch.no_grad():
+            neg_text_embeddings = model.get_text_features(**neg_text_inputs)
+        neg_text_embeddings /= neg_text_embeddings.norm(p=2, dim=-1, keepdim=True)
+    else:
+        neg_text_embeddings = None
 
     matched_images = []
     logging.info("Computing similarities for images...")
@@ -197,92 +196,82 @@ def compute_similarity(
             image = Image.open(image_path).convert('RGB')
             image_inputs = processor(images=image, return_tensors="pt").to(device)
             with torch.no_grad():
-                image_embeddings = model.get_image_features(**image_inputs)
-            image_embeddings /= image_embeddings.norm(p=2, dim=-1, keepdim=True)
-            # Compute cosine similarity
-            similarity = (image_embeddings @ text_embeddings.T).item()
-            logging.debug(f"Image: '{image_path}' | Similarity: {similarity:.4f}")
-            if similarity >= threshold:
-                matched_images.append((image_path, similarity))
+                image_embedding = model.get_image_features(**image_inputs)
+            image_embedding /= image_embedding.norm(p=2, dim=-1, keepdim=True)
+
+            # Compute cosine similarity with all positive queries
+            pos_similarities = (image_embedding @ pos_text_embeddings.T).squeeze(0)
+            pos_similarities = pos_similarities.cpu().numpy()
+
+            # Check if all positive similarities meet the threshold
+            if not all(sim >= pos_threshold for sim in pos_similarities):
+                continue  # Skip this image
+
+            # If negative queries exist, compute similarities and check thresholds
+            if neg_text_embeddings is not None:
+                neg_similarities = (image_embedding @ neg_text_embeddings.T).squeeze(0)
+                neg_similarities = neg_similarities.cpu().numpy()
+                if any(sim >= neg_threshold for sim in neg_similarities):
+                    continue  # Skip this image
+            else:
+                neg_similarities = []
+
+            # Calculate average positive similarity for sorting
+            avg_pos_similarity = pos_similarities.mean()
+
+            matched_images.append((image_path, avg_pos_similarity, pos_similarities.tolist(), neg_similarities.tolist()))
         except Exception as e:
             logging.error(f"Error processing image '{image_path}': {e}")
     logging.info(f"Found {len(matched_images)} image(s) matching the search criteria.")
     return matched_images
 
-def get_relevant_labels(
-    model: CLIPModel,
-    processor: CLIPProcessor,
-    device: torch.device,
-    image_path: str,
-    label_embeddings: torch.Tensor,
-    labels: List[str],
-    top_k: int = 5
-) -> List[Tuple[str, float]]:
-    """
-    Retrieves the top-K relevant labels for a given image based on similarity.
-    """
-    try:
-        image = Image.open(image_path).convert('RGB')
-        image_inputs = processor(images=image, return_tensors="pt").to(device)
-        with torch.no_grad():
-            image_embedding = model.get_image_features(**image_inputs)
-        image_embedding /= image_embedding.norm(p=2, dim=-1, keepdim=True)
-        # Compute cosine similarity with all labels
-        similarities = (image_embedding @ label_embeddings.T).squeeze(0)
-        topk = torch.topk(similarities, k=top_k)
-        top_labels = [(labels[idx], similarity.item()) for idx, similarity in zip(topk.indices, topk.values)]
-        return top_labels
-    except Exception as e:
-        logging.error(f"Error retrieving labels for image '{image_path}': {e}")
-        return []
 
 def display_matched_images(
-    matched_images: List[Tuple[str, float]],
-    model: CLIPModel,
-    processor: CLIPProcessor,
-    device: torch.device,
-    label_embeddings: torch.Tensor,
-    labels: List[str]
+    matched_images: List[Tuple[str, float, List[float], List[float]]],
+    positive_queries: List[str],
+    negative_queries: List[str]
 ):
     """
-    Displays the list of matched images with their similarity scores and relevant labels.
+    Displays the list of matched images with their similarity scores and file information.
     """
     if not matched_images:
         logging.info("No images matched the search criteria.")
         return
     logging.info("Matched Images:")
-    for image_path, similarity in matched_images:
+    for image_path, avg_similarity, pos_sims, neg_sims in matched_images:
         try:
             stats = os.stat(image_path)
             creation_time = datetime.fromtimestamp(stats.st_ctime).strftime('%Y-%m-%d %H:%M:%S')
             modification_time = datetime.fromtimestamp(stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
-            relevant_labels = get_relevant_labels(model, processor, device, image_path, label_embeddings, labels)
             print(f"File: {image_path}")
-            print(f"  Similarity to '{args.search_term}': {similarity:.4f}")
+            print(f"  Average Similarity to Positive Queries: {avg_similarity:.4f}")
+            for idx, query in enumerate(positive_queries):
+                print(f"    Positive Query [{idx+1}]: '{query}' | Similarity: {pos_sims[idx]:.4f}")
+            if negative_queries:
+                for idx, query in enumerate(negative_queries):
+                    print(f"    Negative Query [{idx+1}]: '{query}' | Similarity: {neg_sims[idx]:.4f}")
             print(f"  Created: {creation_time}")
             print(f"  Modified: {modification_time}")
-            print("  Relevant Labels:")
-            for label, score in relevant_labels:
-                print(f"    - {label} ({score:.4f})")
             print("-" * 60)
         except Exception as e:
             logging.error(f"Error retrieving information for '{image_path}': {e}")
 
-def output_filenames(matched_images: List[Tuple[str, float]]):
+
+def output_filenames(matched_images: List[Tuple[str, float, List[float], List[float]]]):
     """
     Outputs only the file names of matched images.
     """
     if not matched_images:
         logging.info("No images matched the search criteria.")
         return
-    for image_path, _ in matched_images:
+    for image_path, _, _, _ in matched_images:
         print(image_path)
+
 
 def main():
     """
     The main function orchestrating the search process.
     """
-    global args
     args = parse_arguments()
     setup_logging(args.verbose)
 
@@ -298,23 +287,19 @@ def main():
     # Get list of image paths
     image_paths = get_image_paths(args.source_directory)
 
-    # Get common nouns for labeling
-    labels = get_common_nouns(top_n=1000)  # Adjust top_n as needed
-
-    # Compute label embeddings
-    label_embeddings = compute_label_embeddings(clip_model, clip_processor, device, labels)
-
     # Compute similarities
     matched_images = compute_similarity(
         model=clip_model,
         processor=clip_processor,
         device=device,
         image_paths=image_paths,
-        search_term=args.search_term,
-        threshold=args.threshold
+        positive_queries=args.query if args.query else [],
+        negative_queries=args.negative_query if args.negative_query else [],
+        pos_threshold=args.positive_threshold,
+        neg_threshold=args.negative_threshold
     )
 
-    # Sort matched images by similarity in descending order
+    # Sort matched images by average similarity in descending order
     matched_images.sort(key=lambda x: x[1], reverse=True)
 
     # Output results
@@ -323,12 +308,10 @@ def main():
     else:
         display_matched_images(
             matched_images=matched_images,
-            model=clip_model,
-            processor=clip_processor,
-            device=device,
-            label_embeddings=label_embeddings,
-            labels=labels
+            positive_queries=args.query if args.query else [],
+            negative_queries=args.negative_query if args.negative_query else []
         )
+
 
 if __name__ == '__main__':
     main()
