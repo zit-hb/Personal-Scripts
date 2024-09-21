@@ -6,9 +6,9 @@
 # Description:
 # This script intelligently merges multiple images into a single,
 # coherent image using the Stable Diffusion XL (SDXL) model's
-# image-to-image (img2img) capabilities. It ensures that the
-# defining aspects of each input image are preserved in the
-# final merged result.
+# image-to-image (img2img) capabilities. It preserves the
+# defining aspects of each input image while fixing artifacts
+# resulting from the merging process.
 #
 # Usage:
 # ./merge_images_sdxl.py [input_path] [options]
@@ -17,26 +17,22 @@
 #
 # Options:
 # -r, --recursive            Process directories recursively.
-# --blend-mode BLEND_MODE    Method to blend input images.
-#                            Choices: "average", "weighted".
-#                            (default: "average")
-# --weights WEIGHTS          Comma-separated weights for weighted blending
-#                            (required if blend-mode is "weighted").
-# --prompt PROMPT            Text prompt to guide the image generation.
-#                            (default: "A seamless blend of the input images.")
-# --num-steps STEPS          Number of inference steps for the model.
-#                            (default: 50)
-# --guidance-scale SCALE     Guidance scale for the model.
-#                            Controls how strongly the model follows the prompt.
-#                            (default: 7.5)
-# --resolution-mode RES_MODE
-#                            Mode to determine output image resolution.
-#                            Choices: "smallest", "biggest", "middle", "custom".
-#                            (default: "middle")
-# --width WIDTH              Custom width for the output image (required if resolution-mode is "custom").
-# --height HEIGHT            Custom height for the output image (required if resolution-mode is "custom").
-# -o OUTPUT_FILE, --output OUTPUT_FILE
-#                            Output file name for the merged image (default: "merged_image_sdxl.png").
+# -b, --blend-mode BLEND_MODE
+#                            Method to blend input images. Choices: "average", "weighted". (default: "average")
+# -w, --weights WEIGHTS      Comma-separated weights for weighted blending (required if blend-mode is "weighted").
+# -n, --num-steps STEPS      Number of inference steps for the model. (default: 50)
+# -g, --guidance-scale SCALE Guidance scale for the model. (default: 4)
+# -m, --resolution-mode RES_MODE
+#                            Mode to determine output image resolution. Choices: "smallest", "biggest", "middle", "custom". (default: "middle")
+# -x, --width WIDTH          Custom width for the output image (required if resolution-mode is "custom").
+# -y, --height HEIGHT        Custom height for the output image (required if resolution-mode is "custom").
+# -s, --scheduler SCHEDULER  Scheduler (sampler) to use. Choices: "ddim", "plms", "k_lms", "euler", "euler_a", "heun", "dpm_solver". (default: "ddim")
+# -c, --checkpoint CHECKPOINT
+#                            SDXL checkpoint to use. Can be a Hugging Face model ID or a local path.
+# -l, --lora LORA_PATH       LoRA model path. Can be specified multiple times for multiple LoRAs.
+# -o, --output OUTPUT_FILE   Output file name for the merged image (default: "merged_image_sdxl.png").
+# -v, --verbose              Enable verbose logging (DEBUG level).
+# -d, --default-prompt       Use a default prompt instead of generating one via BLIP.
 #
 # Returns:
 # Exit code 0 on success, non-zero on failure.
@@ -45,6 +41,8 @@
 # - Pillow (install via: pip install Pillow)
 # - PyTorch (install via: pip install torch torchvision torchaudio)
 # - Hugging Face Diffusers and Transformers (install via: pip install diffusers transformers)
+# - Scikit-Image (install via: pip install scikit-image)
+# - Xformers (optional, for memory efficient attention) (install via: pip install xformers)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
@@ -56,10 +54,32 @@ import os
 import sys
 from PIL import Image
 import torch
-from diffusers import StableDiffusionImg2ImgPipeline
+from diffusers import (
+    StableDiffusionXLImg2ImgPipeline,
+    DDIMScheduler,
+    PNDMScheduler,
+    LMSDiscreteScheduler,
+    EulerDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
+    HeunDiscreteScheduler,
+    DPMSolverMultistepScheduler
+)
 import numpy as np
+from transformers import BlipProcessor, BlipForConditionalGeneration
+import warnings
+from typing import List, Optional, Tuple
+import gc
+from skimage.metrics import structural_similarity as ssim
 
-def parse_arguments():
+# Suppress specific warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers.tokenization_utils_base")
+warnings.filterwarnings("ignore", category=UserWarning, module="torch._utils")
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers.generation.utils")
+
+# Determine the device to use (GPU if available, else CPU)
+DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+def parse_arguments() -> argparse.Namespace:
     """
     Parses command-line arguments.
     """
@@ -78,6 +98,7 @@ def parse_arguments():
         help='Process directories recursively.'
     )
     parser.add_argument(
+        '-b',
         '--blend-mode',
         type=str,
         default='average',
@@ -85,29 +106,27 @@ def parse_arguments():
         help='Method to blend input images (default: average).'
     )
     parser.add_argument(
+        '-w',
         '--weights',
         type=str,
         help='Comma-separated weights for weighted blending (required if blend-mode is "weighted").'
     )
     parser.add_argument(
-        '--prompt',
-        type=str,
-        default='A seamless blend of the input images.',
-        help='Text prompt to guide the image generation (default: "A seamless blend of the input images.").'
-    )
-    parser.add_argument(
+        '-n',
         '--num-steps',
         type=int,
         default=50,
         help='Number of inference steps for the model (default: 50).'
     )
     parser.add_argument(
+        '-g',
         '--guidance-scale',
         type=float,
-        default=7.5,
-        help='Guidance scale for the model (default: 7.5). Controls how strongly the model follows the prompt.'
+        default=4,
+        help='Guidance scale for the model. (default: 4). Controls how strongly the model follows the prompt.'
     )
     parser.add_argument(
+        '-m',
         '--resolution-mode',
         type=str,
         default='middle',
@@ -115,21 +134,57 @@ def parse_arguments():
         help='Mode to determine output image resolution (default: middle).'
     )
     parser.add_argument(
+        '-x',
         '--width',
         type=int,
         help='Custom width for the output image (required if resolution-mode is "custom").'
     )
     parser.add_argument(
+        '-y',
         '--height',
         type=int,
         help='Custom height for the output image (required if resolution-mode is "custom").'
+    )
+    parser.add_argument(
+        '-s',
+        '--scheduler',
+        type=str,
+        default='ddim',
+        choices=['ddim', 'plms', 'k_lms', 'euler', 'euler_a', 'heun', 'dpm_solver'],
+        help='Scheduler (sampler) to use for image generation (default: ddim).'
+    )
+    parser.add_argument(
+        '-c',
+        '--checkpoint',
+        type=str,
+        default='stabilityai/stable-diffusion-xl-base-1.0',
+        help='SDXL checkpoint to use. Can be a Hugging Face model ID or a local path (default: "stabilityai/stable-diffusion-xl-base-1.0").'
+    )
+    parser.add_argument(
+        '-l',
+        '--lora',
+        type=str,
+        action='append',
+        help='LoRA model path. Can be specified multiple times for multiple LoRAs.'
     )
     parser.add_argument(
         '-o',
         '--output',
         type=str,
         default='merged_image_sdxl.png',
-        help='Output file name for the merged image (default: merged_image_sdxl.png).'
+        help='Output file name for the merged image (default: "merged_image_sdxl.png").'
+    )
+    parser.add_argument(
+        '-v',
+        '--verbose',
+        action='store_true',
+        help='Enable verbose logging (DEBUG level).'
+    )
+    parser.add_argument(
+        '-d',
+        '--default-prompt',
+        action='store_true',
+        help='Use a default prompt instead of generating one via BLIP.'
     )
     args = parser.parse_args()
 
@@ -138,22 +193,21 @@ def parse_arguments():
         if args.width is None or args.height is None:
             parser.error('--width and --height must be specified when resolution-mode is "custom".')
 
-    # Validate blend-mode and weights
-    # This validation will be performed after collecting images in the main function
     return args
 
-def setup_logging():
+def setup_logging(verbose: bool = False) -> None:
     """
     Sets up the logging configuration.
     """
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
-def collect_images(input_path, recursive):
+def collect_images(input_path: str, recursive: bool) -> List[str]:
     """
     Collects all image files from the input path.
     """
     supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')
-    image_files = []
+    image_files: List[str] = []
 
     if os.path.isfile(input_path):
         if input_path.lower().endswith(supported_extensions):
@@ -181,11 +235,16 @@ def collect_images(input_path, recursive):
     logging.info(f"Found {len(image_files)} image(s) to merge.")
     return image_files
 
-def determine_output_size(image_files, resolution_mode, custom_width=None, custom_height=None):
+def determine_output_size(
+    image_files: List[str],
+    resolution_mode: str,
+    custom_width: Optional[int] = None,
+    custom_height: Optional[int] = None
+) -> Tuple[int, int]:
     """
     Determines the output image size based on the resolution mode.
     """
-    sizes = []
+    sizes: List[Tuple[int, int]] = []
     for img_path in image_files:
         try:
             with Image.open(img_path) as img:
@@ -206,8 +265,8 @@ def determine_output_size(image_files, resolution_mode, custom_width=None, custo
         width = sorted_widths[len(sorted_widths) // 2]
         height = sorted_heights[len(sorted_heights) // 2]
     elif resolution_mode == 'custom':
-        width = custom_width
-        height = custom_height
+        width = custom_width  # type: ignore
+        height = custom_height  # type: ignore
     else:
         logging.error(f"Unknown resolution mode '{resolution_mode}'.")
         sys.exit(1)
@@ -215,14 +274,48 @@ def determine_output_size(image_files, resolution_mode, custom_width=None, custo
     logging.info(f"Output image size set to: {width}x{height}")
     return width, height
 
-def blend_images(image_files, blend_mode, weights=None):
+def adjust_image_size(image: Image.Image, multiple: int = 64) -> Image.Image:
+    """
+    Adjusts the image size to the nearest multiple of the specified value.
+    If the current size is not a multiple, it resizes the image accordingly.
+    """
+    width, height = image.size
+    new_width = ((width + multiple - 1) // multiple) * multiple
+    new_height = ((height + multiple - 1) // multiple) * multiple
+
+    logging.debug(f"Original image size: ({width}, {height})")
+    logging.debug(f"Calculated new size: ({new_width}, {new_height})")
+
+    if (width, height) != (new_width, new_height):
+        logging.debug(f"Resizing image from ({width}, {height}) to ({new_width}, {new_height}) to meet size requirements.")
+        try:
+            # Handle Pillow version compatibility
+            if hasattr(Image, 'Resampling'):
+                resampling_filter = Image.Resampling.LANCZOS
+            else:
+                resampling_filter = Image.LANCZOS
+            image = image.resize((new_width, new_height), resampling_filter)
+            logging.debug(f"Image resized to ({new_width}, {new_height}).")
+        except Exception as e:
+            logging.error(f"Failed to resize image: {e}")
+            sys.exit(1)
+    else:
+        logging.debug(f"Image size ({width}, {height}) already meets the multiple of {multiple} requirement.")
+
+    return image
+
+def blend_images(
+    image_files: List[str],
+    blend_mode: str,
+    weights: Optional[List[float]] = None
+) -> Image.Image:
     """
     Blends multiple images into a single image using the specified blend mode.
     """
     logging.info(f"Blending images using '{blend_mode}' mode.")
 
     # Load images
-    images = []
+    images: List[Image.Image] = []
     for idx, img_path in enumerate(image_files):
         try:
             img = Image.open(img_path).convert('RGB')
@@ -234,75 +327,282 @@ def blend_images(image_files, blend_mode, weights=None):
 
     # Determine target size based on resolution mode
     target_size = images[0].size
-    resized_images = [img.resize(target_size, Image.Resampling.LANCZOS) for img in images]
+    logging.debug(f"Target size for blending: {target_size}")
+    resized_images: List[Image.Image] = [
+        img.resize(target_size, Image.Resampling.LANCZOS if hasattr(Image, 'Resampling') else Image.LANCZOS)
+        for img in images
+    ]
+
+    # Ensure all images have valid pixel values
+    for idx, img in enumerate(resized_images):
+        img_array = np.array(img)
+        if not np.isfinite(img_array).all():
+            logging.error(f"Image '{image_files[idx]}' contains invalid pixel values (NaN or Inf).")
+            sys.exit(1)
 
     if blend_mode == 'average':
-        blended_array = np.mean([np.array(img) for img in resized_images], axis=0).astype(np.uint8)
+        blended_array = np.mean([np.array(img) for img in resized_images], axis=0)
     elif blend_mode == 'weighted':
         blended_array = np.zeros_like(np.array(resized_images[0]), dtype=np.float32)
-        for img, weight in zip(resized_images, weights):
+        for img, weight in zip(resized_images, weights):  # type: ignore
             blended_array += np.array(img) * weight
-        blended_array = np.clip(blended_array, 0, 255).astype(np.uint8)
     else:
         logging.error(f"Unknown blend mode '{blend_mode}'.")
         sys.exit(1)
 
-    blended_image = Image.fromarray(blended_array)
+    # Clip values to [0, 255] and convert to uint8
+    blended_array = np.clip(blended_array, 0, 255).astype(np.uint8)
+
+    # Convert blended_array to PIL Image and ensure RGB mode
+    blended_image = Image.fromarray(blended_array).convert("RGB")
     logging.info("Images blended successfully.")
+
     return blended_image
 
-def load_sdxl_model():
+def compute_ssim(blended_image: Image.Image, input_images: List[Image.Image]) -> float:
     """
-    Loads the Stable Diffusion XL (SDXL) img2img pipeline from Hugging Face.
+    Computes the average Structural Similarity Index (SSIM) between the blended image
+    and each input image. Returns the average SSIM.
     """
-    logging.info("Loading Stable Diffusion XL (SDXL) model. This may take a while...")
-    try:
-        # Recommended SDXL checkpoint for image-to-image tasks
-        # Example: 'stabilityai/stable-diffusion-xl-base-1.0'
-        model_id = "stabilityai/stable-diffusion-xl-base-1.0"
+    logging.info("Computing Structural Similarity Index (SSIM) between blended image and input images...")
+    blended_array = np.array(blended_image)
 
-        pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            safety_checker=None  # Disable safety checker for flexibility
-        )
-        if torch.cuda.is_available():
-            pipe = pipe.to("cuda")
+    ssim_scores = []
+    for idx, input_img in enumerate(input_images):
+        input_array = np.array(input_img.resize(blended_image.size))
+        # Compute SSIM for each channel and average
+        try:
+            ssim_score = ssim(
+                blended_array,
+                input_array,
+                channel_axis=-1,
+                data_range=blended_array.max() - blended_array.min()
+            )
+            ssim_scores.append(ssim_score)
+            logging.debug(f"SSIM between blended image and input image {idx + 1}: {ssim_score:.4f}")
+        except ValueError as ve:
+            logging.error(f"Failed to compute SSIM between blended image and input image {idx + 1}: {ve}")
+            sys.exit(1)
+
+    average_ssim = np.mean(ssim_scores)
+    logging.info(f"Average SSIM: {average_ssim:.4f}")
+    return average_ssim
+
+def determine_strength(average_ssim: float) -> float:
+    """
+    Determines the strength parameter based on the average SSIM score.
+    """
+    strength = 0.0
+
+    # Define strength based on average SSIM
+    # These thresholds can be adjusted based on experimentation
+    if average_ssim >= 0.9:
+        strength = 0.3
+        logging.info("Very high similarity detected. Using very low strength to preserve input images.")
+    elif average_ssim >= 0.8:
+        strength = 0.6
+        logging.info("High similarity detected. Using low strength to preserve input images.")
+    elif average_ssim >= 0.7:
+        strength = 0.9
+        logging.info("Moderate similarity detected. Using moderate strength to preserve input images.")
+    else:
+        strength = 0.95
+        logging.warning("Low similarity detected. Using higher strength to enhance and reduce artifacts.")
+    return strength
+
+def load_sdxl_model(scheduler_name: str, checkpoint: str, lora_paths: Optional[List[str]] = None) -> StableDiffusionXLImg2ImgPipeline:
+    """
+    Loads the Stable Diffusion XL (SDXL) img2img pipeline with the specified scheduler and LoRAs.
+    """
+    logging.info("Loading Stable Diffusion XL (SDXL) img2img model. This may take a while...")
+    try:
+        # Determine if checkpoint is a local path or a Hugging Face model ID
+        if os.path.exists(checkpoint):
+            model_id = checkpoint
+            logging.info(f"Loading SDXL model from local path: {model_id}")
         else:
-            pipe = pipe.to("cpu")
-        logging.info("Stable Diffusion XL model loaded successfully.")
+            model_id = checkpoint
+            logging.info(f"Loading SDXL model from Hugging Face Model Hub: {model_id}")
+
+        # Load the img2img pipeline with appropriate torch_dtype
+        pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16 if DEVICE.type == "cuda" else torch.float32,
+        )
+        pipe = pipe.to(DEVICE)  # Move pipeline to the determined device
+
+        # Disable the safety checker
+        pipe.safety_checker = lambda images, **kwargs: (images, False)
+
+        # Enable attention slicing to reduce VRAM usage
+        pipe.enable_attention_slicing()
+
+        try:
+            pipe.enable_xformers_memory_efficient_attention()
+            logging.info("Enabled xformers memory efficient attention.")
+        except Exception as e:
+            logging.warning(f"Failed to enable xformers memory efficient attention: {e}")
+
+        # Enable sequential CPU offloading for better memory management
+        try:
+            pipe.enable_sequential_cpu_offload()
+            logging.info("Enabled sequential model CPU offloading.")
+        except Exception as e:
+            logging.warning(f"Failed to enable sequential CPU offloading: {e}")
+
+        # Replace the scheduler based on user input
+        scheduler_mapping = {
+            'ddim': DDIMScheduler.from_config(pipe.scheduler.config),
+            'plms': PNDMScheduler.from_config(pipe.scheduler.config),
+            'k_lms': LMSDiscreteScheduler.from_config(pipe.scheduler.config),
+            'euler': EulerDiscreteScheduler.from_config(pipe.scheduler.config),
+            'euler_a': EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config),
+            'heun': HeunDiscreteScheduler.from_config(pipe.scheduler.config),
+            'dpm_solver': DPMSolverMultistepScheduler.from_config(pipe.scheduler.config),
+        }
+
+        if scheduler_name not in scheduler_mapping:
+            logging.error(f"Unsupported scheduler '{scheduler_name}'.")
+            sys.exit(1)
+
+        pipe.scheduler = scheduler_mapping[scheduler_name]
+        logging.info(f"Scheduler set to '{scheduler_name}'.")
+
+        # Load and apply LoRAs if specified
+        if lora_paths:
+            for lora_path in lora_paths:
+                if os.path.exists(lora_path):
+                    try:
+                        pipe.load_lora_weights(lora_path)
+                        logging.info(f"Loaded LoRA weights from '{lora_path}'.")
+                    except Exception as e:
+                        logging.error(f"Failed to load LoRA from '{lora_path}': {e}")
+                        sys.exit(1)
+                else:
+                    logging.error(f"LoRA path '{lora_path}' does not exist.")
+                    sys.exit(1)
+
+        logging.info(f"Stable Diffusion XL img2img model loaded successfully on {DEVICE}.")
         return pipe
     except Exception as e:
-        logging.error(f"Failed to load Stable Diffusion XL model: {e}")
+        logging.exception("Failed to load Stable Diffusion XL img2img model.")
         sys.exit(1)
 
-def generate_merged_image(pipe, blended_image, prompt, num_steps, guidance_scale, width, height):
+def load_captioning_model() -> Tuple[BlipProcessor, BlipForConditionalGeneration]:
+    """
+    Loads the BLIP image captioning model for automated prompt generation.
+    """
+    logging.info("Loading BLIP image captioning model for prompt generation...")
+    try:
+        processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+        model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+        model.to('cpu')  # Keep BLIP on CPU to save GPU memory
+        logging.info("BLIP model loaded successfully on CPU.")
+        return processor, model
+    except Exception as e:
+        logging.exception("Failed to load BLIP model.")
+        sys.exit(1)
+
+def generate_prompt(
+    blended_image: Image.Image,
+    processor: BlipProcessor,
+    model: BlipForConditionalGeneration,
+    use_default: bool = False
+) -> str:
+    """
+    Generates a descriptive prompt based on the blended image using an image captioning model.
+    If use_default is True, returns a predefined prompt.
+    """
+    if use_default:
+        logging.info("Using default prompt instead of generating one via BLIP.")
+        return "A seamlessly merged image combining multiple elements."
+
+    logging.info("Generating detailed prompt from the blended image using BLIP...")
+    try:
+        inputs = processor(images=blended_image, return_tensors="pt").to('cpu')  # Ensure inputs are on CPU
+        logging.debug("Moved BLIP inputs to CPU.")
+        with torch.no_grad():
+            # Generate multiple captions with different sampling parameters
+            out1 = model.generate(**inputs, max_length=100, num_beams=5, no_repeat_ngram_size=2)
+            out2 = model.generate(**inputs, max_length=100, do_sample=True, top_p=0.9, temperature=0.7)
+
+        caption1 = processor.decode(out1[0], skip_special_tokens=True, clean_up_tokenization_spaces=True)
+        caption2 = processor.decode(out2[0], skip_special_tokens=True, clean_up_tokenization_spaces=True)
+
+        # Combine the two captions for a more detailed prompt
+        combined_prompt = f"{caption1}, {caption2}"
+
+        # Clean up any redundant whitespace
+        combined_prompt = ' '.join(combined_prompt.split())
+
+        if not combined_prompt.strip():
+            logging.warning("BLIP failed to generate a detailed caption. Using a default prompt.")
+            combined_prompt = "A seamlessly merged image combining multiple elements."
+
+        logging.info(f"Generated Detailed Prompt: {combined_prompt}")
+        return combined_prompt
+    except Exception as e:
+        logging.exception("Failed to generate detailed caption for blended image.")
+        sys.exit(1)
+
+def generate_merged_image(
+    pipe: StableDiffusionXLImg2ImgPipeline,
+    blended_image: Image.Image,
+    prompt: str,
+    num_steps: int,
+    guidance_scale: float,
+    width: int,
+    height: int,
+    strength: float
+) -> Image.Image:
     """
     Generates a merged image using the Stable Diffusion XL img2img pipeline.
     """
-    logging.info("Generating merged image using Stable Diffusion XL...")
+    logging.info("Generating merged image using Stable Diffusion XL img2img pipeline...")
     try:
         # Preprocess the blended image
         init_image = blended_image.resize((width, height))
         init_image = init_image.convert("RGB")
 
-        # Generate the image
-        with torch.autocast("cuda") if torch.cuda.is_available() else torch.no_grad():
+        # Debugging: Check type and mode
+        logging.debug(f"init_image type: {type(init_image)}, mode: {init_image.mode}, size: {init_image.size}")
+
+        # Use torch.no_grad() to prevent gradient computation and save memory
+        with torch.no_grad():
+            # Generate the image
             result = pipe(
                 prompt=prompt,
-                init_image=init_image,
-                strength=0.6,  # Controls how much to transform the init image (0.0-1.0)
+                image=init_image,
+                strength=strength,
                 guidance_scale=guidance_scale,
                 num_inference_steps=num_steps
             )
+
+        if not result.images:
+            logging.error("No images were returned by the pipeline.")
+            sys.exit(1)
+
         merged_image = result.images[0]
+
+        # Validate the merged image for NaN or Inf values
+        merged_array = np.array(merged_image)
+        if not np.isfinite(merged_array).all():
+            logging.error("Merged image contains invalid pixel values (NaN or Inf).")
+            sys.exit(1)
+
+        # Additional Logging: Check image statistics
+        logging.debug(f"Merged image array stats: min={merged_array.min()}, max={merged_array.max()}, mean={merged_array.mean()}, std={merged_array.std()}")
+
         logging.info("Merged image generated successfully.")
         return merged_image
+    except torch.cuda.OutOfMemoryError:
+        logging.error("CUDA Out of Memory Error: Failed to generate merged image due to insufficient GPU memory.")
+        sys.exit(1)
     except Exception as e:
-        logging.error(f"Failed to generate merged image: {e}")
+        logging.exception("Failed to generate merged image.")
         sys.exit(1)
 
-def save_image(image, output_path):
+def save_image(image: Image.Image, output_path: str) -> None:
     """
     Saves the PIL image to the specified path.
     """
@@ -310,42 +610,56 @@ def save_image(image, output_path):
         image.save(output_path)
         logging.info(f"Merged image saved as '{output_path}'.")
     except Exception as e:
-        logging.error(f"Failed to save merged image '{output_path}': {e}")
+        logging.exception(f"Failed to save merged image '{output_path}'.")
         sys.exit(1)
 
-def main():
-    args = parse_arguments()
-    setup_logging()
+def prepare_input_images(image_files: List[str], target_size: Tuple[int, int]) -> List[Image.Image]:
+    """
+    Loads and resizes input images for SSIM computation.
+    """
+    input_images: List[Image.Image] = []
+    for img_path in image_files:
+        try:
+            img = Image.open(img_path).convert('RGB').resize(target_size)
+            input_images.append(img)
+            logging.debug(f"Loaded image for SSIM computation: '{img_path}'")
+        except Exception as e:
+            logging.error(f"Failed to open image '{img_path}' for SSIM computation: {e}")
+            sys.exit(1)
+    return input_images
 
-    input_path = args.input_path
-    recursive = args.recursive
-    blend_mode = args.blend_mode
-    weights = args.weights
-    prompt = args.prompt
-    num_steps = args.num_steps
-    guidance_scale = args.guidance_scale
-    resolution_mode = args.resolution_mode
-    custom_width = args.width
-    custom_height = args.height
-    output_file = args.output
+def cleanup_memory():
+    """
+    Frees up memory by deleting unused objects and clearing caches.
+    """
+    gc.collect()
+    torch.cuda.empty_cache()
+    logging.debug("Freed memory after cleanup.")
+
+def main() -> None:
+    args = parse_arguments()
+    setup_logging(verbose=args.verbose)
+    logging.info(f"Using device: {DEVICE}")
 
     # Collect image files
-    image_files = collect_images(input_path, recursive)
+    image_files: List[str] = collect_images(args.input_path, args.recursive)
 
-    # Validate weights after collecting images
-    if blend_mode == 'weighted':
-        if weights is None:
+    # Validate and parse weights if using weighted blending
+    if args.blend_mode == 'weighted':
+        if args.weights is None:
             logging.error('--weights must be specified when blend-mode is "weighted".')
             sys.exit(1)
         try:
-            weights = [float(w) for w in weights.split(',')]
-            if len(weights) != len(image_files):
-                logging.error(f'Number of weights ({len(weights)}) does not match number of input images ({len(image_files)}).')
+            weights_list: List[float] = [float(w) for w in args.weights.split(',')]
+            if len(weights_list) != len(image_files):
+                logging.error(f'Number of weights ({len(weights_list)}) does not match number of input images ({len(image_files)}).')
                 sys.exit(1)
-            if not np.isclose(sum(weights), 1.0):
-                logging.warning('Weights do not sum to 1. Normalizing weights.')
-                weights = [w / sum(weights) for w in weights]
-            logging.info(f'Using weights: {weights}')
+            total_weight = sum(weights_list)
+            if not np.isclose(total_weight, 1.0):
+                logging.warning(f'Weights sum to {total_weight}, which is not close to 1.0. Normalizing weights.')
+                weights_list = [w / total_weight for w in weights_list]
+            logging.info(f'Using weights: {weights_list}')
+            weights = weights_list
         except ValueError:
             logging.error('Weights must be a comma-separated list of numbers.')
             sys.exit(1)
@@ -355,34 +669,74 @@ def main():
     # Determine output image size
     output_width, output_height = determine_output_size(
         image_files,
-        resolution_mode,
-        custom_width=custom_width,
-        custom_height=custom_height
+        args.resolution_mode,
+        custom_width=args.width,
+        custom_height=args.height
     )
 
     # Blend images
-    blended_image = blend_images(
+    blended_image: Image.Image = blend_images(
         image_files,
-        blend_mode,
+        args.blend_mode,
         weights=weights
     )
 
-    # Load SDXL model
-    pipe = load_sdxl_model()
+    # Adjust image size to be multiples of 64
+    blended_image = adjust_image_size(blended_image, multiple=64)
+
+    # Confirm the image has been resized
+    logging.debug(f"Blended image size after adjustment: {blended_image.size}")
+    if blended_image.size[0] % 64 != 0 or blended_image.size[1] % 64 != 0:
+        logging.error(f"Blended image size {blended_image.size} is not a multiple of 64.")
+        sys.exit(1)
+    else:
+        logging.info(f"Blended image size {blended_image.size} meets the multiple of 64 requirement.")
+
+    # Prepare input images for SSIM computation
+    input_images: List[Image.Image] = prepare_input_images(image_files, blended_image.size)
+
+    # Compute SSIM similarity
+    average_ssim: float = compute_ssim(blended_image, input_images)
+
+    # Free memory after SSIM computation
+    del input_images
+    cleanup_memory()
+
+    # Determine strength based on SSIM
+    strength: float = determine_strength(average_ssim)
+
+
+    # Load BLIP model and generate prompt from blended image
+    processor, caption_model = load_captioning_model()
+    prompt: str = generate_prompt(blended_image, processor, caption_model, args.default_prompt)
+
+    # Free BLIP model memory
+    del processor
+    del caption_model
+    cleanup_memory()
+
+    # Ensure the prompt is non-empty
+    if not prompt.strip():
+        logging.warning("Generated prompt is empty. Using a default prompt.")
+        prompt = "A seamlessly merged image combining multiple elements."
+
+    # Load SDXL model with the selected scheduler and LoRAs
+    pipe: StableDiffusionXLImg2ImgPipeline = load_sdxl_model(args.scheduler, args.checkpoint, args.lora)
 
     # Generate merged image using img2img
-    merged_image = generate_merged_image(
+    merged_image: Image.Image = generate_merged_image(
         pipe,
         blended_image,
-        prompt,
-        num_steps,
-        guidance_scale,
-        output_width,
-        output_height
+        prompt=prompt,
+        num_steps=args.num_steps,
+        guidance_scale=args.guidance_scale,
+        width=output_width,
+        height=output_height,
+        strength=strength
     )
 
     # Save the merged image
-    save_image(merged_image, output_file)
+    save_image(merged_image, args.output)
 
 if __name__ == '__main__':
     main()
