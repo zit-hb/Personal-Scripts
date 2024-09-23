@@ -5,6 +5,7 @@ A repository of scripts that solve my problems. There are no guarantees. If you 
 
 ## 🜲 Structure
 
+- **Audio Recognition**: Recognizing and classifying audio files.
 - **File Manipulation**: Modifying and processing arbitrary files.
 - **Image Manipulation**: Transforming and preparing images.
 - **Image Recognition**: Recognizing and classifying images.
