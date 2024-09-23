@@ -75,6 +75,7 @@ openai_client = None
 local_model = None
 whisper = None
 
+
 def parse_arguments() -> argparse.Namespace:
     """
     Parses command-line arguments.
@@ -174,6 +175,7 @@ def parse_arguments() -> argparse.Namespace:
 
     return args
 
+
 def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     """
     Sets up the logging configuration.
@@ -186,6 +188,7 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
         level = logging.ERROR
 
     logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+
 
 def collect_audio_files(input_path: str, recursive: bool) -> List[Path]:
     """
@@ -222,6 +225,7 @@ def collect_audio_files(input_path: str, recursive: bool) -> List[Path]:
 
     return audio_files
 
+
 def get_api_key(provided_key: Optional[str]) -> str:
     """
     Retrieves the OpenAI API key from the provided argument or environment variable.
@@ -233,6 +237,7 @@ def get_api_key(provided_key: Optional[str]) -> str:
         logging.error('OpenAI API key not provided. Use the -k/--api-key option or set the OPENAI_API_KEY environment variable.')
         sys.exit(1)
     return api_key
+
 
 def transcribe_audio_openai(file_path: Path, language: Optional[str], chunk_size: int) -> dict:
     """
@@ -261,6 +266,7 @@ def transcribe_audio_openai(file_path: Path, language: Optional[str], chunk_size
     except Exception as e:
         logging.error(f"Unexpected error while transcribing '{file_path}': {e}")
         return {}
+
 
 def transcribe_audio_local(file_path: Path, language: Optional[str], model_name: str) -> dict:
     """
@@ -293,6 +299,7 @@ def transcribe_audio_local(file_path: Path, language: Optional[str], model_name:
         logging.error(f"Error while transcribing '{file_path}' with local model: {e}")
         return {}
 
+
 def save_transcription(transcription: dict, output_path: Path, format: str) -> None:
     """
     Saves the transcription to the specified output path in the desired format.
@@ -312,6 +319,7 @@ def save_transcription(transcription: dict, output_path: Path, format: str) -> N
         logging.info(f"Transcription saved to '{output_path.with_suffix('.' + format)}'.")
     except Exception as e:
         logging.error(f"Failed to save transcription to '{output_path}': {e}")
+
 
 def process_file(audio_file: Path, args: argparse.Namespace) -> None:
     """
@@ -353,6 +361,7 @@ def process_file(audio_file: Path, args: argparse.Namespace) -> None:
         else:
             logging.error(f"Failed to obtain transcription for '{audio_file}'.")
 
+
 def main() -> None:
     """
     Main function to orchestrate the speech-to-text transcription process.
@@ -393,6 +402,7 @@ def main() -> None:
             process_file(audio_file, args)
 
     logging.info("Transcription process completed successfully.")
+
 
 if __name__ == '__main__':
     main()

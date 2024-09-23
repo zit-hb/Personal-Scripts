@@ -29,6 +29,7 @@ import logging
 import os
 import sys
 
+
 def parse_arguments():
     """
     Parses command-line arguments.
@@ -60,11 +61,13 @@ def parse_arguments():
 
     return args
 
+
 def setup_logging():
     """
     Sets up the logging configuration.
     """
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
 
 def modify_text_file(text_file_path, prepend_str=None, append_str=None):
     """
@@ -93,6 +96,7 @@ def modify_text_file(text_file_path, prepend_str=None, append_str=None):
                 logging.warning(f"Text file '{text_file_path}' is empty.")
     except Exception as e:
         logging.error(f"Failed to modify text file '{text_file_path}': {e}")
+
 
 def main():
     args = parse_arguments()
@@ -127,6 +131,7 @@ def main():
                 logging.info(f"No corresponding text file for image '{filename}'.")
         else:
             logging.debug(f"File '{filename}' is not an image. Skipping.")
+
 
 if __name__ == '__main__':
     main()

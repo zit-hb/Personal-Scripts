@@ -79,6 +79,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="transformers.gen
 # Determine the device to use (GPU if available, else CPU)
 DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
+
 def parse_arguments() -> argparse.Namespace:
     """
     Parses command-line arguments.
@@ -195,12 +196,14 @@ def parse_arguments() -> argparse.Namespace:
 
     return args
 
+
 def setup_logging(verbose: bool = False) -> None:
     """
     Sets up the logging configuration.
     """
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+
 
 def collect_images(input_path: str, recursive: bool) -> List[str]:
     """
@@ -234,6 +237,7 @@ def collect_images(input_path: str, recursive: bool) -> List[str]:
 
     logging.info(f"Found {len(image_files)} image(s) to merge.")
     return image_files
+
 
 def determine_output_size(
     image_files: List[str],
@@ -274,6 +278,7 @@ def determine_output_size(
     logging.info(f"Output image size set to: {width}x{height}")
     return width, height
 
+
 def adjust_image_size(image: Image.Image, multiple: int = 64) -> Image.Image:
     """
     Adjusts the image size to the nearest multiple of the specified value.
@@ -303,6 +308,7 @@ def adjust_image_size(image: Image.Image, multiple: int = 64) -> Image.Image:
         logging.debug(f"Image size ({width}, {height}) already meets the multiple of {multiple} requirement.")
 
     return image
+
 
 def blend_images(
     image_files: List[str],
@@ -359,6 +365,7 @@ def blend_images(
 
     return blended_image
 
+
 def compute_ssim(blended_image: Image.Image, input_images: List[Image.Image]) -> float:
     """
     Computes the average Structural Similarity Index (SSIM) between the blended image
@@ -388,6 +395,7 @@ def compute_ssim(blended_image: Image.Image, input_images: List[Image.Image]) ->
     logging.info(f"Average SSIM: {average_ssim:.4f}")
     return average_ssim
 
+
 def determine_strength(average_ssim: float) -> float:
     """
     Determines the strength parameter based on the average SSIM score.
@@ -409,6 +417,7 @@ def determine_strength(average_ssim: float) -> float:
         strength = 0.95
         logging.warning("Low similarity detected. Using higher strength to enhance and reduce artifacts.")
     return strength
+
 
 def load_sdxl_model(scheduler_name: str, checkpoint: str, lora_paths: Optional[List[str]] = None) -> StableDiffusionXLImg2ImgPipeline:
     """
@@ -488,6 +497,7 @@ def load_sdxl_model(scheduler_name: str, checkpoint: str, lora_paths: Optional[L
         logging.exception("Failed to load Stable Diffusion XL img2img model.")
         sys.exit(1)
 
+
 def load_captioning_model() -> Tuple[BlipProcessor, BlipForConditionalGeneration]:
     """
     Loads the BLIP image captioning model for automated prompt generation.
@@ -502,6 +512,7 @@ def load_captioning_model() -> Tuple[BlipProcessor, BlipForConditionalGeneration
     except Exception as e:
         logging.exception("Failed to load BLIP model.")
         sys.exit(1)
+
 
 def generate_prompt(
     blended_image: Image.Image,
@@ -544,6 +555,7 @@ def generate_prompt(
     except Exception as e:
         logging.exception("Failed to generate detailed caption for blended image.")
         sys.exit(1)
+
 
 def generate_merged_image(
     pipe: StableDiffusionXLImg2ImgPipeline,
@@ -602,6 +614,7 @@ def generate_merged_image(
         logging.exception("Failed to generate merged image.")
         sys.exit(1)
 
+
 def save_image(image: Image.Image, output_path: str) -> None:
     """
     Saves the PIL image to the specified path.
@@ -612,6 +625,7 @@ def save_image(image: Image.Image, output_path: str) -> None:
     except Exception as e:
         logging.exception(f"Failed to save merged image '{output_path}'.")
         sys.exit(1)
+
 
 def prepare_input_images(image_files: List[str], target_size: Tuple[int, int]) -> List[Image.Image]:
     """
@@ -628,6 +642,7 @@ def prepare_input_images(image_files: List[str], target_size: Tuple[int, int]) -
             sys.exit(1)
     return input_images
 
+
 def cleanup_memory():
     """
     Frees up memory by deleting unused objects and clearing caches.
@@ -635,6 +650,7 @@ def cleanup_memory():
     gc.collect()
     torch.cuda.empty_cache()
     logging.debug("Freed memory after cleanup.")
+
 
 def main() -> None:
     args = parse_arguments()
@@ -705,7 +721,6 @@ def main() -> None:
     # Determine strength based on SSIM
     strength: float = determine_strength(average_ssim)
 
-
     # Load BLIP model and generate prompt from blended image
     processor, caption_model = load_captioning_model()
     prompt: str = generate_prompt(blended_image, processor, caption_model, args.default_prompt)
@@ -737,6 +752,7 @@ def main() -> None:
 
     # Save the merged image
     save_image(merged_image, args.output)
+
 
 if __name__ == '__main__':
     main()

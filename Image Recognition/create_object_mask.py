@@ -55,14 +55,6 @@ from detectron2.engine import DefaultPredictor
 def get_predictor(model_name: str, threshold: float, use_cpu: bool = False) -> DefaultPredictor:
     """
     Initializes and returns a Detectron2 predictor.
-
-    Args:
-        model_name (str): The name of the model to use.
-        threshold (float): Confidence threshold for object detection.
-        use_cpu (bool): Whether to force the model to run on CPU.
-
-    Returns:
-        DefaultPredictor: An instance of Detectron2's DefaultPredictor.
     """
     if not use_cpu and not torch.cuda.is_available():
         logging.warning("CUDA is not available. The model will run on CPU.")
@@ -84,12 +76,6 @@ def get_predictor(model_name: str, threshold: float, use_cpu: bool = False) -> D
 def load_image(image_path: str) -> Optional[np.ndarray]:
     """
     Loads an image from the given path.
-
-    Args:
-        image_path (str): Path to the image file.
-
-    Returns:
-        Optional[np.ndarray]: The loaded image or None if loading failed.
     """
     if not os.path.isfile(image_path):
         logging.error(f"Image file '{image_path}' does not exist.")
@@ -103,9 +89,6 @@ def load_image(image_path: str) -> Optional[np.ndarray]:
 def list_object_classes(metadata):
     """
     Prints all detectable object classes by the model.
-
-    Args:
-        metadata: Model metadata containing class names.
     """
     print("Detectable object classes:")
     for idx, class_name in enumerate(metadata.thing_classes):
@@ -116,13 +99,6 @@ def list_object_classes(metadata):
 def get_object_classes(object_types: List[str], metadata) -> List[int]:
     """
     Maps object types to class indices based on the model's metadata.
-
-    Args:
-        object_types (List[str]): List of object types to detect.
-        metadata: Model metadata containing class names.
-
-    Returns:
-        List[int]: List of class indices corresponding to the object types.
     """
     object_classes = []
     for obj_type in object_types:
@@ -145,15 +121,6 @@ def create_masks(
 ) -> Optional[dict]:
     """
     Creates masks for each detected object type in the image.
-
-    Args:
-        image (np.ndarray): The input image.
-        predictor (DefaultPredictor): The Detectron2 predictor.
-        object_classes (Optional[List[int]]): Class indices of objects to detect.
-        invert (bool): Whether to invert the masks.
-
-    Returns:
-        Optional[dict]: A dictionary with object types as keys and masks as values.
     """
     try:
         outputs = predictor(image)
@@ -193,11 +160,6 @@ def create_masks(
 def save_masks(masks: dict, output_path: str, base_name: str):
     """
     Saves the masks to the specified output path.
-
-    Args:
-        masks (dict): Dictionary of masks with object types as keys.
-        output_path (str): Directory to save the mask images.
-        base_name (str): Base name for the output files.
     """
     if not masks:
         logging.warning("No masks to save.")

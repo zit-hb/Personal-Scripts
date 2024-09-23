@@ -136,14 +136,6 @@ def calculate_tenengrad_variance(gray_image):
 def is_image_blurry(image_path, threshold, method):
     """
     Determines if an image is blurry.
-
-    Args:
-        image_path (str): Path to the image file.
-        threshold (float): Threshold for blurriness detection.
-        method (str): Method to use for blurriness detection.
-
-    Returns:
-        tuple: (bool, float) indicating whether the image is blurry and the computed score.
     """
     image = cv2.imread(image_path)
     if image is None:
@@ -169,14 +161,6 @@ def is_image_blurry(image_path, threshold, method):
 def process_image(image_path, threshold, method):
     """
     Processes a single image to determine if it is blurry.
-
-    Args:
-        image_path (str): Path to the image file.
-        threshold (float): Threshold for blurriness detection.
-        method (str): Method to use for blurriness detection.
-
-    Returns:
-        dict: A dictionary containing the image path, score, and blurriness result.
     """
     is_blurry, score = is_image_blurry(image_path, threshold, method)
     if is_blurry is None:
