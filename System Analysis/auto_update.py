@@ -8,17 +8,18 @@
 # It can enable or disable automatic updates, configure update settings, and manually install updates.
 # It supports installing all updates, security updates only, checking for available updates, excluding specific packages,
 # and scheduling updates at specific times. It provides options to reboot the system if necessary after updates,
-# simulate updates (dry run), and log actions.
+# simulate updates (dry run), and log actions. Additionally, it can clean up package caches and remove unused packages.
 #
 # Usage:
 # ./auto_update.py [options]
 #
 # Options:
 # -i, --install             Install all available updates.
+# -c, --cleanup             Clean up package cache and remove unused packages.
 # -s, --security-only       Install security updates only.
 # -e, --enable-auto-update  Enable automatic updates.
 # -d, --disable-auto-update Disable automatic updates.
-# -c, --check-updates       Check for available updates.
+# -U, --check-updates       Check for available updates.
 # -l, --list-updates        List available updates.
 # -x, --exclude PACKAGES    Exclude specified packages from updates (comma-separated list).
 # -t, --schedule TIME       Schedule updates at specified time (HH:MM).
@@ -47,9 +48,6 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-# Constants for supported distributions
-SUPPORTED_DISTRIBUTIONS = ['ubuntu', 'debian', 'fedora', 'rhel', 'centos', 'redhat']
-
 
 def parse_arguments() -> Tuple[argparse.Namespace, argparse.ArgumentParser]:
     """
@@ -62,6 +60,11 @@ def parse_arguments() -> Tuple[argparse.Namespace, argparse.ArgumentParser]:
         '-i', '--install',
         action='store_true',
         help='Install all available updates.'
+    )
+    parser.add_argument(
+        '-c', '--cleanup',
+        action='store_true',
+        help='Clean up package cache and remove unused packages.'
     )
     parser.add_argument(
         '-s', '--security-only',
@@ -79,7 +82,7 @@ def parse_arguments() -> Tuple[argparse.Namespace, argparse.ArgumentParser]:
         help='Disable automatic updates.'
     )
     parser.add_argument(
-        '-c', '--check-updates',
+        '-U', '--check-updates',
         action='store_true',
         help='Check for available updates.'
     )
@@ -169,11 +172,13 @@ class AutoUpdateManager:
         self.dry_run = dry_run
         self.exclude = exclude if exclude else []
 
+
     def install_updates(self, security_only: bool = False):
         """
         Install updates.
         """
         raise NotImplementedError
+
 
     def enable_auto_updates(self):
         """
@@ -181,11 +186,13 @@ class AutoUpdateManager:
         """
         raise NotImplementedError
 
+
     def disable_auto_updates(self):
         """
         Disable automatic updates.
         """
         raise NotImplementedError
+
 
     def check_updates(self):
         """
@@ -193,11 +200,13 @@ class AutoUpdateManager:
         """
         raise NotImplementedError
 
+
     def list_updates(self):
         """
         List available updates.
         """
         raise NotImplementedError
+
 
     def schedule_updates(self, time_str: str):
         """
@@ -205,15 +214,24 @@ class AutoUpdateManager:
         """
         raise NotImplementedError
 
+
     def reboot_if_needed(self):
         """
         Reboot the system if needed.
         """
         raise NotImplementedError
 
+
     def get_reboot_required(self) -> bool:
         """
         Check if a reboot is required.
+        """
+        raise NotImplementedError
+
+
+    def cleanup(self):
+        """
+        Clean up package cache and remove unused packages.
         """
         raise NotImplementedError
 
@@ -338,6 +356,23 @@ class APTManager(AutoUpdateManager):
         Check if a reboot is required.
         """
         return os.path.exists('/var/run/reboot-required')
+
+
+    def cleanup(self):
+        """
+        Clean up package cache and remove unused packages using apt.
+        """
+        cmds = [
+            ['apt-get', 'autoclean', '-y'],
+            ['apt-get', 'autoremove', '-y']
+        ]
+        for cmd in cmds:
+            logging.info(f'Running {" ".join(cmd)}')
+            try:
+                subprocess.run(cmd, check=True)
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Error during cleanup: {e}")
+                sys.exit(1)
 
 
 class YUMManager(AutoUpdateManager):
@@ -477,10 +512,28 @@ class YUMManager(AutoUpdateManager):
         """
         Check if a reboot is required.
         """
-        # Implement checking if reboot is required
         # For example, check if /var/run/reboot-required exists (common in Debian-based systems)
         # For Red Hat-based, it might require different checks
         return os.path.exists('/var/run/reboot-required')
+
+
+
+    def cleanup(self):
+        """
+        Clean up package cache and remove unused packages using yum/dnf.
+        """
+        pkg_manager = 'dnf' if Path('/usr/bin/dnf').exists() else 'yum'
+        cmds = [
+            [pkg_manager, 'autoremove', '-y'],
+            [pkg_manager, 'clean', 'all']
+        ]
+        for cmd in cmds:
+            logging.info(f'Running {" ".join(cmd)}')
+            try:
+                subprocess.run(cmd, check=True)
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Error during cleanup: {e}")
+                sys.exit(1)
 
 
 def main():
@@ -518,7 +571,8 @@ def main():
         args.disable_auto_update,
         args.check_updates,
         args.list_updates,
-        args.schedule
+        args.schedule,
+        args.cleanup
     ]):
         parser.print_help()
         sys.exit(0)
@@ -533,9 +587,6 @@ def main():
     if args.install or args.security_only:
         logging.debug('Action: Install updates.')
         manager.install_updates(security_only=args.security_only)
-        if args.reboot:
-            logging.debug('Action: Reboot if needed.')
-            manager.reboot_if_needed()
     if args.enable_auto_update:
         logging.debug('Action: Enable automatic updates.')
         manager.enable_auto_updates()
@@ -545,6 +596,12 @@ def main():
     if args.schedule:
         logging.debug(f'Action: Schedule updates at {args.schedule}.')
         manager.schedule_updates(args.schedule)
+    if args.cleanup:
+        logging.debug('Action: Cleanup package cache and remove unused packages.')
+        manager.cleanup()
+    if args.reboot:
+        logging.debug('Action: Reboot if needed.')
+        manager.reboot_if_needed()
 
     logging.info('auto_update script completed successfully.')
 
