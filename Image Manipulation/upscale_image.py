@@ -13,6 +13,10 @@
 # upscaling each tile to a higher resolution using Real-ESRGAN, and then
 # stitching the upscaled tiles back together.
 #
+# Optionally, a "hallucination" feature can be enabled to modify the upscaled tiles.
+# This involves selecting an object within a tile using Detectron2, creating a mask,
+# and then using SDXL Inpainting to slightly alter the object and add more details.
+#
 # Usage:
 # ./upscale_image.py [options]
 #
@@ -32,6 +36,9 @@
 #                            (quadrupling width and height). (default: 2).
 #     -m, --model           Path to the Real-ESRGAN model weights file. (default: "RealESRGAN_x4plus.pth").
 #
+#   Hallucination Options:
+#     --hallucinate         Enable hallucination feature to modify upscaled tiles using SDXL inpainting.
+#
 #   General Options:
 #     -d, --output-dir      Directory to save the output images (default: "output").
 #     -v, --verbose         Enable verbose logging (DEBUG level).
@@ -48,7 +55,7 @@ import warnings
 import gc
 import math
 import numpy as np
-from diffusers import StableDiffusionXLPipeline
+from diffusers import StableDiffusionXLPipeline, StableDiffusionXLInpaintPipeline
 import requests
 from tqdm import tqdm
 import cv2  # Import OpenCV for image processing
@@ -56,6 +63,11 @@ import cv2  # Import OpenCV for image processing
 # Import RRDBNet from basicsr and RealESRGANer from realesrgan
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from realesrgan import RealESRGANer
+
+# Import Detectron2 modules
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -118,6 +130,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '-m', '--model', type=str, default='RealESRGAN_x4plus.pth',
         help='Path to the Real-ESRGAN model weights file. (default: "RealESRGAN_x4plus.pth").'
+    )
+
+    # Hallucination Option
+    parser.add_argument(
+        '--hallucinate', action='store_true',
+        help='Enable hallucination feature to modify upscaled tiles using SDXL inpainting.'
     )
 
     # General Options
@@ -235,7 +253,7 @@ def generate_initial_image(
             generator.manual_seed(seed)
             logging.info(f"Using seed: {seed}")
         else:
-            seed = generator.seed()  # Removed .item() as seed is already an integer
+            seed = generator.seed()
             logging.info(f"No seed provided. Using random seed: {seed}")
 
         with torch.no_grad():
@@ -255,6 +273,10 @@ def generate_initial_image(
         image = result.images[0]
         if image.mode != 'RGB':
             image = image.convert('RGB')
+
+        # Unload the SDXL pipeline to save VRAM
+        pipe = None
+        cleanup_memory()
 
         return image
     except torch.cuda.OutOfMemoryError:
@@ -409,6 +431,7 @@ def create_high_resolution_image(
     upscale_exponent: int,
     output_dir: str,
     model: RealESRGANer,
+    hallucinate: bool = False,
 ) -> None:
     """
     Generates the final high-resolution image by recursively upscaling the initial image.
@@ -428,6 +451,16 @@ def create_high_resolution_image(
     # Initialize current image as the initial image
     current_image = initial_image
 
+    # Initialize Detectron2 predictor if hallucinate is enabled
+    if hallucinate:
+        logging.info("Initializing Detectron2 predictor for hallucination.")
+        cfg = get_cfg()
+        cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
+        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Set threshold for this model
+        cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+        cfg.MODEL.DEVICE = str(DEVICE)
+        predictor = DefaultPredictor(cfg)
+
     for step in range(1, upscale_exponent + 1):
         logging.info(f"Starting upscale step {step}/{upscale_exponent}.")
 
@@ -438,6 +471,22 @@ def create_high_resolution_image(
         cols = math.ceil(current_image.width / FIXED_TILE_SIZE)
 
         logging.info(f"Image split into {num_tiles} tiles ({rows} rows x {cols} cols).")
+
+        # Load SDXL Inpainting pipeline if hallucinate is enabled
+        if hallucinate:
+            logging.info("Loading SDXL Inpainting pipeline for hallucination.")
+            inpaint_pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
+                args.checkpoint,
+                torch_dtype=torch.float16 if DEVICE.type == "cuda" else torch.float32,
+            )
+            inpaint_pipe = inpaint_pipe.to(DEVICE)
+            inpaint_pipe.safety_checker = None  # Disable safety checker for faster inference
+            inpaint_pipe.enable_attention_slicing()
+            try:
+                inpaint_pipe.enable_xformers_memory_efficient_attention()
+                logging.info("Enabled xformers memory efficient attention for SDXL inpainting.")
+            except Exception as e:
+                logging.warning(f"Failed to enable xformers memory efficient attention for SDXL inpainting: {e}")
 
         # Upscale each tile
         upscaled_tiles = []
@@ -452,14 +501,102 @@ def create_high_resolution_image(
                 init_image=tile,
             )
 
-            upscaled_tiles.append(upscaled_tile)
-
             # Save intermediate upscaled tile with unique naming
             intermediate_tile_path = os.path.join(output_dir, f'step{step}_tile_row{row_idx}_col{col_idx}.png')
             upscaled_tile.save(intermediate_tile_path)
             logging.debug(f"Upscaled tile saved to '{intermediate_tile_path}'.")
 
+            # Perform hallucination if enabled
+            if hallucinate:
+                logging.debug(f"Performing hallucination on tile {idx + 1}/{num_tiles}.")
+                # Convert PIL Image to NumPy array
+                upscaled_tile_np = np.array(upscaled_tile)
+
+                # Run Detectron2 predictor
+                outputs = predictor(upscaled_tile_np)
+
+                # Get instances
+                instances = outputs["instances"]
+
+                # Filter instances that are not too big, not too small, not close to border
+                selected_instance = None
+                image_width, image_height = upscaled_tile.size
+
+                # Thresholds for object size
+                min_area = 0.01 * image_width * image_height  # 1% of image area
+                max_area = 0.2 * image_width * image_height  # 20% of image area
+                border_threshold = 0.05 * min(image_width, image_height)  # 5% of image size
+
+                for i in range(len(instances)):
+                    # Get bounding box and mask
+                    bbox = instances.pred_boxes[i].tensor.cpu().numpy()[0]  # x1, y1, x2, y2
+                    area = instances.pred_boxes.area()[i].item()
+
+                    # Check size constraints
+                    if area < min_area or area > max_area:
+                        continue
+
+                    x1, y1, x2, y2 = bbox
+                    # Check if object is close to border
+                    if x1 < border_threshold or y1 < border_threshold or \
+                       x2 > image_width - border_threshold or y2 > image_height - border_threshold:
+                        continue
+
+                    # If passes all checks, select this instance
+                    selected_instance = instances[i]
+                    break  # Select the first suitable instance
+
+                if selected_instance is not None:
+                    # Create mask
+                    mask = selected_instance.pred_masks.cpu().numpy()[0].astype(np.uint8) * 255  # Convert to 0-255
+
+                    # Save mask for debugging
+                    mask_image = Image.fromarray(mask)
+                    mask_path = os.path.join(output_dir, f'step{step}_mask_row{row_idx}_col{col_idx}.png')
+                    mask_image.save(mask_path)
+                    logging.debug(f"Mask saved to '{mask_path}'.")
+
+                    # Prepare inputs for inpainting
+                    prompt = args.prompt  # Use the same prompt
+                    guidance_scale = args.guidance_scale
+                    num_inference_steps = args.num_steps
+
+                    # Convert mask to PIL Image and ensure it matches the size of the upscaled tile
+                    mask_pil = Image.fromarray(mask).convert("L")
+                    if upscaled_tile.size != mask_pil.size:
+                        mask_pil = mask_pil.resize(upscaled_tile.size)
+
+                    # Perform inpainting
+                    with torch.no_grad():
+                        result = inpaint_pipe(
+                            prompt=prompt,
+                            image=upscaled_tile,
+                            mask_image=mask_pil,
+                            guidance_scale=guidance_scale,
+                            num_inference_steps=num_inference_steps,
+                        )
+                        inpainted_tile = result.images[0]
+
+                    # Replace upscaled_tile with inpainted_tile
+                    upscaled_tile = inpainted_tile
+
+                    # Save modified tile
+                    mod_tile_path = os.path.join(output_dir, f'step{step}_mod_tile_row{row_idx}_col{col_idx}.png')
+                    upscaled_tile.save(mod_tile_path)
+                    logging.debug(f"Modified tile saved to '{mod_tile_path}'.")
+
+                else:
+                    logging.debug(f"No suitable object found in tile {idx + 1}/{num_tiles} at position (Row: {row_idx}, Column: {col_idx}) for hallucination.")
+
+            # Append the (modified) tile to upscaled_tiles
+            upscaled_tiles.append(upscaled_tile)
+
             # Cleanup
+            cleanup_memory()
+
+        # Unload inpainting pipeline to save VRAM
+        if hallucinate:
+            inpaint_pipe = None
             cleanup_memory()
 
         # Stitch the upscaled tiles back together
@@ -554,6 +691,7 @@ def main() -> None:
         upscale_exponent=args.upscale_exponent,
         output_dir=args.output_dir,
         model=realesrgan_model,
+        hallucinate=args.hallucinate,
     )
 
     # Cleanup
