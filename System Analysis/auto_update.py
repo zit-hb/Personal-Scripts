@@ -45,6 +45,7 @@ import logging
 import os
 import sys
 import subprocess
+import shutil
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -168,9 +169,10 @@ def get_distribution() -> str:
 
 
 class AutoUpdateManager:
-    def __init__(self, dry_run: bool = False, exclude: Optional[List[str]] = None):
+    def __init__(self, dry_run: bool = False, exclude: Optional[List[str]] = None, use_sudo: bool = False):
         self.dry_run = dry_run
         self.exclude = exclude if exclude else []
+        self.use_sudo = use_sudo
 
 
     def install_updates(self, security_only: bool = False):
@@ -253,8 +255,17 @@ class APTManager(AutoUpdateManager):
             logging.warning('Excluding packages is not directly supported with apt-get upgrade.')
             # Alternatively, mark packages as held
             held_packages = ' '.join(self.exclude)
-            subprocess.run(['apt-mark', 'hold'] + self.exclude, check=True)
+            hold_cmd = ['apt-mark', 'hold'] + self.exclude
+            unhold_cmd = ['apt-mark', 'unhold'] + self.exclude
+            if self.use_sudo:
+                hold_cmd = ['sudo'] + hold_cmd
+                unhold_cmd = ['sudo'] + unhold_cmd
+            subprocess.run(hold_cmd, check=True)
             logging.info(f"Excluded packages from updates: {held_packages}")
+
+        if self.use_sudo:
+            cmd_update = ['sudo'] + cmd_update
+            cmd_upgrade = ['sudo'] + cmd_upgrade
 
         logging.info('Updating package lists...')
         try:
@@ -267,7 +278,7 @@ class APTManager(AutoUpdateManager):
         finally:
             if self.exclude:
                 # Unhold the packages after update
-                subprocess.run(['apt-mark', 'unhold'] + self.exclude, check=True)
+                subprocess.run(unhold_cmd, check=True)
                 logging.info(f"Removed hold on packages: {', '.join(self.exclude)}")
 
 
@@ -276,14 +287,23 @@ class APTManager(AutoUpdateManager):
         Enable automatic updates.
         """
         auto_upgrade_file = '/etc/apt/apt.conf.d/20auto-upgrades'
-        try:
-            with open(auto_upgrade_file, 'w') as f:
-                f.write('APT::Periodic::Update-Package-Lists "1";\n')
-                f.write('APT::Periodic::Unattended-Upgrade "1";\n')
-            logging.info('Automatic updates enabled.')
-        except Exception as e:
-            logging.error(f'Failed to enable automatic updates: {e}')
-            sys.exit(1)
+        content = 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n'
+        if self.use_sudo:
+            cmd = ['sudo', 'tee', auto_upgrade_file]
+            try:
+                process = subprocess.run(cmd, input=content.encode(), check=True)
+                logging.info('Automatic updates enabled.')
+            except subprocess.CalledProcessError as e:
+                logging.error(f'Failed to enable automatic updates: {e}')
+                sys.exit(1)
+        else:
+            try:
+                with open(auto_upgrade_file, 'w') as f:
+                    f.write(content)
+                logging.info('Automatic updates enabled.')
+            except Exception as e:
+                logging.error(f'Failed to enable automatic updates: {e}')
+                sys.exit(1)
 
 
     def disable_auto_updates(self):
@@ -291,14 +311,23 @@ class APTManager(AutoUpdateManager):
         Disable automatic updates.
         """
         auto_upgrade_file = '/etc/apt/apt.conf.d/20auto-upgrades'
-        try:
-            with open(auto_upgrade_file, 'w') as f:
-                f.write('APT::Periodic::Update-Package-Lists "0";\n')
-                f.write('APT::Periodic::Unattended-Upgrade "0";\n')
-            logging.info('Automatic updates disabled.')
-        except Exception as e:
-            logging.error(f'Failed to disable automatic updates: {e}')
-            sys.exit(1)
+        content = 'APT::Periodic::Update-Package-Lists "0";\nAPT::Periodic::Unattended-Upgrade "0";\n'
+        if self.use_sudo:
+            cmd = ['sudo', 'tee', auto_upgrade_file]
+            try:
+                process = subprocess.run(cmd, input=content.encode(), check=True)
+                logging.info('Automatic updates disabled.')
+            except subprocess.CalledProcessError as e:
+                logging.error(f'Failed to disable automatic updates: {e}')
+                sys.exit(1)
+        else:
+            try:
+                with open(auto_upgrade_file, 'w') as f:
+                    f.write(content)
+                logging.info('Automatic updates disabled.')
+            except Exception as e:
+                logging.error(f'Failed to disable automatic updates: {e}')
+                sys.exit(1)
 
 
     def check_updates(self):
@@ -306,6 +335,8 @@ class APTManager(AutoUpdateManager):
         Check for available updates.
         """
         cmd = ['apt-get', 'update']
+        if self.use_sudo:
+            cmd = ['sudo'] + cmd
         logging.info('Updating package lists...')
         try:
             subprocess.run(cmd, check=True)
@@ -342,8 +373,11 @@ class APTManager(AutoUpdateManager):
         """
         if self.get_reboot_required():
             logging.info('Reboot is required. Rebooting now...')
+            cmd = ['reboot']
+            if self.use_sudo:
+                cmd = ['sudo'] + cmd
             try:
-                subprocess.run(['reboot'], check=True)
+                subprocess.run(cmd, check=True)
             except subprocess.CalledProcessError as e:
                 logging.error(f"Error rebooting system: {e}")
                 sys.exit(1)
@@ -367,6 +401,8 @@ class APTManager(AutoUpdateManager):
             ['apt-get', 'autoremove', '-y']
         ]
         for cmd in cmds:
+            if self.use_sudo:
+                cmd = ['sudo'] + cmd
             logging.info(f'Running {" ".join(cmd)}')
             try:
                 subprocess.run(cmd, check=True)
@@ -396,6 +432,9 @@ class YUMManager(AutoUpdateManager):
             cmd_upgrade.append(f'--exclude={exclude_pkgs}')
             logging.info(f"Excluding packages from updates: {exclude_pkgs}")
 
+        if self.use_sudo:
+            cmd_upgrade = ['sudo'] + cmd_upgrade
+
         logging.info('Installing updates...')
         try:
             subprocess.run(cmd_upgrade, check=True)
@@ -412,21 +451,18 @@ class YUMManager(AutoUpdateManager):
         if Path('/usr/bin/dnf').exists():
             # Fedora or newer RHEL/CentOS versions
             service = 'dnf-automatic.timer'
-            try:
-                subprocess.run(['systemctl', 'enable', '--now', service], check=True)
-                logging.info('Automatic updates enabled using dnf-automatic.')
-            except subprocess.CalledProcessError as e:
-                logging.error(f'Failed to enable automatic updates: {e}')
-                sys.exit(1)
         else:
             # Older RHEL/CentOS versions
             service = 'yum-cron'
-            try:
-                subprocess.run(['systemctl', 'enable', '--now', service], check=True)
-                logging.info('Automatic updates enabled using yum-cron.')
-            except subprocess.CalledProcessError as e:
-                logging.error(f'Failed to enable automatic updates: {e}')
-                sys.exit(1)
+        cmd = ['systemctl', 'enable', '--now', service]
+        if self.use_sudo:
+            cmd = ['sudo'] + cmd
+        try:
+            subprocess.run(cmd, check=True)
+            logging.info(f'Automatic updates enabled using {service}.')
+        except subprocess.CalledProcessError as e:
+            logging.error(f'Failed to enable automatic updates: {e}')
+            sys.exit(1)
 
 
     def disable_auto_updates(self):
@@ -435,20 +471,17 @@ class YUMManager(AutoUpdateManager):
         """
         if Path('/usr/bin/dnf').exists():
             service = 'dnf-automatic.timer'
-            try:
-                subprocess.run(['systemctl', 'disable', '--now', service], check=True)
-                logging.info('Automatic updates disabled for dnf-automatic.')
-            except subprocess.CalledProcessError as e:
-                logging.error(f'Failed to disable automatic updates: {e}')
-                sys.exit(1)
         else:
             service = 'yum-cron'
-            try:
-                subprocess.run(['systemctl', 'disable', '--now', service], check=True)
-                logging.info('Automatic updates disabled for yum-cron.')
-            except subprocess.CalledProcessError as e:
-                logging.error(f'Failed to disable automatic updates: {e}')
-                sys.exit(1)
+        cmd = ['systemctl', 'disable', '--now', service]
+        if self.use_sudo:
+            cmd = ['sudo'] + cmd
+        try:
+            subprocess.run(cmd, check=True)
+            logging.info(f'Automatic updates disabled for {service}.')
+        except subprocess.CalledProcessError as e:
+            logging.error(f'Failed to disable automatic updates: {e}')
+            sys.exit(1)
 
 
     def check_updates(self):
@@ -457,6 +490,8 @@ class YUMManager(AutoUpdateManager):
         """
         pkg_manager = 'dnf' if Path('/usr/bin/dnf').exists() else 'yum'
         cmd = [pkg_manager, 'check-update']
+        if self.use_sudo:
+            cmd = ['sudo'] + cmd
         logging.info('Checking for available updates...')
         try:
             subprocess.run(cmd, check=True)
@@ -499,8 +534,11 @@ class YUMManager(AutoUpdateManager):
         """
         if self.get_reboot_required():
             logging.info('Reboot is required. Rebooting now...')
+            cmd = ['reboot']
+            if self.use_sudo:
+                cmd = ['sudo'] + cmd
             try:
-                subprocess.run(['reboot'], check=True)
+                subprocess.run(cmd, check=True)
             except subprocess.CalledProcessError as e:
                 logging.error(f"Error rebooting system: {e}")
                 sys.exit(1)
@@ -528,6 +566,8 @@ class YUMManager(AutoUpdateManager):
             [pkg_manager, 'clean', 'all']
         ]
         for cmd in cmds:
+            if self.use_sudo:
+                cmd = ['sudo'] + cmd
             logging.info(f'Running {" ".join(cmd)}')
             try:
                 subprocess.run(cmd, check=True)
@@ -547,18 +587,26 @@ def main():
 
     # Check for root privileges
     if os.geteuid() != 0:
-        logging.error('This script must be run as root.')
-        sys.exit(1)
+        # Not running as root
+        # Check if sudo is available
+        if shutil.which('sudo') is not None:
+            use_sudo = True
+            logging.info('Not running as root. Will use sudo for privileged commands.')
+        else:
+            logging.error('This script must be run as root or sudo must be available.')
+            sys.exit(1)
+    else:
+        use_sudo = False
 
     distro_id = get_distribution()
     logging.debug(f'Detected Linux distribution: {distro_id}')
     manager = None
     if distro_id in ['ubuntu', 'debian']:
         exclude_list = args.exclude.split(',') if args.exclude else None
-        manager = APTManager(dry_run=args.dry_run, exclude=exclude_list)
+        manager = APTManager(dry_run=args.dry_run, exclude=exclude_list, use_sudo=use_sudo)
     elif distro_id in ['rhel', 'centos', 'redhat', 'fedora']:
         exclude_list = args.exclude.split(',') if args.exclude else None
-        manager = YUMManager(dry_run=args.dry_run, exclude=exclude_list)
+        manager = YUMManager(dry_run=args.dry_run, exclude=exclude_list, use_sudo=use_sudo)
     else:
         logging.error(f'Distribution "{distro_id}" is not supported.')
         sys.exit(1)
