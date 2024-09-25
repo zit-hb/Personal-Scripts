@@ -19,7 +19,7 @@
 # -o, --output-dir OUTPUT_DIR   Directory to save refactored code files. (default: overwrite input files)
 # -s, --style STYLE             Coding style to apply. Choices: "Default", "Google", "Airbnb", "PEP8", "Standard". (default: "Default")
 # -r, --recursive               Process directories recursively.
-# --include PATTERNS            Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: all files)
+# --include PATTERNS            Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)
 # --exclude PATTERNS            Comma-separated list of glob patterns to exclude (e.g., "*.min.js, test_*"). (default: none)
 # -m, --model MODEL             OpenAI model to use for code refactoring. (default: "gpt-4o")
 # -L, --level LEVEL             Level of changes to apply. Choices: "minimal", "small_fixes", "bug_fixes", "rewrite". (default: "minimal")
@@ -44,7 +44,8 @@ import sys
 import re
 from pathlib import Path
 import fnmatch
-from typing import List, Optional
+from typing import List, Optional, Dict
+import json
 
 # Optional: Load environment variables from a .env file if present
 try:
@@ -56,6 +57,27 @@ except ImportError:
 from openai import OpenAI
 
 client: Optional[OpenAI] = None  # Global OpenAI client
+
+# Mapping of file extensions to programming languages
+extension_to_language = {
+    '.py': 'Python',
+    '.js': 'JavaScript',
+    '.java': 'Java',
+    '.cpp': 'C++',
+    '.c': 'C',
+    '.cs': 'C#',
+    '.rb': 'Ruby',
+    '.go': 'Go',
+    '.php': 'PHP',
+    '.swift': 'Swift',
+    '.ts': 'TypeScript',
+    '.html': 'HTML',
+    '.css': 'CSS',
+    '.rs': 'Rust',
+    '.kt': 'Kotlin',
+    '.scala': 'Scala',
+    # Add more mappings as needed
+}
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -93,7 +115,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '--include',
         type=str,
-        help='Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: all files)'
+        help='Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)'
     )
     parser.add_argument(
         '--exclude',
@@ -139,7 +161,8 @@ def parse_arguments() -> argparse.Namespace:
     if args.include:
         args.include = [pattern.strip() for pattern in args.include.split(',')]
     else:
-        args.include = []
+        # Default to known code file extensions
+        args.include = ['*' + ext for ext in extension_to_language.keys()]
 
     if args.exclude:
         args.exclude = [pattern.strip() for pattern in args.exclude.split(',')]
@@ -205,25 +228,6 @@ def detect_language(file_path: Path) -> str:
     """
     Detects the programming language of the code file based on its extension.
     """
-    extension_to_language = {
-        '.py': 'Python',
-        '.js': 'JavaScript',
-        '.java': 'Java',
-        '.cpp': 'C++',
-        '.c': 'C',
-        '.cs': 'C#',
-        '.rb': 'Ruby',
-        '.go': 'Go',
-        '.php': 'PHP',
-        '.swift': 'Swift',
-        '.ts': 'TypeScript',
-        '.html': 'HTML',
-        '.css': 'CSS',
-        '.rs': 'Rust',
-        '.kt': 'Kotlin',
-        '.scala': 'Scala',
-        # Add more mappings as needed
-    }
     ext = file_path.suffix.lower()
     language = extension_to_language.get(ext, 'Plain Text')
     logging.debug(f"Detected language '{language}' for file '{file_path}'.")
@@ -299,64 +303,60 @@ def collect_code_files(input_path: str, recursive: bool, include_patterns: List[
     return code_files
 
 
-def prepare_prompt(code: str, language: str, style: str, level: str) -> str:
+def prepare_messages(code: str, language: str, style: str, level: str, include_additional_info: bool) -> List[Dict]:
     """
-    Prepares the prompt to send to the LLM.
+    Prepares the messages to send to the LLM.
     """
-    prompt = f"Refactor the following {language} code according to the specified coding style and requirements.\n"
-
-    if style != 'Default':
-        prompt += f"Use the {style} coding style guidelines for {language}.\n"
-    else:
-        prompt += f"Use the default coding style for {language}.\n"
-
-    if level == 'minimal':
-        prompt += "Make minimal changes to adjust the style without altering functionality.\n"
-    elif level == 'small_fixes':
-        prompt += "Adjust the style and fix any minor issues you find without changing the functionality.\n"
-    elif level == 'bug_fixes':
-        prompt += "Adjust the style and fix any bugs you find if you are sure they are bugs and how to fix them.\n"
-    elif level == 'rewrite':
-        prompt += "Feel free to completely rewrite the code to improve it while preserving its functionality.\n"
-
-    prompt += "Only output the refactored code and nothing else.\n\n"
-    prompt += "Original Code:\n"
-    prompt += "```"
-    prompt += code
-    prompt += "```"
-    return prompt
-
-
-def call_openai_api(prompt: str, model: str) -> Optional[str]:
-    """
-    Sends the prompt to the OpenAI API and returns the response.
-    """
-    global client
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.0
+    system_message = {
+        "role": "system",
+        "content": (
+            "You are an assistant that refactors code according to specified coding styles and levels."
+            " Use the provided function to return the refactored code."
+            + (" Also provide additional information if requested." if include_additional_info else "")
         )
-        return response.choices[0].message.content
+    }
+
+    # Start building the user message content
+    user_message_content = f"Please refactor the following {language} code according to the {style} coding style."
+
+    # Add level-specific instructions
+    if level == 'minimal':
+        user_message_content += " Make minimal changes to adjust the style without altering functionality."
+    elif level == 'small_fixes':
+        user_message_content += " Adjust the style and fix any minor issues you find without changing the functionality."
+    elif level == 'bug_fixes':
+        user_message_content += " Adjust the style and fix any bugs you find if you are sure they are bugs and know how to fix them."
+    elif level == 'rewrite':
+        user_message_content += " Feel free to completely rewrite the code to improve it while preserving its functionality."
+
+    user_message_content += " Return the refactored code using the 'refactor_code' function."
+
+    if include_additional_info:
+        user_message_content += " Include additional information about the code in your response."
+
+    user_message_content += f"\n\nCode:\n```\n{code}\n```"
+
+    user_message = {
+        "role": "user",
+        "content": user_message_content
+    }
+
+    return [system_message, user_message]
+
+
+def call_openai_api(messages: List[Dict], model: str, functions: Optional[List[Dict]] = None) -> Optional[Dict]:
+    """
+    Sends the messages to the OpenAI API and returns the response.
+    """
+    try:
+        response = client.chat.completions.create(model=model,
+        messages=messages,
+        functions=functions,
+        temperature=0.0)
+        return response
     except Exception as e:
         logging.error(f"OpenAI API call failed: {e}")
         return None
-
-
-def filter_code_output(response: str, language: str) -> str:
-    """
-    Filters out any non-code text from the response.
-    """
-    # Remove any content before and after code blocks
-    code_blocks = re.findall(rf'```(?:{language.lower()})?\n(.*?)```', response, re.DOTALL | re.IGNORECASE)
-    if code_blocks:
-        return '\n'.join(code_blocks)
-    else:
-        # If no code blocks, assume the entire response is code
-        return response.strip()
 
 
 def process_file(file_path: Path, args: argparse.Namespace, output_dir: Optional[Path]) -> None:
@@ -370,33 +370,121 @@ def process_file(file_path: Path, args: argparse.Namespace, output_dir: Optional
 
     language = detect_language(file_path)
 
-    # Prepare prompt
-    prompt = prepare_prompt(input_code, language, args.style, args.level)
-    logging.debug(f"Prepared prompt for file '{file_path}'.")
+    # Determine if additional info is needed based on logging level
+    include_additional_info = logging.getLogger().isEnabledFor(logging.INFO)
+
+    # Prepare messages
+    messages = prepare_messages(input_code, language, args.style, args.level, include_additional_info)
+
+    # Define functions
+    function_properties = {
+        "refactored_code": {"type": "string", "description": "The refactored code."}
+    }
+
+    if include_additional_info:
+        function_properties.update({
+            "description": {"type": "string", "description": "A very short description of the code."},
+            "quality": {"type": "string", "description": "A very short assessment of code quality."},
+            "style": {"type": "string", "description": "The coding style used."},
+            "language": {"type": "string", "description": "Programming language of the code."},
+            "libraries": {"type": "array", "items": {"type": "string"}, "description": "A short list of libraries used."},
+            "frameworks": {"type": "array", "items": {"type": "string"}, "description": "A short list of frameworks used."}
+        })
+
+    functions = [
+        {
+            "name": "refactor_code",
+            "description": "Refactors the code according to the specified coding style and level.",
+            "parameters": {
+                "type": "object",
+                "properties": function_properties,
+                "required": ["refactored_code"],
+                "additionalProperties": False
+            }
+        }
+    ]
 
     # Call OpenAI API
-    response = call_openai_api(prompt, args.model)
+    response = call_openai_api(messages, args.model, functions)
     if response is None:
         logging.error(f"Skipping file '{file_path}' due to API error.")
         return
 
-    # Filter code output
-    refactored_code = filter_code_output(response, language)
-    if not refactored_code:
-        logging.error(f"Failed to extract code for file '{file_path}'.")
-        return
+    assistant_message = response.choices[0].message
 
-    # Determine output file path
-    if output_dir:
-        relative_path = file_path.relative_to(Path(args.input_path))
-        output_file_path = output_dir / relative_path
-        output_file_path.parent.mkdir(parents=True, exist_ok=True)
+    if hasattr(assistant_message, 'function_call') and assistant_message.function_call is not None:
+        function_call = assistant_message.function_call
+        function_name = function_call.name
+        arguments = function_call.arguments
+
+        # Parse arguments (which is a JSON string)
+        try:
+            function_args = json.loads(arguments)
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse function arguments: {e}")
+            return
+
+        # Get refactored code
+        refactored_code = function_args.get('refactored_code')
+        if not refactored_code:
+            logging.error(f"Refactored code not found in function arguments.")
+            return
+
+        # Log additional information if available
+        if include_additional_info:
+            description = function_args.get('description', '')
+            quality = function_args.get('quality', '')
+            used_style = function_args.get('style', '')
+            used_language = function_args.get('language', '')
+            libraries = function_args.get('libraries', [])
+            frameworks = function_args.get('frameworks', [])
+
+            logging.info(f"File: {file_path}")
+            if description:
+                logging.info(f"Description: {description}")
+            if quality:
+                logging.info(f"Quality: {quality}")
+            if used_style:
+                logging.info(f"Style: {used_style}")
+            if used_language:
+                logging.info(f"Language: {used_language}")
+            if libraries:
+                logging.info(f"Libraries: {', '.join(libraries)}")
+            if frameworks:
+                logging.info(f"Frameworks: {', '.join(frameworks)}")
+
+        # Determine output file path
+        if output_dir:
+            relative_path = file_path.relative_to(Path(args.input_path))
+            output_file_path = output_dir / relative_path
+            output_file_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            output_file_path = file_path
+
+        # Write refactored code to output file
+        write_file(output_file_path, refactored_code)
+        logging.info(f"Refactored code written to '{output_file_path}'.")
     else:
-        output_file_path = file_path
+        # If no function call, try to get the content directly
+        if assistant_message.content:
+            refactored_code = assistant_message.content.strip()
+            if not refactored_code:
+                logging.error(f"No content in assistant's response for file '{file_path}'.")
+                return
+            # Determine output file path
+            if output_dir:
+                relative_path = file_path.relative_to(Path(args.input_path))
+                output_file_path = output_dir / relative_path
+                output_file_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                output_file_path = file_path
 
-    # Write refactored code to output file
-    write_file(output_file_path, refactored_code)
-    logging.info(f"Refactored code written to '{output_file_path}'.")
+            # Write refactored code to output file
+            write_file(output_file_path, refactored_code)
+            logging.info(f"Refactored code written to '{output_file_path}'.")
+        else:
+            logging.error(f"No function call or content in assistant's response for file '{file_path}'.")
+            return
 
 
 def main() -> None:
