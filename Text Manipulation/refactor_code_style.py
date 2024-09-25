@@ -349,10 +349,11 @@ def call_openai_api(messages: List[Dict], model: str, functions: Optional[List[D
     Sends the messages to the OpenAI API and returns the response.
     """
     try:
-        response = client.chat.completions.create(model=model,
-        messages=messages,
-        functions=functions,
-        temperature=0.0)
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            functions=functions
+        )
         return response
     except Exception as e:
         logging.error(f"OpenAI API call failed: {e}")
@@ -404,87 +405,106 @@ def process_file(file_path: Path, args: argparse.Namespace, output_dir: Optional
         }
     ]
 
-    # Call OpenAI API
-    response = call_openai_api(messages, args.model, functions)
-    if response is None:
-        logging.error(f"Skipping file '{file_path}' due to API error.")
+    max_attempts = 3  # Initial attempt + 2 retries
+    for attempt in range(max_attempts):
+        # Call OpenAI API
+        response = call_openai_api(messages, args.model, functions)
+        if response is None:
+            logging.error(f"Skipping file '{file_path}' due to API error.")
+            return
+
+        assistant_message = response.choices[0].message
+
+        if hasattr(assistant_message, 'function_call') and assistant_message.function_call is not None:
+            function_call = assistant_message.function_call
+            arguments = function_call.arguments
+
+            # Parse arguments (which is a JSON string)
+            try:
+                function_args = json.loads(arguments)
+                break  # Successful parsing, exit the retry loop
+            except json.JSONDecodeError as e:
+                logging.error(f"Failed to parse function arguments on attempt {attempt + 1}: {e}")
+                if attempt < max_attempts - 1:
+                    logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
+                    continue
+                else:
+                    logging.error(f"Skipping file '{file_path}' after {max_attempts} failed attempts.")
+                    return
+        else:
+            # If no function call, try to get the content directly
+            if assistant_message.content:
+                refactored_code = assistant_message.content.strip()
+                if not refactored_code:
+                    logging.error(f"No content in assistant's response for file '{file_path}'.")
+                    if attempt < max_attempts - 1:
+                        logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
+                        continue
+                    else:
+                        logging.error(f"Skipping file '{file_path}' after {max_attempts} failed attempts.")
+                        return
+                else:
+                    # Determine output file path
+                    if output_dir:
+                        relative_path = file_path.relative_to(Path(args.input_path))
+                        output_file_path = output_dir / relative_path
+                        output_file_path.parent.mkdir(parents=True, exist_ok=True)
+                    else:
+                        output_file_path = file_path
+
+                    # Write refactored code to output file
+                    write_file(output_file_path, refactored_code)
+                    logging.info(f"Refactored code written to '{output_file_path}'.")
+                    return
+            else:
+                logging.error(f"No function call or content in assistant's response for file '{file_path}'.")
+                if attempt < max_attempts - 1:
+                    logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
+                    continue
+                else:
+                    logging.error(f"Skipping file '{file_path}' after {max_attempts} failed attempts.")
+                    return
+
+    # Proceed with processing after successful parsing
+    refactored_code = function_args.get('refactored_code')
+    if not refactored_code:
+        logging.error(f"Refactored code not found in function arguments.")
         return
 
-    assistant_message = response.choices[0].message
+    # Log additional information if available
+    if include_additional_info:
+        description = function_args.get('description', '')
+        quality = function_args.get('quality', '')
+        used_style = function_args.get('style', '')
+        used_language = function_args.get('language', '')
+        libraries = function_args.get('libraries', [])
+        frameworks = function_args.get('frameworks', [])
 
-    if hasattr(assistant_message, 'function_call') and assistant_message.function_call is not None:
-        function_call = assistant_message.function_call
-        function_name = function_call.name
-        arguments = function_call.arguments
+        logging.info(f"File: {file_path}")
+        if description:
+            logging.info(f"Description: {description}")
+        if quality:
+            logging.info(f"Quality: {quality}")
+        if used_style:
+            logging.info(f"Style: {used_style}")
+        if used_language:
+            logging.info(f"Language: {used_language}")
+        if libraries:
+            logging.info(f"Libraries: {', '.join(libraries)}")
+        if frameworks:
+            logging.info(f"Frameworks: {', '.join(frameworks)}")
 
-        # Parse arguments (which is a JSON string)
-        try:
-            function_args = json.loads(arguments)
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse function arguments: {e}")
-            return
-
-        # Get refactored code
-        refactored_code = function_args.get('refactored_code')
-        if not refactored_code:
-            logging.error(f"Refactored code not found in function arguments.")
-            return
-
-        # Log additional information if available
-        if include_additional_info:
-            description = function_args.get('description', '')
-            quality = function_args.get('quality', '')
-            used_style = function_args.get('style', '')
-            used_language = function_args.get('language', '')
-            libraries = function_args.get('libraries', [])
-            frameworks = function_args.get('frameworks', [])
-
-            logging.info(f"File: {file_path}")
-            if description:
-                logging.info(f"Description: {description}")
-            if quality:
-                logging.info(f"Quality: {quality}")
-            if used_style:
-                logging.info(f"Style: {used_style}")
-            if used_language:
-                logging.info(f"Language: {used_language}")
-            if libraries:
-                logging.info(f"Libraries: {', '.join(libraries)}")
-            if frameworks:
-                logging.info(f"Frameworks: {', '.join(frameworks)}")
-
-        # Determine output file path
-        if output_dir:
-            relative_path = file_path.relative_to(Path(args.input_path))
-            output_file_path = output_dir / relative_path
-            output_file_path.parent.mkdir(parents=True, exist_ok=True)
-        else:
-            output_file_path = file_path
-
-        # Write refactored code to output file
-        write_file(output_file_path, refactored_code)
-        logging.info(f"Refactored code written to '{output_file_path}'.")
+    # Determine output file path
+    if output_dir:
+        relative_path = file_path.relative_to(Path(args.input_path))
+        output_file_path = output_dir / relative_path
+        output_file_path.parent.mkdir(parents=True, exist_ok=True)
     else:
-        # If no function call, try to get the content directly
-        if assistant_message.content:
-            refactored_code = assistant_message.content.strip()
-            if not refactored_code:
-                logging.error(f"No content in assistant's response for file '{file_path}'.")
-                return
-            # Determine output file path
-            if output_dir:
-                relative_path = file_path.relative_to(Path(args.input_path))
-                output_file_path = output_dir / relative_path
-                output_file_path.parent.mkdir(parents=True, exist_ok=True)
-            else:
-                output_file_path = file_path
+        output_file_path = file_path
 
-            # Write refactored code to output file
-            write_file(output_file_path, refactored_code)
-            logging.info(f"Refactored code written to '{output_file_path}'.")
-        else:
-            logging.error(f"No function call or content in assistant's response for file '{file_path}'.")
-            return
+    # Write refactored code to output file
+    write_file(output_file_path, refactored_code)
+    logging.info(f"Refactored code written to '{output_file_path}'.")
 
 
 def main() -> None:
