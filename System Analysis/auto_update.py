@@ -555,7 +555,6 @@ class YUMManager(AutoUpdateManager):
         return os.path.exists('/var/run/reboot-required')
 
 
-
     def cleanup(self):
         """
         Clean up package cache and remove unused packages using yum/dnf.
