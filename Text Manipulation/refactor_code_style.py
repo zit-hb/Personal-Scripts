@@ -9,6 +9,7 @@
 # and writes the output to files. If no output directory is specified, the input files are overwritten.
 # It supports processing single files or directories, with options for recursive traversal,
 # inclusion and exclusion patterns, and automatic language detection.
+# Additionally, it can include the last refactored code in the chat history to maintain consistency across multiple files.
 #
 # Usage:
 # ./refactor_code_style.py [input_path] [options]
@@ -19,13 +20,14 @@
 # -o, --output-dir OUTPUT_DIR   Directory to save refactored code files. (default: overwrite input files)
 # -s, --style STYLE             Coding style to apply. Choices: "Default", "Google", "Airbnb", "PEP8", "Standard". (default: "Default")
 # -r, --recursive               Process directories recursively.
-# --include PATTERNS            Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)
-# --exclude PATTERNS            Comma-separated list of glob patterns to exclude (e.g., "*.min.js, test_*"). (default: none)
+# -i, --include PATTERNS        Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)
+# -e, --exclude PATTERNS        Comma-separated list of glob patterns to exclude (e.g., "*.min.js, test_*"). (default: none)
 # -m, --model MODEL             OpenAI model to use for code refactoring. (default: "gpt-4o")
 # -L, --level LEVEL             Level of changes to apply. Choices: "minimal", "small_fixes", "bug_fixes", "rewrite". (default: "minimal")
 # -v, --verbose                 Enable verbose logging (INFO level).
 # -vv, --debug                  Enable debug logging (DEBUG level).
 # -k, --api-key API_KEY         OpenAI API key. Can also be set via the OPENAI_API_KEY environment variable.
+# -l, --include-last-cleaned    Include the last refactored code in the chat history for consistency across multiple files.
 #
 # Returns:
 # Exit code 0 on success, non-zero on failure.
@@ -41,7 +43,6 @@ import argparse
 import logging
 import os
 import sys
-import re
 from pathlib import Path
 import fnmatch
 from typing import List, Optional, Dict
@@ -113,11 +114,13 @@ def parse_arguments() -> argparse.Namespace:
         help='Process directories recursively.'
     )
     parser.add_argument(
+        '-i',
         '--include',
         type=str,
         help='Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)'
     )
     parser.add_argument(
+        '-e',
         '--exclude',
         type=str,
         help='Comma-separated list of glob patterns to exclude (e.g., "*.min.js, test_*"). (default: none)'
@@ -154,6 +157,12 @@ def parse_arguments() -> argparse.Namespace:
         '--api-key',
         type=str,
         help='OpenAI API key. Can also be set via the OPENAI_API_KEY environment variable.'
+    )
+    parser.add_argument(
+        '-l',
+        '--include-last-cleaned',
+        action='store_true',
+        help='Include the last refactored code in the chat history for consistency across multiple files.'
     )
     args = parser.parse_args()
 
@@ -303,10 +312,22 @@ def collect_code_files(input_path: str, recursive: bool, include_patterns: List[
     return code_files
 
 
-def prepare_messages(code: str, language: str, style: str, level: str, include_additional_info: bool) -> List[Dict]:
+def prepare_messages(
+    code: str,
+    language: str,
+    style: str,
+    level: str,
+    include_additional_info: bool,
+    example_refactored_code: Optional[str] = None
+) -> List[Dict]:
     """
     Prepares the messages to send to the LLM.
+    Structures the conversation with distinct messages for task instructions,
+    example refactored code (if available), and the actual code to refactor.
     """
+    messages = []
+
+    # System Message: General Instructions
     system_message = {
         "role": "system",
         "content": (
@@ -315,33 +336,68 @@ def prepare_messages(code: str, language: str, style: str, level: str, include_a
             + (" Also provide additional information if requested." if include_additional_info else "")
         )
     }
+    messages.append(system_message)
 
-    # Start building the user message content
-    user_message_content = f"Please refactor the following {language} code according to the {style} coding style."
+    # User Message: Task Description
+    task_message_content = (
+        f"Please refactor the following {language} code according to the {style} coding style."
+    )
 
     # Add level-specific instructions
     if level == 'minimal':
-        user_message_content += " Make minimal changes to adjust the style without altering functionality."
+        task_message_content += " Make minimal changes to adjust the style without altering functionality."
     elif level == 'small_fixes':
-        user_message_content += " Adjust the style and fix any minor issues you find without changing the functionality."
+        task_message_content += " Adjust the style and fix any minor issues you find without changing the functionality."
     elif level == 'bug_fixes':
-        user_message_content += " Adjust the style and fix any bugs you find if you are sure they are bugs and know how to fix them."
+        task_message_content += " Adjust the style and fix any bugs you find if you are sure they are bugs and know how to fix them."
     elif level == 'rewrite':
-        user_message_content += " Feel free to completely rewrite the code to improve it while preserving its functionality."
+        task_message_content += " Feel free to completely rewrite the code to improve it while preserving its functionality."
 
-    user_message_content += " Return the refactored code using the 'refactor_code' function."
+    task_message_content += " Please acknowledge these instructions."
 
-    if include_additional_info:
-        user_message_content += " Include additional information about the code in your response."
-
-    user_message_content += f"\n\nCode:\n```\n{code}\n```"
-
-    user_message = {
+    task_message = {
         "role": "user",
-        "content": user_message_content
+        "content": task_message_content
     }
+    messages.append(task_message)
 
-    return [system_message, user_message]
+    # Assistant Message: Acknowledgment of Task
+    assistant_ack_task = {
+        "role": "assistant",
+        "content": "Understood. I'm ready to receive the code you want to refactor."
+    }
+    messages.append(assistant_ack_task)
+
+    # (Optional) User Message: Example Refactored Code
+    if example_refactored_code:
+        example_message_content = (
+            "Here is an example of previously refactored code to help maintain consistency:\n"
+            "```\n"
+            f"{example_refactored_code}\n"
+            "```"
+        )
+        example_message = {
+            "role": "user",
+            "content": example_message_content
+        }
+        messages.append(example_message)
+
+        # Assistant Message: Acknowledgment of Example
+        assistant_ack_example = {
+            "role": "assistant",
+            "content": "Got it. I'll use this example to maintain consistency in refactoring."
+        }
+        messages.append(assistant_ack_example)
+
+    # User Message: Actual Code to Refactor
+    code_message_content = f"Here is the code that needs to be refactored:\n```\n{code}\n```"
+    code_message = {
+        "role": "user",
+        "content": code_message_content
+    }
+    messages.append(code_message)
+
+    return messages
 
 
 def call_openai_api(messages: List[Dict], model: str, functions: Optional[List[Dict]] = None) -> Optional[Dict]:
@@ -360,22 +416,110 @@ def call_openai_api(messages: List[Dict], model: str, functions: Optional[List[D
         return None
 
 
-def process_file(file_path: Path, args: argparse.Namespace, output_dir: Optional[Path]) -> None:
+def get_refactored_code(messages: List[Dict], model: str, functions: Optional[List[Dict]]) -> Optional[Dict]:
+    """
+    Calls the OpenAI API to get the refactored code, with retry logic.
+    Returns the function arguments as a dict if successful, else None.
+    """
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        # Call OpenAI API
+        response = call_openai_api(messages, model, functions)
+        if response is None:
+            logging.error(f"OpenAI API call failed on attempt {attempt + 1}.")
+            if attempt < max_attempts - 1:
+                logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
+                continue
+            else:
+                return None
+
+        assistant_message = response.choices[0].message
+
+        if hasattr(assistant_message, 'function_call') and assistant_message.function_call is not None:
+            function_call = assistant_message.function_call
+            arguments = function_call.arguments
+
+            # Parse arguments (which is a JSON string)
+            try:
+                function_args = json.loads(arguments)
+                return function_args
+            except json.JSONDecodeError as e:
+                logging.error(f"Failed to parse function arguments on attempt {attempt + 1}: {e}")
+                if attempt < max_attempts - 1:
+                    logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
+                    continue
+                else:
+                    return None
+        else:
+            # If no function call, try to get the content directly
+            if assistant_message.content:
+                refactored_code = assistant_message.content.strip()
+                if refactored_code:
+                    function_args = {'refactored_code': refactored_code}
+                    return function_args
+                else:
+                    logging.error(f"No content in assistant's response.")
+                    if attempt < max_attempts - 1:
+                        logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
+                        continue
+                    else:
+                        return None
+            else:
+                logging.error(f"No function call or content in assistant's response.")
+                if attempt < max_attempts - 1:
+                    logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
+                    continue
+                else:
+                    return None
+    return None
+
+
+def determine_output_file_path(file_path: Path, output_dir: Optional[Path], input_path: str) -> Path:
+    """
+    Determines the output file path, creating necessary directories.
+    """
+    if output_dir:
+        try:
+            relative_path = file_path.relative_to(Path(input_path))
+        except ValueError:
+            # If file_path is not relative to input_path
+            relative_path = file_path.name
+        output_file_path = output_dir / relative_path
+        output_file_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        output_file_path = file_path
+    return output_file_path
+
+
+def process_file(
+    file_path: Path,
+    args: argparse.Namespace,
+    output_dir: Optional[Path],
+    example_refactored_code: Optional[str] = None
+) -> Optional[str]:
     """
     Processes a single code file: refactors and outputs the result.
+    Returns the refactored code if successful, else None.
     """
     input_code = read_file(file_path)
     if input_code is None:
         logging.error(f"Skipping file '{file_path}'.")
-        return
+        return None
 
     language = detect_language(file_path)
 
     # Determine if additional info is needed based on logging level
     include_additional_info = logging.getLogger().isEnabledFor(logging.INFO)
 
-    # Prepare messages
-    messages = prepare_messages(input_code, language, args.style, args.level, include_additional_info)
+    # Prepare messages, including example refactored code if provided
+    messages = prepare_messages(
+        code=input_code,
+        language=language,
+        style=args.style,
+        level=args.level,
+        include_additional_info=include_additional_info,
+        example_refactored_code=example_refactored_code
+    )
 
     # Define functions
     function_properties = {
@@ -405,71 +549,16 @@ def process_file(file_path: Path, args: argparse.Namespace, output_dir: Optional
         }
     ]
 
-    max_attempts = 3  # Initial attempt + 2 retries
-    for attempt in range(max_attempts):
-        # Call OpenAI API
-        response = call_openai_api(messages, args.model, functions)
-        if response is None:
-            logging.error(f"Skipping file '{file_path}' due to API error.")
-            return
+    # Get refactored code and additional info
+    function_args = get_refactored_code(messages, args.model, functions)
+    if function_args is None:
+        logging.error(f"Skipping file '{file_path}' due to errors.")
+        return None
 
-        assistant_message = response.choices[0].message
-
-        if hasattr(assistant_message, 'function_call') and assistant_message.function_call is not None:
-            function_call = assistant_message.function_call
-            arguments = function_call.arguments
-
-            # Parse arguments (which is a JSON string)
-            try:
-                function_args = json.loads(arguments)
-                break  # Successful parsing, exit the retry loop
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse function arguments on attempt {attempt + 1}: {e}")
-                if attempt < max_attempts - 1:
-                    logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
-                    continue
-                else:
-                    logging.error(f"Skipping file '{file_path}' after {max_attempts} failed attempts.")
-                    return
-        else:
-            # If no function call, try to get the content directly
-            if assistant_message.content:
-                refactored_code = assistant_message.content.strip()
-                if not refactored_code:
-                    logging.error(f"No content in assistant's response for file '{file_path}'.")
-                    if attempt < max_attempts - 1:
-                        logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
-                        continue
-                    else:
-                        logging.error(f"Skipping file '{file_path}' after {max_attempts} failed attempts.")
-                        return
-                else:
-                    # Determine output file path
-                    if output_dir:
-                        relative_path = file_path.relative_to(Path(args.input_path))
-                        output_file_path = output_dir / relative_path
-                        output_file_path.parent.mkdir(parents=True, exist_ok=True)
-                    else:
-                        output_file_path = file_path
-
-                    # Write refactored code to output file
-                    write_file(output_file_path, refactored_code)
-                    logging.info(f"Refactored code written to '{output_file_path}'.")
-                    return
-            else:
-                logging.error(f"No function call or content in assistant's response for file '{file_path}'.")
-                if attempt < max_attempts - 1:
-                    logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
-                    continue
-                else:
-                    logging.error(f"Skipping file '{file_path}' after {max_attempts} failed attempts.")
-                    return
-
-    # Proceed with processing after successful parsing
     refactored_code = function_args.get('refactored_code')
     if not refactored_code:
         logging.error(f"Refactored code not found in function arguments.")
-        return
+        return None
 
     # Log additional information if available
     if include_additional_info:
@@ -495,16 +584,13 @@ def process_file(file_path: Path, args: argparse.Namespace, output_dir: Optional
             logging.info(f"Frameworks: {', '.join(frameworks)}")
 
     # Determine output file path
-    if output_dir:
-        relative_path = file_path.relative_to(Path(args.input_path))
-        output_file_path = output_dir / relative_path
-        output_file_path.parent.mkdir(parents=True, exist_ok=True)
-    else:
-        output_file_path = file_path
+    output_file_path = determine_output_file_path(file_path, output_dir, args.input_path)
 
     # Write refactored code to output file
     write_file(output_file_path, refactored_code)
     logging.info(f"Refactored code written to '{output_file_path}'.")
+
+    return refactored_code  # Return the refactored code to update example_refactored_code
 
 
 def main() -> None:
@@ -533,9 +619,28 @@ def main() -> None:
     # Determine output directory
     output_dir = Path(args.output_dir) if args.output_dir else None
 
+    # Initialize variable to store the example refactored code
+    example_refactored_code: Optional[str] = None
+
     # Process each code file
     for file_path in code_files:
-        process_file(file_path, args, output_dir)
+        if args.include_last_cleaned:
+            current_refactored_code = process_file(
+                file_path,
+                args,
+                output_dir,
+                example_refactored_code
+            )
+        else:
+            current_refactored_code = process_file(
+                file_path,
+                args,
+                output_dir
+            )
+
+        # Update the example_refactored_code if processing was successful
+        if args.include_last_cleaned and current_refactored_code:
+            example_refactored_code = current_refactored_code
 
     logging.info("Code refactoring process completed.")
 
