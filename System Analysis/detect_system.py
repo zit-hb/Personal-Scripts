@@ -15,6 +15,7 @@
 # -v, --verbose               Enable verbose logging (INFO level).
 # -vv, --debug                Enable debug logging (DEBUG level).
 # -a, --all                   Perform all possible checks, including those not limited by OS type.
+# -p, --paranoid              Enable paranoid mode: perform untrusting OS checks.
 # -o, --output FILE           Output the detection results to a specified file (JSON format).
 # -h, --help                  Show help message and exit.
 #
@@ -36,9 +37,17 @@ import glob
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    import winreg
+except ImportError:
+    winreg = None  # Handle non-Windows environments gracefully
+
 
 # Base class for Operating Systems
 class OSBase(ABC):
+    def __init__(self, paranoid: bool = False) -> None:
+        self.paranoid = paranoid
+
     @abstractmethod
     def matches(self) -> bool:
         """Determine if this class should handle the current OS."""
@@ -53,60 +62,326 @@ class OSBase(ABC):
 # Windows OS Class
 class OSWindows(OSBase):
     def matches(self) -> bool:
+        if self.paranoid:
+            return self._paranoid_matches()
+        else:
+            return self._trusting_matches()
+
+    def _trusting_matches(self) -> bool:
         current_os = platform.system()
-        logging.debug(f"OSWindows.matches() called. Current OS: {current_os}")
+        logging.debug(f"OSWindows._trusting_matches() called. Current OS: {current_os}")
         return current_os == "Windows"
+
+    def _paranoid_matches(self) -> bool:
+        """
+        Perform paranoid checks to verify the OS is genuine Windows.
+        This includes verifying critical system files/directories and checking registry keys.
+        """
+        logging.debug("OSWindows._paranoid_matches() called. Performing paranoid OS verification.")
+
+        # Verify essential Windows directories and files
+        essential_paths = [
+            r"C:\Windows\System32",
+            r"C:\Windows\win.ini",
+            r"C:\Windows\System32\cmd.exe",
+            r"C:\Windows\System32\kernel32.dll",
+            r"C:\Windows\System32\drivers\etc\hosts"
+        ]
+
+        for path in essential_paths:
+            if not os.path.exists(path):
+                logging.debug(f"Paranoid match failed: Essential path '{path}' does not exist.")
+                return False
+            else:
+                logging.debug(f"Paranoid check passed: '{path}' exists.")
+
+        # Verify critical registry keys
+        registry_checks = {
+            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion": [
+                "ProductName",
+                "ReleaseId",
+                "CurrentBuild",
+                "CurrentBuildNumber",
+                "EditionID"
+            ]
+        }
+
+        try:
+            for reg_path, values in registry_checks.items():
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
+                    for value_name in values:
+                        try:
+                            value, regtype = winreg.QueryValueEx(key, value_name)
+                            if not value:
+                                logging.debug(f"Paranoid match failed: Registry value '{value_name}' is empty.")
+                                return False
+                            logging.debug(f"Paranoid check passed: Registry '{value_name}' = '{value}'.")
+                        except FileNotFoundError:
+                            logging.debug(f"Paranoid match failed: Registry value '{value_name}' not found.")
+                            return False
+        except Exception as e:
+            logging.error(f"Error accessing registry for paranoid OS verification: {e}")
+            return False
+
+        # Verify critical system services are running
+        required_services = [
+            "Service Control Manager",  # services.exe
+            "wuauserv",                 # Windows Update
+            "MpsSvc"                    # Windows Firewall
+        ]
+
+        for service in required_services:
+            if not self._is_service_running(service):
+                logging.debug(f"Paranoid match failed: Required service '{service}' is not running.")
+                return False
+            else:
+                logging.debug(f"Paranoid check passed: Service '{service}' is running.")
+
+        logging.debug("Paranoid match succeeded: All paranoid checks passed.")
+        return True
+
+    def _is_service_running(self, service_name: str) -> bool:
+        """
+        Checks if a given Windows service is running.
+        """
+        try:
+            # Use 'sc query' to check service status
+            result = subprocess.run(['sc', 'query', service_name],
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True,
+                                    timeout=5)
+            if result.returncode != 0:
+                logging.debug(f"Service '{service_name}' query failed: {result.stderr.strip()}")
+                return False
+
+            # Parse the output to check if the service is running
+            for line in result.stdout.splitlines():
+                if "STATE" in line:
+                    if "RUNNING" in line:
+                        logging.debug(f"Service '{service_name}' is running.")
+                        return True
+                    else:
+                        logging.debug(f"Service '{service_name}' is not running. State: {line.strip()}")
+                        return False
+            logging.debug(f"Service '{service_name}' state not found in query output.")
+            return False
+        except subprocess.TimeoutExpired:
+            logging.error(f"Timeout expired while checking service '{service_name}'.")
+            return False
+        except Exception as e:
+            logging.error(f"Error checking service '{service_name}': {e}")
+            return False
 
     def get_os_info(self) -> Dict[str, Any]:
         logging.debug("Gathering Windows OS information.")
+        if self.paranoid:
+            return self._paranoid_get_os_info()
+        else:
+            os_info = {
+                "OS": "Windows",
+                "Version": platform.version(),
+                "Release": platform.release(),
+                "Architecture": platform.machine(),
+                "Processor": platform.processor(),
+            }
+            return os_info
+
+    def _paranoid_get_os_info(self) -> Dict[str, Any]:
+        """
+        Gather OS information without relying on platform APIs.
+        Reads directly from system files and registry.
+        """
+        logging.debug("OSWindows._paranoid_get_os_info() called. Gathering OS info in paranoid mode.")
+
         os_info = {
             "OS": "Windows",
-            "Version": platform.version(),
-            "Release": platform.release(),
-            "Architecture": platform.machine(),
-            "Processor": platform.processor(),
+            "Version": "Unknown",
+            "Release": "Unknown",
+            "Architecture": "Unknown",
+            "Processor": "Unknown",
         }
+
+        # Retrieve OS Version and Release from registry
+        try:
+            reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
+                os_info["ProductName"], _ = winreg.QueryValueEx(key, "ProductName")
+                os_info["Release"] = winreg.QueryValueEx(key, "ReleaseId")[0]
+                os_info["CurrentBuild"] = winreg.QueryValueEx(key, "CurrentBuild")[0]
+                os_info["EditionID"], _ = winreg.QueryValueEx(key, "EditionID")
+                logging.debug(f"Retrieved registry info: ProductName='{os_info['ProductName']}', ReleaseId='{os_info['Release']}', CurrentBuild='{os_info['CurrentBuild']}', EditionID='{os_info['EditionID']}'")
+        except Exception as e:
+            logging.error(f"Error retrieving OS version from registry: {e}")
+
+        # Retrieve Architecture from system directories
+        try:
+            system_dir = r"C:\Windows\System32"
+            if os.path.exists(system_dir):
+                arch = platform.machine()
+                os_info["Architecture"] = arch
+                logging.debug(f"Retrieved architecture: {arch}")
+            else:
+                logging.debug(f"System directory '{system_dir}' does not exist.")
+        except Exception as e:
+            logging.error(f"Error retrieving architecture: {e}")
+
+        # Retrieve Processor information
+        try:
+            # Using environment variables as a fallback
+            processor = os.environ.get('PROCESSOR_IDENTIFIER', 'Unknown')
+            os_info["Processor"] = processor
+            logging.debug(f"Retrieved processor info: {processor}")
+        except Exception as e:
+            logging.error(f"Error retrieving processor information: {e}")
+
         return os_info
 
 
 # macOS Class
 class OSMacOS(OSBase):
     def matches(self) -> bool:
+        if self.paranoid:
+            return self._paranoid_matches()
+        else:
+            return self._trusting_matches()
+
+    def _trusting_matches(self) -> bool:
         current_os = platform.system()
-        logging.debug(f"OSMacOS.matches() called. Current OS: {current_os}")
+        logging.debug(f"OSMacOS._trusting_matches() called. Current OS: {current_os}")
         return current_os == "Darwin"
 
+    def _paranoid_matches(self) -> bool:
+        # In paranoid mode, check for specific macOS files
+        specific_files = [
+            '/System/Library/CoreServices/SystemVersion.plist',
+            '/Applications',
+            '/System/Library/Frameworks'
+        ]
+        for file in specific_files:
+            if not os.path.exists(file):
+                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
+                return False
+        logging.debug("Paranoid match succeeded: All specific macOS files found.")
+        return True
+
     def get_os_info(self) -> Dict[str, Any]:
-        logging.debug("Gathering macOS information.")
-        mac_ver = platform.mac_ver()[0]
+        logging.debug("Gathering macOS OS information.")
+        if self.paranoid:
+            return self._paranoid_get_os_info()
+        else:
+            mac_ver = platform.mac_ver()[0]
+            os_info = {
+                "OS": "macOS",
+                "Version": mac_ver if mac_ver else "Unknown",
+                "Release": platform.release(),
+                "Architecture": platform.machine(),
+                "Processor": platform.processor(),
+            }
+            return os_info
+
+    def _paranoid_get_os_info(self) -> Dict[str, Any]:
+        # In paranoid mode, gather OS info without relying on platform
         os_info = {
             "OS": "macOS",
-            "Version": mac_ver if mac_ver else "Unknown",
-            "Release": platform.release(),
-            "Architecture": platform.machine(),
-            "Processor": platform.processor(),
+            "Version": "Unknown",
+            "Release": "Unknown",
+            "Architecture": "Unknown",
+            "Processor": "Unknown",
         }
+        # Attempt to read SystemVersion.plist
+        try:
+            plist_path = '/System/Library/CoreServices/SystemVersion.plist'
+            if os.path.exists(plist_path):
+                import plistlib
+                with open(plist_path, 'rb') as f:
+                    plist = plistlib.load(f)
+                    os_info["Version"] = plist.get('ProductVersion', 'Unknown')
+                    os_info["Release"] = plist.get('ProductBuildVersion', 'Unknown')
+        except Exception as e:
+            logging.error(f"Error retrieving macOS version in paranoid mode: {e}")
         return os_info
 
 
 # Linux OS Class
 class OSLinux(OSBase):
     def matches(self) -> bool:
+        if self.paranoid:
+            return self._paranoid_matches()
+        else:
+            return self._trusting_matches()
+
+    def _trusting_matches(self) -> bool:
         current_os = platform.system()
-        logging.debug(f"OSLinux.matches() called. Current OS: {current_os}")
+        logging.debug(f"OSLinux._trusting_matches() called. Current OS: {current_os}")
         return current_os == "Linux"
+
+    def _paranoid_matches(self) -> bool:
+        # In paranoid mode, check for specific Linux files
+        specific_files = [
+            '/etc/os-release',
+            '/bin/bash',
+            '/usr/bin/python3'
+        ]
+        for file in specific_files:
+            if not os.path.exists(file):
+                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
+                return False
+        logging.debug("Paranoid match succeeded: All specific Linux files found.")
+        return True
 
     def get_os_info(self) -> Dict[str, Any]:
         logging.debug("Gathering Linux OS information.")
-        os_name, os_version, os_codename = self._parse_os_release()
+        if self.paranoid:
+            return self._paranoid_get_os_info()
+        else:
+            os_name, os_version, os_codename = self._parse_os_release()
+            os_info = {
+                "OS": "Linux",
+                "Distribution": os_name,
+                "Version": os_version,
+                "Codename": os_codename,
+                "Architecture": platform.machine(),
+                "Processor": platform.processor(),
+            }
+            return os_info
+
+    def _paranoid_get_os_info(self) -> Dict[str, Any]:
+        # In paranoid mode, gather OS info without relying on platform
         os_info = {
             "OS": "Linux",
-            "Distribution": os_name,
-            "Version": os_version,
-            "Codename": os_codename,
-            "Architecture": platform.machine(),
-            "Processor": platform.processor(),
+            "Distribution": "Unknown",
+            "Version": "Unknown",
+            "Codename": "Unknown",
+            "Architecture": "Unknown",
+            "Processor": "Unknown",
         }
+        # Parse /etc/os-release manually
+        os_release_path = "/etc/os-release"
+        try:
+            with open(os_release_path, 'r') as f:
+                for line in f:
+                    if line.startswith("NAME="):
+                        os_info["Distribution"] = line.strip().split('=')[1].strip('"')
+                    elif line.startswith("VERSION_ID="):
+                        os_info["Version"] = line.strip().split('=')[1].strip('"')
+                    elif line.startswith("VERSION_CODENAME="):
+                        os_info["Codename"] = line.strip().split('=')[1].strip('"')
+        except FileNotFoundError:
+            logging.warning(f"'{os_release_path}' not found. Distribution information may be limited.")
+        except Exception as e:
+            logging.error(f"Error reading '{os_release_path}': {e}")
+
+        # Attempt to get architecture from /proc/cpuinfo
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                for line in f:
+                    if line.startswith("Architecture") or line.startswith("model name"):
+                        os_info["Architecture"] = platform.machine()
+                        break
+        except Exception as e:
+            logging.error(f"Error reading '/proc/cpuinfo': {e}")
+
         return os_info
 
     def _parse_os_release(self) -> Tuple[str, str, str]:
@@ -138,115 +413,358 @@ class OSLinux(OSBase):
 # FreeBSD OS Class
 class OSFreeBSD(OSBase):
     def matches(self) -> bool:
+        if self.paranoid:
+            return self._paranoid_matches()
+        else:
+            return self._trusting_matches()
+
+    def _trusting_matches(self) -> bool:
         current_os = platform.system()
-        logging.debug(f"OSFreeBSD.matches() called. Current OS: {current_os}")
+        logging.debug(f"OSFreeBSD._trusting_matches() called. Current OS: {current_os}")
         return current_os == "FreeBSD"
+
+    def _paranoid_matches(self) -> bool:
+        # In paranoid mode, check for specific FreeBSD files
+        specific_files = [
+            '/etc/freebsd-version',
+            '/bin/freebsd',
+            '/sbin/init'
+        ]
+        for file in specific_files:
+            if not os.path.exists(file):
+                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
+                return False
+        logging.debug("Paranoid match succeeded: All specific FreeBSD files found.")
+        return True
 
     def get_os_info(self) -> Dict[str, Any]:
         logging.debug("Gathering FreeBSD OS information.")
+        if self.paranoid:
+            return self._paranoid_get_os_info()
+        else:
+            os_info = {
+                "OS": "FreeBSD",
+                "Version": self._get_freebsd_version(),
+                "Release": platform.release(),
+                "Architecture": platform.machine(),
+                "Processor": platform.processor(),
+            }
+            return os_info
+
+    def _paranoid_get_os_info(self) -> Dict[str, Any]:
+        # In paranoid mode, gather OS info without relying on platform
+        os_info = {
+            "OS": "FreeBSD",
+            "Version": "Unknown",
+            "Release": "Unknown",
+            "Architecture": "Unknown",
+            "Processor": "Unknown",
+        }
+        # Attempt to read /etc/freebsd-version
+        version_path = '/etc/freebsd-version'
+        try:
+            if os.path.exists(version_path):
+                with open(version_path, 'r') as f:
+                    os_info["Version"] = f.read().strip()
+        except Exception as e:
+            logging.error(f"Error retrieving FreeBSD version in paranoid mode: {e}")
+        # Attempt to read uname information
+        try:
+            release = subprocess.check_output(['uname', '-r'], text=True).strip()
+            os_info["Release"] = release
+        except Exception as e:
+            logging.error(f"Error retrieving FreeBSD release in paranoid mode: {e}")
+        return os_info
+
+    def _get_freebsd_version(self) -> str:
         try:
             version = subprocess.check_output(['freebsd-version'], text=True).strip()
         except Exception as e:
             logging.error(f"Error retrieving FreeBSD version: {e}")
             version = "Unknown"
-        os_info = {
-            "OS": "FreeBSD",
-            "Version": version,
-            "Release": platform.release(),
-            "Architecture": platform.machine(),
-            "Processor": platform.processor(),
-        }
-        return os_info
+        return version
 
 
 # OpenBSD OS Class
 class OSOpenBSD(OSBase):
     def matches(self) -> bool:
+        if self.paranoid:
+            return self._paranoid_matches()
+        else:
+            return self._trusting_matches()
+
+    def _trusting_matches(self) -> bool:
         current_os = platform.system()
-        logging.debug(f"OSOpenBSD.matches() called. Current OS: {current_os}")
+        logging.debug(f"OSOpenBSD._trusting_matches() called. Current OS: {current_os}")
         return current_os == "OpenBSD"
+
+    def _paranoid_matches(self) -> bool:
+        # In paranoid mode, check for specific OpenBSD files
+        specific_files = [
+            '/etc/openbsd-version',
+            '/bin/ksh',
+            '/sbin/init'
+        ]
+        for file in specific_files:
+            if not os.path.exists(file):
+                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
+                return False
+        logging.debug("Paranoid match succeeded: All specific OpenBSD files found.")
+        return True
 
     def get_os_info(self) -> Dict[str, Any]:
         logging.debug("Gathering OpenBSD OS information.")
-        try:
-            version = subprocess.check_output(['uname', '-r'], text=True).strip()
-        except Exception as e:
-            logging.error(f"Error retrieving OpenBSD version: {e}")
-            version = "Unknown"
+        if self.paranoid:
+            return self._paranoid_get_os_info()
+        else:
+            try:
+                version = subprocess.check_output(['uname', '-r'], text=True).strip()
+            except Exception as e:
+                logging.error(f"Error retrieving OpenBSD version: {e}")
+                version = "Unknown"
+            os_info = {
+                "OS": "OpenBSD",
+                "Version": version,
+                "Release": platform.release(),
+                "Architecture": platform.machine(),
+                "Processor": platform.processor(),
+            }
+            return os_info
+
+    def _paranoid_get_os_info(self) -> Dict[str, Any]:
+        # In paranoid mode, gather OS info without relying on platform
         os_info = {
             "OS": "OpenBSD",
-            "Version": version,
-            "Release": platform.release(),
-            "Architecture": platform.machine(),
-            "Processor": platform.processor(),
+            "Version": "Unknown",
+            "Release": "Unknown",
+            "Architecture": "Unknown",
+            "Processor": "Unknown",
         }
+        # Attempt to read /etc/openbsd-version
+        version_path = '/etc/openbsd-version'
+        try:
+            if os.path.exists(version_path):
+                with open(version_path, 'r') as f:
+                    os_info["Version"] = f.read().strip()
+        except Exception as e:
+            logging.error(f"Error retrieving OpenBSD version in paranoid mode: {e}")
+        # Attempt to read uname information
+        try:
+            release = subprocess.check_output(['uname', '-r'], text=True).strip()
+            os_info["Release"] = release
+        except Exception as e:
+            logging.error(f"Error retrieving OpenBSD release in paranoid mode: {e}")
         return os_info
 
 
 # NetBSD OS Class
 class OSNetBSD(OSBase):
     def matches(self) -> bool:
+        if self.paranoid:
+            return self._paranoid_matches()
+        else:
+            return self._trusting_matches()
+
+    def _trusting_matches(self) -> bool:
         current_os = platform.system()
-        logging.debug(f"OSNetBSD.matches() called. Current OS: {current_os}")
+        logging.debug(f"OSNetBSD._trusting_matches() called. Current OS: {current_os}")
         return current_os == "NetBSD"
+
+    def _paranoid_matches(self) -> bool:
+        # In paranoid mode, check for specific NetBSD files
+        specific_files = [
+            '/etc/NetBSD-version',
+            '/bin/sh',
+            '/sbin/init'
+        ]
+        for file in specific_files:
+            if not os.path.exists(file):
+                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
+                return False
+        logging.debug("Paranoid match succeeded: All specific NetBSD files found.")
+        return True
 
     def get_os_info(self) -> Dict[str, Any]:
         logging.debug("Gathering NetBSD OS information.")
-        try:
-            version = subprocess.check_output(['uname', '-r'], text=True).strip()
-        except Exception as e:
-            logging.error(f"Error retrieving NetBSD version: {e}")
-            version = "Unknown"
+        if self.paranoid:
+            return self._paranoid_get_os_info()
+        else:
+            try:
+                version = subprocess.check_output(['uname', '-r'], text=True).strip()
+            except Exception as e:
+                logging.error(f"Error retrieving NetBSD version: {e}")
+                version = "Unknown"
+            os_info = {
+                "OS": "NetBSD",
+                "Version": version,
+                "Release": platform.release(),
+                "Architecture": platform.machine(),
+                "Processor": platform.processor(),
+            }
+            return os_info
+
+    def _paranoid_get_os_info(self) -> Dict[str, Any]:
+        # In paranoid mode, gather OS info without relying on platform
         os_info = {
             "OS": "NetBSD",
-            "Version": version,
-            "Release": platform.release(),
-            "Architecture": platform.machine(),
-            "Processor": platform.processor(),
+            "Version": "Unknown",
+            "Release": "Unknown",
+            "Architecture": "Unknown",
+            "Processor": "Unknown",
         }
+        # Attempt to read /etc/NetBSD-version
+        version_path = '/etc/NetBSD-version'
+        try:
+            if os.path.exists(version_path):
+                with open(version_path, 'r') as f:
+                    os_info["Version"] = f.read().strip()
+        except Exception as e:
+            logging.error(f"Error retrieving NetBSD version in paranoid mode: {e}")
+        # Attempt to read uname information
+        try:
+            release = subprocess.check_output(['uname', '-r'], text=True).strip()
+            os_info["Release"] = release
+        except Exception as e:
+            logging.error(f"Error retrieving NetBSD release in paranoid mode: {e}")
         return os_info
 
 
 # Solaris OS Class
 class OSSolaris(OSBase):
     def matches(self) -> bool:
+        if self.paranoid:
+            return self._paranoid_matches()
+        else:
+            return self._trusting_matches()
+
+    def _trusting_matches(self) -> bool:
         current_os = platform.system()
-        logging.debug(f"OSSolaris.matches() called. Current OS: {current_os}")
+        logging.debug(f"OSSolaris._trusting_matches() called. Current OS: {current_os}")
         return current_os in ["SunOS", "Solaris"]
+
+    def _paranoid_matches(self) -> bool:
+        # In paranoid mode, check for specific Solaris files
+        specific_files = [
+            '/etc/release',
+            '/usr/bin/zonename',
+            '/sbin/init'
+        ]
+        for file in specific_files:
+            if not os.path.exists(file):
+                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
+                return False
+        logging.debug("Paranoid match succeeded: All specific Solaris files found.")
+        return True
 
     def get_os_info(self) -> Dict[str, Any]:
         logging.debug("Gathering Solaris OS information.")
-        try:
-            version = subprocess.check_output(['uname', '-r'], text=True).strip()
-        except Exception as e:
-            logging.error(f"Error retrieving Solaris version: {e}")
-            version = "Unknown"
+        if self.paranoid:
+            return self._paranoid_get_os_info()
+        else:
+            try:
+                version = subprocess.check_output(['uname', '-r'], text=True).strip()
+            except Exception as e:
+                logging.error(f"Error retrieving Solaris version: {e}")
+                version = "Unknown"
+            os_info = {
+                "OS": "Solaris",
+                "Version": version,
+                "Release": platform.release(),
+                "Architecture": platform.machine(),
+                "Processor": platform.processor(),
+            }
+            return os_info
+
+    def _paranoid_get_os_info(self) -> Dict[str, Any]:
+        # In paranoid mode, gather OS info without relying on platform
         os_info = {
             "OS": "Solaris",
-            "Version": version,
-            "Release": platform.release(),
-            "Architecture": platform.machine(),
-            "Processor": platform.processor(),
+            "Version": "Unknown",
+            "Release": "Unknown",
+            "Architecture": "Unknown",
+            "Processor": "Unknown",
         }
+        # Attempt to read /etc/release
+        release_path = '/etc/release'
+        try:
+            if os.path.exists(release_path):
+                with open(release_path, 'r') as f:
+                    os_info["Version"] = f.read().strip().replace('\n', ' ')
+        except Exception as e:
+            logging.error(f"Error retrieving Solaris version in paranoid mode: {e}")
+        # Attempt to read uname information
+        try:
+            release = subprocess.check_output(['uname', '-r'], text=True).strip()
+            os_info["Release"] = release
+        except Exception as e:
+            logging.error(f"Error retrieving Solaris release in paranoid mode: {e}")
         return os_info
 
 
 # Generic OS Class for Unsupported Systems
 class OSGeneric(OSBase):
     def matches(self) -> bool:
+        if self.paranoid:
+            return self._paranoid_matches()
+        else:
+            return self._trusting_matches()
+
+    def _trusting_matches(self) -> bool:
         # GenericOS matches if no other OS classes do
-        logging.debug("OSGeneric.matches() called. Always returns True as fallback.")
+        logging.debug("OSGeneric._trusting_matches() called. Always returns True as fallback.")
+        return True
+
+    def _paranoid_matches(self) -> bool:
+        # In paranoid mode, perform minimal checks
+        # For example, check for the existence of /bin/sh and /etc/passwd
+        specific_files = [
+            '/bin/sh',
+            '/etc/passwd'
+        ]
+        for file in specific_files:
+            if not os.path.exists(file):
+                logging.debug(f"OSGeneric paranoid match failed: '{file}' does not exist.")
+                return False
+        logging.debug("OSGeneric paranoid match succeeded: Required generic files found.")
         return True
 
     def get_os_info(self) -> Dict[str, Any]:
         logging.debug("Gathering generic OS information.")
+        if self.paranoid:
+            return self._paranoid_get_os_info()
+        else:
+            os_info = {
+                "OS": platform.system(),
+                "Version": platform.version(),
+                "Release": platform.release(),
+                "Architecture": platform.machine(),
+                "Processor": platform.processor(),
+            }
+            return os_info
+
+    def _paranoid_get_os_info(self) -> Dict[str, Any]:
+        # In paranoid mode, gather generic OS info without relying on platform
         os_info = {
-            "OS": platform.system(),
-            "Version": platform.version(),
-            "Release": platform.release(),
-            "Architecture": platform.machine(),
-            "Processor": platform.processor(),
+            "OS": "Unknown",
+            "Version": "Unknown",
+            "Release": "Unknown",
+            "Architecture": "Unknown",
+            "Processor": "Unknown",
         }
+        # Attempt to read /etc/os-release if exists
+        os_release_path = "/etc/os-release"
+        try:
+            if os.path.exists(os_release_path):
+                with open(os_release_path, 'r') as f:
+                    for line in f:
+                        if line.startswith("NAME="):
+                            os_info["OS"] = line.strip().split('=')[1].strip('"')
+                        elif line.startswith("VERSION_ID="):
+                            os_info["Version"] = line.strip().split('=')[1].strip('"')
+                        elif line.startswith("VERSION_CODENAME="):
+                            os_info["Release"] = line.strip().split('=')[1].strip('"')
+        except Exception as e:
+            logging.error(f"Error reading '{os_release_path}' in paranoid mode: {e}")
         return os_info
 
 
@@ -913,22 +1431,23 @@ class VMBareMetal(VMBase):
 
 # System Detector Class
 class SystemDetector:
-    def __init__(self, perform_all_checks: bool = False) -> None:
+    def __init__(self, perform_all_checks: bool = False, paranoid: bool = False) -> None:
         self.perform_all_checks = perform_all_checks
+        self.paranoid = paranoid
         self.os_detectors = self._initialize_os_detectors()
         self.vm_detectors = self._initialize_vm_detectors()
 
     def _initialize_os_detectors(self) -> List[OSBase]:
         logging.debug("Initializing OS detectors.")
         return [
-            OSWindows(),
-            OSMacOS(),
-            OSLinux(),
-            OSFreeBSD(),
-            OSOpenBSD(),
-            OSNetBSD(),
-            OSSolaris(),
-            OSGeneric(),  # GenericOS as fallback
+            OSWindows(paranoid=self.paranoid),
+            OSMacOS(paranoid=self.paranoid),
+            OSLinux(paranoid=self.paranoid),
+            OSFreeBSD(paranoid=self.paranoid),
+            OSOpenBSD(paranoid=self.paranoid),
+            OSNetBSD(paranoid=self.paranoid),
+            OSSolaris(paranoid=self.paranoid),
+            OSGeneric(paranoid=self.paranoid),  # GenericOS as fallback
         ]
 
     def _initialize_vm_detectors(self) -> List[VMBase]:
@@ -1022,6 +1541,11 @@ def parse_arguments() -> argparse.Namespace:
         help='Perform all possible checks, including those not limited by OS type.'
     )
     parser.add_argument(
+        '-p', '--paranoid',
+        action='store_true',
+        help='Enable paranoid mode: perform untrusting OS checks.'
+    )
+    parser.add_argument(
         '-o', '--output',
         type=str,
         help='Output the detection results to a specified file (JSON format).'
@@ -1085,7 +1609,7 @@ def main() -> None:
         debug=args.debug
     )
 
-    detector = SystemDetector(perform_all_checks=args.all)
+    detector = SystemDetector(perform_all_checks=args.all, paranoid=args.paranoid)
     system_info = detector.detect_system()
 
     display_results(system_info)
