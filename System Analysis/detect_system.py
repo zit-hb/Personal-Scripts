@@ -135,6 +135,102 @@ class OSLinux(OSBase):
         return os_name, os_version, os_codename
 
 
+# FreeBSD OS Class
+class OSFreeBSD(OSBase):
+    def matches(self) -> bool:
+        current_os = platform.system()
+        logging.debug(f"OSFreeBSD.matches() called. Current OS: {current_os}")
+        return current_os == "FreeBSD"
+
+    def get_os_info(self) -> Dict[str, Any]:
+        logging.debug("Gathering FreeBSD OS information.")
+        try:
+            version = subprocess.check_output(['freebsd-version'], text=True).strip()
+        except Exception as e:
+            logging.error(f"Error retrieving FreeBSD version: {e}")
+            version = "Unknown"
+        os_info = {
+            "OS": "FreeBSD",
+            "Version": version,
+            "Release": platform.release(),
+            "Architecture": platform.machine(),
+            "Processor": platform.processor(),
+        }
+        return os_info
+
+
+# OpenBSD OS Class
+class OSOpenBSD(OSBase):
+    def matches(self) -> bool:
+        current_os = platform.system()
+        logging.debug(f"OSOpenBSD.matches() called. Current OS: {current_os}")
+        return current_os == "OpenBSD"
+
+    def get_os_info(self) -> Dict[str, Any]:
+        logging.debug("Gathering OpenBSD OS information.")
+        try:
+            version = subprocess.check_output(['uname', '-r'], text=True).strip()
+        except Exception as e:
+            logging.error(f"Error retrieving OpenBSD version: {e}")
+            version = "Unknown"
+        os_info = {
+            "OS": "OpenBSD",
+            "Version": version,
+            "Release": platform.release(),
+            "Architecture": platform.machine(),
+            "Processor": platform.processor(),
+        }
+        return os_info
+
+
+# NetBSD OS Class
+class OSNetBSD(OSBase):
+    def matches(self) -> bool:
+        current_os = platform.system()
+        logging.debug(f"OSNetBSD.matches() called. Current OS: {current_os}")
+        return current_os == "NetBSD"
+
+    def get_os_info(self) -> Dict[str, Any]:
+        logging.debug("Gathering NetBSD OS information.")
+        try:
+            version = subprocess.check_output(['uname', '-r'], text=True).strip()
+        except Exception as e:
+            logging.error(f"Error retrieving NetBSD version: {e}")
+            version = "Unknown"
+        os_info = {
+            "OS": "NetBSD",
+            "Version": version,
+            "Release": platform.release(),
+            "Architecture": platform.machine(),
+            "Processor": platform.processor(),
+        }
+        return os_info
+
+
+# Solaris OS Class
+class OSSolaris(OSBase):
+    def matches(self) -> bool:
+        current_os = platform.system()
+        logging.debug(f"OSSolaris.matches() called. Current OS: {current_os}")
+        return current_os in ["SunOS", "Solaris"]
+
+    def get_os_info(self) -> Dict[str, Any]:
+        logging.debug("Gathering Solaris OS information.")
+        try:
+            version = subprocess.check_output(['uname', '-r'], text=True).strip()
+        except Exception as e:
+            logging.error(f"Error retrieving Solaris version: {e}")
+            version = "Unknown"
+        os_info = {
+            "OS": "Solaris",
+            "Version": version,
+            "Release": platform.release(),
+            "Architecture": platform.machine(),
+            "Processor": platform.processor(),
+        }
+        return os_info
+
+
 # Generic OS Class for Unsupported Systems
 class OSGeneric(OSBase):
     def matches(self) -> bool:
@@ -180,7 +276,7 @@ class VMDocker(VMBase):
             try:
                 with open('/proc/1/cgroup', 'rt') as f:
                     for line in f:
-                        if 'docker' in line or 'kubepods' in line:
+                        if 'docker' in line or 'kubepods' in line or 'containerd' in line:
                             logging.debug("Detected Docker indicators in cgroup.")
                             docker_env = True
                             break
@@ -213,6 +309,167 @@ class VMDocker(VMBase):
             logging.warning("Docker version command timed out.")
         except Exception as e:
             logging.error(f"Error retrieving Docker version: {e}")
+        return "Unknown"
+
+
+# LXC/LXD Detection Class
+class VMLXC(VMBase):
+    def matches(self) -> bool:
+        logging.debug("VMLXC.matches() called.")
+        lxc_env = False
+        try:
+            with open('/proc/1/cgroup', 'rt') as f:
+                for line in f:
+                    if 'lxc' in line or 'lxd' in line:
+                        logging.debug("Detected LXC/LXD indicators in cgroup.")
+                        lxc_env = True
+                        break
+        except Exception as e:
+            logging.error(f"Error reading '/proc/1/cgroup': {e}")
+
+        # Check for LXC-specific files
+        if not lxc_env:
+            if os.path.exists('/var/lib/lxc/') or os.path.exists('/etc/lxc/'):
+                logging.debug("Detected presence of LXC/LXD configuration directories.")
+                lxc_env = True
+
+        return lxc_env
+
+    def get_info(self) -> Optional[Dict[str, Any]]:
+        logging.debug("Gathering LXC/LXD environment information.")
+        version = self._get_lxc_version()
+        return {"Environment": "LXC/LXD", "Version": version}
+
+    def _get_lxc_version(self) -> str:
+        """
+        Attempts to retrieve the LXC version using the LXC CLI.
+        """
+        try:
+            result = subprocess.run(['lxc', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if result.returncode == 0:
+                version_info = result.stdout.strip()
+                logging.debug(f"LXC version output: {version_info}")
+                return version_info
+            else:
+                logging.warning(f"LXC CLI returned non-zero exit code: {result.stderr.strip()}")
+        except FileNotFoundError:
+            logging.warning("LXC CLI not found.")
+        except subprocess.TimeoutExpired:
+            logging.warning("LXC version command timed out.")
+        except Exception as e:
+            logging.error(f"Error retrieving LXC version: {e}")
+        return "Unknown"
+
+
+# systemd-nspawn Detection Class
+class VMSYSTEMDNSPAWN(VMBase):
+    def matches(self) -> bool:
+        logging.debug("VMSYSTEMDNSPAWN.matches() called.")
+        systemd_spawn = False
+        try:
+            with open('/proc/1/cgroup', 'rt') as f:
+                for line in f:
+                    if 'systemd-nspawn' in line:
+                        logging.debug("Detected systemd-nspawn indicators in cgroup.")
+                        systemd_spawn = True
+                        break
+        except Exception as e:
+            logging.error(f"Error reading '/proc/1/cgroup': {e}")
+        return systemd_spawn
+
+    def get_info(self) -> Optional[Dict[str, Any]]:
+        logging.debug("Gathering systemd-nspawn environment information.")
+        version = self._get_systemd_nspawn_version()
+        return {"Environment": "systemd-nspawn", "Version": version}
+
+    def _get_systemd_nspawn_version(self) -> str:
+        """
+        Attempts to retrieve the systemd-nspawn version.
+        """
+        try:
+            result = subprocess.run(['systemd-nspawn', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if result.returncode == 0:
+                version_info = result.stdout.strip()
+                logging.debug(f"systemd-nspawn version output: {version_info}")
+                return version_info
+            else:
+                logging.warning(f"systemd-nspawn returned non-zero exit code: {result.stderr.strip()}")
+        except FileNotFoundError:
+            logging.warning("systemd-nspawn not found.")
+        except subprocess.TimeoutExpired:
+            logging.warning("systemd-nspawn version command timed out.")
+        except Exception as e:
+            logging.error(f"Error retrieving systemd-nspawn version: {e}")
+        return "Unknown"
+
+
+# Chroot Detection Class
+class VMChroot(VMBase):
+    def matches(self) -> bool:
+        logging.debug("VMChroot.matches() called.")
+        # Detecting chroot is non-trivial; one heuristic is checking if /proc/1 is not the same as the current process
+        try:
+            with open('/proc/1/comm', 'rt') as f:
+                init_process = f.read().strip()
+            current_comm = subprocess.check_output(['ps', '-p', '1', '-o', 'comm='], text=True).strip()
+            if init_process != current_comm:
+                logging.debug("Chroot environment detected based on init process mismatch.")
+                return True
+        except Exception as e:
+            logging.error(f"Error detecting chroot environment: {e}")
+        return False
+
+    def get_info(self) -> Optional[Dict[str, Any]]:
+        logging.debug("Gathering Chroot environment information.")
+        return {"Environment": "Chroot"}
+
+
+# Podman Detection Class
+class VMPodman(VMBase):
+    def matches(self) -> bool:
+        logging.debug("VMPodman.matches() called.")
+        podman_env = False
+        if os.path.exists('/run/.containerenv') or os.path.exists('/.containerenv'):
+            logging.debug("Detected presence of Podman environment files.")
+            podman_env = True
+        else:
+            # Attempt to detect Podman via cgroup
+            try:
+                with open('/proc/1/cgroup', 'rt') as f:
+                    for line in f:
+                        if 'podman' in line:
+                            logging.debug("Detected Podman indicators in cgroup.")
+                            podman_env = True
+                            break
+            except Exception as e:
+                logging.error(f"Error reading '/proc/1/cgroup': {e}")
+
+        return podman_env
+
+    def get_info(self) -> Optional[Dict[str, Any]]:
+        logging.debug("Gathering Podman environment information.")
+        version = self._get_podman_version()
+        return {"Environment": "Podman", "Version": version}
+
+    def _get_podman_version(self) -> str:
+        """
+        Attempts to retrieve the Podman version using the Podman CLI.
+        """
+        try:
+            result = subprocess.run(['podman', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if result.returncode == 0:
+                # Example output: "podman version 3.3.1"
+                version_info = result.stdout.strip()
+                logging.debug(f"Podman version output: {version_info}")
+                return version_info
+            else:
+                logging.warning(f"Podman CLI returned non-zero exit code: {result.stderr.strip()}")
+        except FileNotFoundError:
+            logging.warning("Podman CLI not found.")
+        except subprocess.TimeoutExpired:
+            logging.warning("Podman version command timed out.")
+        except Exception as e:
+            logging.error(f"Error retrieving Podman version: {e}")
         return "Unknown"
 
 
@@ -289,7 +546,7 @@ class VMMware(VMBase):
                 with open(product_name_path, 'r') as f:
                     product_name = f.read().strip().lower()
                     logging.debug(f"Product Name: {product_name}")
-                    if "vmware" in product_name:
+                    if "vmware" in product_name or "qemu" in product_name:
                         logging.debug("VMware environment detected via product name.")
                         return True
         except Exception as e:
@@ -389,6 +646,259 @@ class VMKVM(VMBase):
         return version
 
 
+# Xen Detection Class
+class VMXen(VMBase):
+    def matches(self) -> bool:
+        logging.debug("VMXen.matches() called.")
+        xen_env = False
+        # Check for Xen hypervisor in CPU flags
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                cpuinfo = f.read().lower()
+                if 'xen' in cpuinfo:
+                    logging.debug("Xen environment detected via CPU flags.")
+                    xen_env = True
+        except Exception as e:
+            logging.error(f"Error reading '/proc/cpuinfo': {e}")
+
+        # Check for Xen-specific files
+        if not xen_env and os.path.exists('/proc/xen'):
+            logging.debug("Xen environment detected via '/proc/xen'.")
+            xen_env = True
+
+        return xen_env
+
+    def get_info(self) -> Optional[Dict[str, Any]]:
+        logging.debug("Gathering Xen environment information.")
+        version = self._get_xen_version()
+        return {"Environment": "Xen", "Version": version}
+
+    def _get_xen_version(self) -> str:
+        """
+        Attempts to retrieve the Xen hypervisor version.
+        """
+        version = "Unknown"
+        try:
+            result = subprocess.run(['xen', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if result.returncode == 0:
+                version_info = result.stdout.strip()
+                logging.debug(f"Xen version output: {version_info}")
+                return version_info
+            else:
+                logging.warning(f"Xen CLI returned non-zero exit code: {result.stderr.strip()}")
+        except FileNotFoundError:
+            logging.warning("Xen CLI not found.")
+        except subprocess.TimeoutExpired:
+            logging.warning("Xen version command timed out.")
+        except Exception as e:
+            logging.error(f"Error retrieving Xen version: {e}")
+        return version
+
+
+# Hyper-V Detection Class
+class VMHyperV(VMBase):
+    def matches(self) -> bool:
+        logging.debug("VMHyperV.matches() called.")
+        hyperv_env = False
+        # Check for Hyper-V specific CPU flags
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                cpuinfo = f.read().lower()
+                if 'hyperv' in cpuinfo:
+                    logging.debug("Hyper-V environment detected via CPU flags.")
+                    hyperv_env = True
+        except Exception as e:
+            logging.error(f"Error reading '/proc/cpuinfo': {e}")
+
+        # Check for Hyper-V specific files
+        if not hyperv_env and os.path.exists('/sys/devices/virtual/dmi/id/product_name'):
+            try:
+                with open('/sys/devices/virtual/dmi/id/product_name', 'r') as f:
+                    product_name = f.read().strip().lower()
+                    if "microsoft" in product_name or "virtual machine" in product_name:
+                        logging.debug("Hyper-V environment detected via product name.")
+                        hyperv_env = True
+            except Exception as e:
+                logging.error(f"Error reading product name: {e}")
+
+        return hyperv_env
+
+    def get_info(self) -> Optional[Dict[str, Any]]:
+        logging.debug("Gathering Hyper-V environment information.")
+        version = self._get_hyperv_version()
+        return {"Environment": "Hyper-V", "Version": version}
+
+    def _get_hyperv_version(self) -> str:
+        """
+        Attempts to retrieve the Hyper-V version.
+        """
+        version = "Unknown"
+        # Hyper-V does not have a standard CLI tool for version retrieval on Linux
+        # Attempt to parse system logs or use specific tools if available
+        try:
+            result = subprocess.run(['dmesg'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if result.returncode == 0:
+                for line in result.stdout.splitlines():
+                    if 'Hyper-V' in line:
+                        version_info = line.strip()
+                        logging.debug(f"Hyper-V detected in dmesg: {version_info}")
+                        return version_info
+            else:
+                logging.warning(f"dmesg returned non-zero exit code: {result.stderr.strip()}")
+        except Exception as e:
+            logging.error(f"Error retrieving Hyper-V version from dmesg: {e}")
+        return version
+
+
+# Parallels Detection Class
+class VMParallels(VMBase):
+    def matches(self) -> bool:
+        logging.debug("VMParallels.matches() called.")
+        parallels_env = False
+        # Check for Parallels Tools specific files
+        if os.path.exists('/usr/lib/parallels-tools'):
+            logging.debug("Parallels environment detected via '/usr/lib/parallels-tools'.")
+            parallels_env = True
+
+        # Check product name
+        try:
+            product_name_path = '/sys/class/dmi/id/product_name'
+            if os.path.exists(product_name_path):
+                with open(product_name_path, 'r') as f:
+                    product_name = f.read().strip().lower()
+                    if "parallels" in product_name:
+                        logging.debug("Parallels environment detected via product name.")
+                        parallels_env = True
+        except Exception as e:
+            logging.error(f"Error reading '{product_name_path}': {e}")
+
+        return parallels_env
+
+    def get_info(self) -> Optional[Dict[str, Any]]:
+        logging.debug("Gathering Parallels environment information.")
+        version = self._get_parallels_version()
+        return {"Environment": "Parallels", "Version": version}
+
+    def _get_parallels_version(self) -> str:
+        """
+        Attempts to retrieve the Parallels Tools version.
+        """
+        version = "Unknown"
+        try:
+            result = subprocess.run(['prlsrvctl', 'version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if result.returncode == 0:
+                version_info = result.stdout.strip()
+                logging.debug(f"Parallels Tools version output: {version_info}")
+                return version_info
+            else:
+                logging.warning(f"prlsrvctl returned non-zero exit code: {result.stderr.strip()}")
+        except FileNotFoundError:
+            logging.warning("prlsrvctl not found.")
+        except subprocess.TimeoutExpired:
+            logging.warning("prlsrvctl version command timed out.")
+        except Exception as e:
+            logging.error(f"Error retrieving Parallels version: {e}")
+        return version
+
+
+# QEMU Detection Class
+class VMQEMU(VMBase):
+    def matches(self) -> bool:
+        logging.debug("VMQEMU.matches() called.")
+        qemu_env = False
+        # Check for QEMU specific CPU flags
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                cpuinfo = f.read().lower()
+                if 'qemu' in cpuinfo or 'tcg' in cpuinfo:
+                    logging.debug("QEMU environment detected via CPU flags.")
+                    qemu_env = True
+        except Exception as e:
+            logging.error(f"Error reading '/proc/cpuinfo': {e}")
+
+        # Check for QEMU-specific files or processes
+        if not qemu_env:
+            try:
+                result = subprocess.run(['pgrep', '-f', 'qemu'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+                if result.stdout.strip():
+                    logging.debug("QEMU environment detected via running processes.")
+                    qemu_env = True
+            except Exception as e:
+                logging.error(f"Error detecting QEMU processes: {e}")
+
+        return qemu_env
+
+    def get_info(self) -> Optional[Dict[str, Any]]:
+        logging.debug("Gathering QEMU environment information.")
+        version = self._get_qemu_version()
+        return {"Environment": "QEMU", "Version": version}
+
+    def _get_qemu_version(self) -> str:
+        """
+        Attempts to retrieve the QEMU version.
+        """
+        version = "Unknown"
+        try:
+            result = subprocess.run(['qemu-system-x86_64', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if result.returncode == 0:
+                version_info = result.stdout.strip()
+                logging.debug(f"QEMU version output: {version_info}")
+                return version_info
+            else:
+                logging.warning(f"QEMU CLI returned non-zero exit code: {result.stderr.strip()}")
+        except FileNotFoundError:
+            logging.warning("QEMU CLI not found.")
+        except subprocess.TimeoutExpired:
+            logging.warning("QEMU version command timed out.")
+        except Exception as e:
+            logging.error(f"Error retrieving QEMU version: {e}")
+        return version
+
+
+# Singularity Detection Class
+class VMSingularity(VMBase):
+    def matches(self) -> bool:
+        logging.debug("VMSingularity.matches() called.")
+        singularity_env = False
+        # Check for Singularity environment variables
+        if 'SINGULARITY_NAME' in os.environ:
+            logging.debug("Singularity environment detected via environment variables.")
+            singularity_env = True
+
+        # Check for Singularity specific files
+        if not singularity_env and os.path.exists('/.singularity.d'):
+            logging.debug("Singularity environment detected via '/.singularity.d' directory.")
+            singularity_env = True
+
+        return singularity_env
+
+    def get_info(self) -> Optional[Dict[str, Any]]:
+        logging.debug("Gathering Singularity environment information.")
+        version = self._get_singularity_version()
+        return {"Environment": "Singularity", "Version": version}
+
+    def _get_singularity_version(self) -> str:
+        """
+        Attempts to retrieve the Singularity version.
+        """
+        version = "Unknown"
+        try:
+            result = subprocess.run(['singularity', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if result.returncode == 0:
+                version_info = result.stdout.strip()
+                logging.debug(f"Singularity version output: {version_info}")
+                return version_info
+            else:
+                logging.warning(f"Singularity CLI returned non-zero exit code: {result.stderr.strip()}")
+        except FileNotFoundError:
+            logging.warning("Singularity CLI not found.")
+        except subprocess.TimeoutExpired:
+            logging.warning("Singularity version command timed out.")
+        except Exception as e:
+            logging.error(f"Error retrieving Singularity version: {e}")
+        return version
+
+
 # Bare Metal Detection Class
 class VMBareMetal(VMBase):
     def matches(self) -> bool:
@@ -414,6 +924,10 @@ class SystemDetector:
             OSWindows(),
             OSMacOS(),
             OSLinux(),
+            OSFreeBSD(),
+            OSOpenBSD(),
+            OSNetBSD(),
+            OSSolaris(),
             OSGeneric(),  # GenericOS as fallback
         ]
 
@@ -421,9 +935,18 @@ class SystemDetector:
         logging.debug("Initializing virtualization detectors.")
         return [
             VMDocker(),
+            VMLXC(),
+            VMSYSTEMDNSPAWN(),
+            VMChroot(),
+            VMPodman(),
             VMVirtualBox(),
             VMMware(),
             VMKVM(),
+            VMXen(),
+            VMHyperV(),
+            VMParallels(),
+            VMQEMU(),
+            VMSingularity(),
             # VMBareMetal() is handled separately
         ]
 
