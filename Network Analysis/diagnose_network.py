@@ -38,12 +38,15 @@
 # --rogue-dhcp-threshold      Set rogue DHCP server threshold (default: 1).
 #
 # Diagnostics Command Options:
-# -V, --include-virtual       Include virtual interfaces in network scanning.
-# -N, --nikto                 Enable Nikto scanning for discovered devices.
-# -C, --credentials           Enable default credentials check for discovered devices.
+# -V, --virtual               Enable virtual interfaces in network scanning.
+# -6, --ipv6                  Enable IPv6 scanning in network scanning.
 # -d, --discovery             Perform device discovery only.
-# -6, --ipv6                  Enable IPv6 scanning.
 # -o, --output-file           Specify a file to save discovered devices.
+# -i, --input-file            Specify a file to load discovered devices.
+# -e, --execution             Specify the execution mode (choices: docker, native) (default: docker).
+# -N, --nikto                 Enable Nikto scanning for discovered devices.
+# -G, --golismero             Enable Golismero automated scanning for discovered devices.
+# -C, --credentials           Enable default credentials check for discovered devices.
 #
 # WiFi Command Options:
 # -s, --ssid                  Specify the SSID to perform targeted diagnostics.
@@ -60,8 +63,14 @@
 #  - traceroute (install via: apt install traceroute)
 #  Diagnose Command:
 #  - requests (install via: pip install requests)
+#  - docker (install via: apt install docker.io)
 #  - nmap (install via: apt install nmap)
-#  - nikto (install via: apt install nikto)
+#   Nikto Check (native):
+#   - nikto (install via: apt install nikto)
+#   Golismero Check (native):
+#   - golismero (install via: pip install golismero)
+#   Credentials Check:
+#   - BeautifulSoup (install via: pip install beautifulsoup4)
 #  Traffic-Monitor Command:
 #  - scapy (install via: pip install scapy)
 #  Wifi Command:
@@ -81,15 +90,16 @@ import sys
 import subprocess
 import socket
 import struct
-import ssl
 import json
 import time
 import threading
 import queue
 import shutil
 import re
+import tempfile
+from enum import Enum
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, Tuple, Any
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -135,8 +145,21 @@ try:
 except ImportError:
     REQUESTS_AVAILABLE = False
 
+# Attempt to import BeautifulSoup for HTML parsing
+try:
+    from bs4 import BeautifulSoup
+    BEAUTIFULSOUP_AVAILABLE = True
+except ImportError:
+    BeautifulSoup = None
+    BEAUTIFULSOUP_AVAILABLE = False
+
 # Initialize Rich console if available
 console = Console() if Console else None
+
+# Constants
+class ExecutionMode(str, Enum):
+    DOCKER = 'docker'
+    NATIVE = 'native'
 
 
 # Issue data classes
@@ -373,7 +396,7 @@ class DeviceType:
     os_keywords: Set[str] = field(default_factory=set)
     priority: int = 0  # Lower number means higher priority
 
-    def matches(self, device: Dict[str, str], mac_lookup) -> bool:
+    def matches(self, device: Dict[str, Any], mac_lookup) -> bool:
         """
         Determines if a given device matches the criteria of this device type.
         """
@@ -461,6 +484,18 @@ class DeviceTypeConfig:
 
 
 @dataclass
+class DockerConfig:
+    """
+    Configuration for Docker-specifics.
+    """
+    images: Dict[str, str] = field(default_factory=lambda: {
+        'nmap': 'instrumentisto/nmap:7',  # Currently unused
+        'nikto': 'alpine/nikto:2.2.0',
+        'golismero': 'jsitech/golismero'
+    })
+
+
+@dataclass
 class AppConfig:
     """
     Comprehensive application configuration encompassing credentials, endpoints, device types,
@@ -472,6 +507,7 @@ class AppConfig:
     http_security: HttpSecurityConfig = HttpSecurityConfig()
     gaming_services: GamingServicesConfig = GamingServicesConfig()
     snmp_communities: Set[str] = field(default_factory=lambda: {"public", "private", "admin"})
+    docker: DockerConfig = DockerConfig()
 
 
 # MAC Vendor Lookup Class
@@ -606,7 +642,7 @@ class GeneralDeviceDiagnostics(ABC):
     """
     Abstract base class for device diagnostics.
     """
-    def __init__(self, device_type: str, device: Dict[str, str], logger: logging.Logger, args: argparse.Namespace, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
+    def __init__(self, device_type: str, device: Dict[str, Any], logger: logging.Logger, args: argparse.Namespace, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
         """
         Initialize with device information and a logger.
         """
@@ -670,7 +706,7 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
     Enhancements include caching of port and SSL checks, optimized protocol handling,
     and integration with Nikto for web server vulnerability scanning.
     """
-    def __init__(self, device_type: str, device: Dict[str, str], logger: logging.Logger, args: argparse.Namespace, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
+    def __init__(self, device_type: str, device: Dict[str, Any], logger: logging.Logger, args: argparse.Namespace, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
         """
         Initialize with device information, a logger, and configuration.
         Sets up caches for port and SSL certificate checks.
@@ -681,6 +717,7 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
         self.port_status_cache: Dict[int, bool] = {}      # Cache for port open status {port: bool}
         self.ssl_valid_cache: Optional[bool] = None       # Cache for SSL certificate validity
         self.nikto_scanned: bool = False                  # Flag to ensure Nikto scan is performed only once
+        self.golismero_scanned: bool = False              # Flag to ensure Golismero scan is performed only once
 
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
         raise NotImplementedError("Subclasses must implement this method.")
@@ -799,9 +836,7 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
                     if 200 <= response.status_code < 300:
                         # Admin interface is accessible
                         issues.append(self.create_issue(f"Admin interface {endpoint} is accessible over {protocol.upper()}"))
-                        self.logger.info(
-                            f"Admin interface {endpoint} is accessible over {protocol.upper()} on {ip}."
-                        )
+                        self.logger.info(f"Admin interface {endpoint} is accessible over {protocol.upper()} on {ip}.")
                         break  # Assume one admin interface is sufficient
                 except requests.RequestException:
                     continue  # Try the next endpoint
@@ -820,7 +855,9 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
                 issues.extend(self._validate_web_service_response(protocol, hostname, ip))
                 issues.extend(self._check_admin_interface(protocol, ip, hostname, vendor_key))
                 if self.args.nikto:
-                    issues.extend(self._scan_web_service_with_nikto(protocol, hostname, ip))
+                    issues.extend(self._scan_web_service_with_nikto(protocol, hostname, ip, self.args.execution))
+                if self.args.golismero:
+                    issues.extend(self._scan_with_golismero(ip, hostname, self.args.execution))
                 if self.args.credentials:
                     issues.extend(self._check_default_credentials(protocol, ip, vendor_key))
 
@@ -847,9 +884,7 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
             self.logger.error(f"SSL Error on {protocol.upper()} port {port} for {hostname} ({ip}): {ssl_err}")
         except requests.exceptions.ConnectionError as conn_err:
             issues.append(self.create_issue(f"Connection Error on {protocol.upper()} port {port} - {conn_err}"))
-            self.logger.error(
-                f"Connection Error on {protocol.upper()} port {port} for {hostname} ({ip}): {conn_err}"
-            )
+            self.logger.error(f"Connection Error on {protocol.upper()} port {port} for {hostname} ({ip}): {conn_err}")
         except requests.exceptions.Timeout:
             issues.append(self.create_issue(f"Timeout while connecting to {protocol.upper()} port {port}"))
             self.logger.error(f"Timeout while connecting to {protocol.upper()} port {port} for {hostname} ({ip})")
@@ -872,42 +907,72 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
             self.logger.info(f"Missing security headers on {hostname} ({ip}): {', '.join(missing_headers)}")
         return issues
 
-    def _scan_web_service_with_nikto(self, protocol: str, hostname: str, ip: str) -> List[DiagnoseIssue]:
+    def _scan_web_service_with_nikto(self, protocol: str, hostname: str, ip: str, execution: ExecutionMode) -> List[
+        DiagnoseIssue]:
         """
         Perform a Nikto scan on the web service and create issues based on the findings.
         """
-        issues = []
+        issues: List[DiagnoseIssue] = []
 
         # Check if Nikto has already been scanned for this device
         if getattr(self, 'nikto_scanned', False):
             self.logger.debug(f"Nikto scan already performed for {hostname} ({ip}). Skipping.")
             return issues
 
-        # Check if Nikto is installed
-        if not shutil.which('nikto'):
-            self.logger.info("Nikto is not installed. Skipping Nikto scan.")
-            return issues  # No issues to add since the scan was skipped
+        # Check if Nikto is installed or Docker image is available
+        if execution == ExecutionMode.NATIVE:
+            if not shutil.which('nikto'):
+                self.logger.warning("Nikto is not installed. Skipping Nikto scan.")
+                return issues
+        elif execution == ExecutionMode.DOCKER:
+            docker_image = self.config.docker.images.get('nikto')
+            if not docker_image:
+                self.logger.warning("Docker image for Nikto not set in configuration. Skipping Nikto scan.")
+                return issues
+        else:
+            self.logger.warning(f"Unsupported execution mode '{execution}'. Skipping Nikto scan.")
+            return issues
 
-        self.logger.debug(f"Starting Nikto scan on {protocol.upper()}://{ip}.")
+        self.logger.debug(f"Starting Nikto scan on {protocol.upper()}://{ip} with execution mode '{execution}'.")
 
-        # Construct the Nikto command with XML output to stdout
-        nikto_command = [
-            'nikto',
-            '-h', f"{protocol}://{ip}",
-            '-Format', 'xml',
-            '-output', '-'  # Output to stdout
-        ]
+        # Create a temporary file to store the Nikto XML output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.xml') as temp_output_file:
+            temp_output_path = temp_output_file.name
 
         try:
-            # Execute the Nikto scan and capture stdout
-            result = subprocess.run(
+            # Construct the Nikto command based on execution mode
+            if execution == ExecutionMode.NATIVE:
+                nikto_command = [
+                    'nikto',
+                    '-h', f"{protocol}://{ip}",
+                    '-Format', 'xml',
+                    '-output', temp_output_path  # Output to temp file
+                ]
+            elif execution == ExecutionMode.DOCKER:
+                # Mount the temporary file into the Docker container
+                nikto_command = [
+                    'docker', 'run', '--rm',
+                    '-v', f"{os.path.abspath(temp_output_path)}:/output.xml",
+                    docker_image,
+                    '-h', f"{protocol}://{ip}",
+                    '-Format', 'xml',
+                    '-output', '/output.xml'  # Output inside Docker container
+                ]
+
+            self.logger.debug(f"Executing command: {' '.join(nikto_command)}")
+
+            # Execute the Nikto scan
+            subprocess.run(
                 nikto_command,
                 check=True,
                 capture_output=True,
                 text=True
             )
-            nikto_output = result.stdout
-            self.logger.debug("Nikto scan completed. Parsing results from stdout.")
+            self.logger.debug("Nikto scan completed. Parsing results from output file.")
+
+            # Read the scan results from the temporary XML file
+            with open(temp_output_path, 'r') as f:
+                nikto_output = f.read()
 
             # Parse the Nikto XML output
             root = ET.fromstring(nikto_output)
@@ -937,6 +1002,122 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
             self.logger.error(f"Unexpected error during Nikto scan on {protocol}://{ip}: {e}")
         finally:
             self.nikto_scanned = True
+            try:
+                os.remove(temp_output_path)
+                self.logger.debug(f"Removed temporary output file {temp_output_path}.")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove temporary output file {temp_output_path}: {e}")
+
+        return issues
+
+    def _scan_with_golismero(self, ip: str, hostname: str, execution: ExecutionMode) -> List[DiagnoseIssue]:
+        """
+        Perform a Golismero scan on the target device and parse the results.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        # Check if Golismero has already been scanned for this device
+        if getattr(self, 'golismero_scanned', False):
+            self.logger.debug(f"Golismero scan already performed for {hostname} ({ip}). Skipping.")
+            return issues
+
+        # Check if Golismero is installed or Docker image is available
+        if execution == ExecutionMode.NATIVE:
+            if not shutil.which('golismero.py'):
+                self.logger.warning("Golismero is not installed. Skipping Golismero scan.")
+                return issues
+        elif execution == ExecutionMode.DOCKER:
+            docker_image = self.config.docker.images.get('golismero')
+            if not docker_image:
+                self.logger.warning("Docker image for Golismero not set in configuration. Skipping Golismero scan.")
+                return issues
+        else:
+            self.logger.warning(f"Unsupported execution mode '{execution}'. Skipping Golismero scan.")
+            return issues
+
+        self.logger.debug(f"Starting Golismero scan on {ip} with execution mode '{execution}'.")
+
+        # Create a temporary file to store the scan output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as temp_output_file:
+            temp_output_path = temp_output_file.name
+
+        try:
+            # Construct the Golismero scan command based on execution mode
+            if execution == ExecutionMode.NATIVE:
+                golismero_command = [
+                    'golismero.py',
+                    'scan',
+                    ip,
+                    '-o', temp_output_path
+                ]
+            elif execution == ExecutionMode.DOCKER:
+                golismero_command = [
+                    'docker', 'run', '--rm',
+                    '-v', f"{os.path.abspath(temp_output_path)}:/output.json",
+                    docker_image,
+                    'scan',
+                    ip,
+                    '-o', '/output.json'
+                ]
+
+            self.logger.debug(f"Executing command: {' '.join(golismero_command)}")
+
+            # Execute the Golismero scan
+            subprocess.run(
+                golismero_command,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            self.logger.debug("Golismero scan completed. Parsing results from output file.")
+
+            # Read the scan results from the output file
+            with open(temp_output_path, 'r') as f:
+                scan_results = json.load(f)
+
+            # Log general information from the scan summary
+            summary = scan_results.get('summary', {})
+            self.logger.info(f"Golismero Scan Summary for {hostname} ({ip}):")
+            self.logger.info(f"Report Time: {summary.get('report_time')}")
+            self.logger.info(f"Run Time: {summary.get('run_time')}")
+            self.logger.info(f"Audit Name: {summary.get('audit_name')}")
+            self.logger.info(f"Number of Vulnerabilities: {len(scan_results.get('vulnerabilities', {}))}")
+
+            # Process each vulnerability
+            vulnerabilities = scan_results.get('vulnerabilities', {})
+            for vuln_id, vulnerability in vulnerabilities.items():
+                level = vulnerability.get('level', 'informational').lower()
+                title = vulnerability.get('title', 'No title')
+                description = vulnerability.get('description', 'No description provided.')
+                solution = vulnerability.get('solution', 'No solution provided.')
+
+                # Only create issues for vulnerabilities that are not informational
+                if level != 'informational':
+                    issue_description = f"{title}: {description} | Solution: {solution}"
+                    issues.append(self.create_issue(f"Golismero [{level.upper()}]: {issue_description}"))
+                    self.logger.info(f"Golismero Issue on {hostname} ({ip}): {level.capitalize()} - {title} - {description}")
+                else:
+                    # Log informational findings without creating issues
+                    self.logger.info(f"Golismero Info on {hostname} ({ip}): {title} - {description}")
+
+            # Optionally, log additional resources information if needed
+            resources = scan_results.get('resources', {})
+            for resource_id, resource in resources.items():
+                self.logger.info(f"Resource: {resource.get('display_name')} - {resource.get('display_content')}")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Golismero scan failed on {ip}: {e.stderr.strip()}")
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse Golismero JSON output for {ip}: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during Golismero scan on {ip}: {e}")
+        finally:
+            self.golismero_scanned = True
+            try:
+                os.remove(temp_output_path)
+                self.logger.debug(f"Removed temporary output file {temp_output_path}.")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove temporary output file {temp_output_path}: {e}")
 
         return issues
 
@@ -1037,52 +1218,264 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
         """
         Check for default credentials on the device based on the vendor.
         """
-        issues = []
+        issues: List[DiagnoseIssue] = []
+
+        if not BEAUTIFULSOUP_AVAILABLE:
+            self.logger.warning("BeautifulSoup is not installed. Install it using 'pip install beautifulsoup4'.")
+            return issues
+
         try:
-            self.logger.debug(f"Checking default credentials on {ip}.")
+            self.logger.debug(f"Initiating default credentials check on {ip} using protocol {protocol.upper()}.")
 
-            # Get the list of credentials to try based on the vendor
+            # Retrieve the list of default credentials for the specified vendor
             credentials = self.config.credentials.get_vendor_credentials(vendor_key)
-            self.logger.debug(f"Total credentials to check for {ip}: {len(credentials)}.")
+            self.logger.debug(f"Retrieved {len(credentials)} default credentials for vendor '{vendor_key}' to check on {ip}.")
 
-            # Attempt to authenticate with each credential
+            # Determine the authentication method required by the device's admin interface
+            auth_method = self._identify_authentication_method(protocol, ip)
+            if not auth_method:
+                self.logger.info(f"No authentication required for {ip}. Skipping default credentials check.")
+                return issues  # No authentication needed; no default credentials issue
+
+            self.logger.debug(f"Authentication method for {ip}: {auth_method}")
+
+            # Iterate through each set of default credentials and attempt authentication
             for cred in credentials:
-                username = cred['username']
-                password = cred['password']
-                self.logger.debug(f"Attempting authentication on {ip} with username='{username}' and password='{password}'.")
+                username = cred.get('username')
+                password = cred.get('password')
+                if not username or not password:
+                    self.logger.warning(f"Invalid credential entry: {cred}. Skipping.")
+                    continue  # Skip invalid credential entries
 
-                if self._authenticate(protocol, ip, username, password):
-                    issues.append(self.create_issue(f"Default credentials used: {username}/{password}"))
-                    self.logger.info(f"Default credentials used on {ip}: {username}/{password}")
+                self.logger.debug(f"Attempting to authenticate on {ip} with username='{username}' and password='{password}'.")
+
+                if self._attempt_authentication(protocol, ip, username, password, auth_method):
+                    issue_description = f"Default credentials used: {username}/{password}"
+                    issues.append(self.create_issue(issue_description))
+                    self.logger.info(f"Default credentials successfully used on {ip}: {username}/{password}")
                     break  # Stop after first successful authentication
         except Exception as e:
-            self.logger.error(f"Error while checking default credentials on {ip}: {e}")
+            self.logger.error(f"Unexpected error while checking default credentials on {ip}: {e}")
         return issues
 
-    def _authenticate(self, protocol:str, ip: str, username: str, password: str) -> bool:
+    def _identify_authentication_method(self, protocol: str, ip: str) -> Optional[str]:
         """
-        Attempt to authenticate to the device's admin interface using HTTP Basic Auth.
-        Returns True if authentication is successful, False otherwise.
+        Identify the authentication method required by the device's admin interface.
         """
         try:
             url = f"{protocol}://{ip}/"
-            headers = {'Host': self.device.get("Hostname", "N/A")}
-            self.logger.debug(f"Making {protocol.upper()} request to {url} with username='{username}' and password='{password}'.")
+            self.logger.debug(f"Sending unauthenticated request to {url} to determine authentication method.")
 
-            # Make the GET request with Basic Auth
-            response = requests.get(url, auth=(username, password), headers=headers, timeout=5, verify=(protocol == 'https'))
+            response = requests.get(url, timeout=5, verify=(protocol == 'https'))
 
-            # Define criteria for successful authentication
+            if response.status_code == 401:
+                self.logger.debug(f"Received 401 Unauthorized from {url}. Assuming HTTP Basic Authentication.")
+                return 'basic'
+            elif response.status_code == 200:
+                # Analyze the response content to detect a login form
+                soup = BeautifulSoup(response.text, 'html.parser')
+                form = soup.find('form')
+                if form:
+                    password_inputs = form.find_all('input', {'type': 'password'})
+                    if password_inputs:
+                        self.logger.debug(f"Login form detected on {url}. Assuming Form-Based Authentication.")
+                        return 'form'
+                self.logger.debug(f"No authentication required as no login form detected on {url}.")
+                return None
+            else:
+                self.logger.debug(
+                    f"Received unexpected status code {response.status_code} from {url}. Assuming no authentication.")
+                return None
+        except requests.RequestException as e:
+            self.logger.error(f"RequestException while determining authentication method for {ip}: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error while determining authentication method for {ip}: {e}")
+        return None
+
+    def _attempt_authentication(self, protocol: str, ip: str, username: str, password: str, auth_method: str) -> bool:
+        """
+        Attempt to authenticate to the device's admin interface using the specified authentication method.
+        """
+        try:
+            if auth_method == 'basic':
+                return self._attempt_basic_authentication(protocol, ip, username, password)
+            elif auth_method == 'form':
+                return self._attempt_form_based_authentication(protocol, ip, username, password)
+            else:
+                self.logger.error(f"Unsupported authentication method '{auth_method}' for {ip}.")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during authentication to {ip} with username='{username}': {e}")
+        return False
+
+    def _attempt_basic_authentication(self, protocol: str, ip: str, username: str, password: str) -> bool:
+        """
+        Attempt HTTP Basic Authentication.
+        """
+        url = f"{protocol}://{ip}/"
+        headers = {'Host': self.device.get("Hostname", "N/A")}
+        self.logger.debug(f"Initiating HTTP Basic Authentication to {url} with username='{username}'.")
+
+        try:
+            response = requests.get(
+                url,
+                auth=(username, password),
+                headers=headers,
+                timeout=5,
+                verify=(protocol == 'https')
+            )
+
             if response.status_code in [200, 302]:
-                self.logger.debug(f"Authentication succeeded for {username}/{password} on {url} with status code {response.status_code}.")
+                self.logger.debug(f"HTTP Basic Authentication succeeded for {username}/{password} on {url} with status code {response.status_code}.")
                 return True
             else:
-                self.logger.debug(f"Authentication failed for {username}/{password} on {url} with status code {response.status_code}.")
+                self.logger.debug(f"HTTP Basic Authentication failed for {username}/{password} on {url} with status code {response.status_code}.")
         except requests.RequestException as e:
-            self.logger.debug(f"Authentication request to {url} with {username}/{password} failed: {e}")
-        except Exception as e:
-            self.logger.error(f"Unexpected error during authentication to {url} with {username}/{password}: {e}")
+            self.logger.debug(f"HTTP Basic Authentication request to {url} with {username}/{password} failed: {e}")
         return False
+
+    def _attempt_form_based_authentication(self, protocol: str, ip: str, username: str, password: str) -> bool:
+        """
+        Attempt Form-Based Authentication by submitting credentials through the login form.
+        """
+        base_url = f"{protocol}://{ip}"
+        login_page_url = base_url + "/"
+        headers = {'Host': self.device.get("Hostname", "N/A")}
+        self.logger.debug(f"Fetching login form from {login_page_url} for form-based authentication.")
+
+        try:
+            # Fetch the login page to retrieve the form details
+            response = requests.get(
+                login_page_url,
+                headers=headers,
+                timeout=5,
+                verify=(protocol == 'https')
+            )
+
+            if response.status_code != 200:
+                self.logger.debug(f"Failed to retrieve login page from {login_page_url}. Status code: {response.status_code}")
+                return False
+
+            soup = BeautifulSoup(response.text, 'html.parser')
+            form = self._extract_login_form(soup)
+            if not form:
+                self.logger.debug(f"No suitable login form found on {login_page_url}.")
+                return False
+
+            form_details = self._parse_login_form(form, base_url)
+            if not form_details:
+                self.logger.debug(f"Failed to parse login form on {login_page_url}.")
+                return False
+
+            form_action, form_method, form_data = form_details
+
+            # Populate form data with credentials
+            form_data = self._populate_form_data(form_data, username, password)
+
+            self.logger.debug(f"Submitting form to {form_action} with data: {form_data}")
+
+            # Submit the form with the populated data
+            if form_method.lower() == 'post':
+                post_response = requests.post(
+                    form_action,
+                    data=form_data,
+                    headers=headers,
+                    timeout=5,
+                    verify=(protocol == 'https'),
+                    allow_redirects=False  # To detect successful login via redirects
+                )
+            else:
+                # For GET method forms
+                post_response = requests.get(
+                    form_action,
+                    params=form_data,
+                    headers=headers,
+                    timeout=5,
+                    verify=(protocol == 'https'),
+                    allow_redirects=False
+                )
+
+            # Determine if authentication was successful based on response
+            if post_response.status_code in [200, 302]:
+                self.logger.debug(f"Form-Based Authentication succeeded for {username}/{password} on {form_action} with status code {post_response.status_code}.")
+                return True
+            else:
+                self.logger.debug(f"Form-Based Authentication failed for {username}/{password} on {form_action} with status code {post_response.status_code}.")
+
+        except requests.RequestException as e:
+            self.logger.debug(f"Form-Based Authentication request to {login_page_url} with {username}/{password} failed: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during Form-Based Authentication to {login_page_url} with {username}/{password}: {e}")
+        return False
+
+    def _extract_login_form(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
+        """
+        Extract the login form from the parsed HTML soup.
+        """
+        # Attempt to find form elements that likely represent a login form
+        forms = soup.find_all('form')
+        for form in forms:
+            # Check for input fields that indicate a login form
+            input_types = [input_tag.get('type', '').lower() for input_tag in form.find_all('input')]
+            if 'password' in input_types:
+                return form
+        return None
+
+    def _parse_login_form(self, form: BeautifulSoup, base_url: str) -> Optional[Tuple[str, str, Dict[str, str]]]:
+        """
+        Parse the login form to extract action URL, method, and input fields.
+        """
+        try:
+            # Extract form action (target URL)
+            action = form.get('action')
+            if not action:
+                action = '/'  # Default to root if action is not specified
+            elif not action.startswith('http'):
+                # Handle relative URLs
+                if action.startswith('/'):
+                    action_url = f"{base_url}{action}"
+                else:
+                    action_url = f"{base_url}/{action}"
+            else:
+                action_url = action
+
+            # Extract form method (GET or POST)
+            method = form.get('method', 'post').lower()
+
+            # Extract all input fields within the form
+            inputs = form.find_all('input')
+            form_data = {}
+            for input_tag in inputs:
+                input_name = input_tag.get('name')
+                input_type = input_tag.get('type', '').lower()
+                input_value = input_tag.get('value', '')
+
+                if not input_name:
+                    continue  # Skip inputs without a name attribute
+
+                if input_type == 'password':
+                    form_data[input_name] = ''  # Placeholder for password
+                elif input_type in ['text', 'email', 'username']:
+                    form_data[input_name] = ''  # Placeholder for username
+                elif input_type in ['hidden', 'submit']:
+                    form_data[input_name] = input_value
+                else:
+                    form_data[input_name] = input_value  # Default handling
+
+            return (action_url, method, form_data)
+        except Exception as e:
+            self.logger.error(f"Error parsing login form: {e}")
+        return None
+
+    def _populate_form_data(self, form_data: Dict[str, str], username: str, password: str) -> Dict[str, str]:
+        """
+        Populate the form data with the provided username and password.
+        """
+        for key, value in form_data.items():
+            if 'user' in key.lower():
+                form_data[key] = username
+            elif 'pass' in key.lower():
+                form_data[key] = password
+        return form_data
 
     def create_issue(self, description: str) -> DiagnoseIssue:
         """
@@ -1328,9 +1721,7 @@ class GameDiagnostics(CommonDiagnostics):
                             )
                             if response.status_code == 200:
                                 issues.append(self.create_issue(f"Gaming service port {port} ({service}) is accessible over HTTP"))
-                                self.logger.info(
-                                    f"Gaming service port {port} ({service}) is accessible over HTTP on {self.DEVICE_TYPE} {ip}."
-                                )
+                                self.logger.info(f"Gaming service port {port} ({service}) is accessible over HTTP on {self.DEVICE_TYPE} {ip}.")
                         except requests.RequestException as e:
                             self.logger.debug(f"HTTP request to {url} failed: {e}")
                             continue  # Unable to determine, proceed to next check
@@ -1378,7 +1769,7 @@ class NetworkScanner:
         self.mac_lookup = mac_lookup
         self.ipv6_enabled = args.ipv6  # New line to store IPv6 flag
 
-    def execute(self) -> Dict[str, List[Dict[str, str]]]:
+    def execute(self) -> Dict[str, List[Dict[str, Any]]]:
         """
         Execute the network scanning and classification.
         """
@@ -1439,7 +1830,7 @@ class NetworkScanner:
     def get_active_subnets(self) -> List[str]:
         """
         Determine the active subnets based on the system's non-loopback IPv4 and IPv6 addresses.
-        Excludes virtual interfaces by default unless self.args.include_virtual is True.
+        Excludes virtual interfaces by default unless self.args.virtual is True.
         """
         subnets = []
         try:
@@ -1458,8 +1849,7 @@ class NetworkScanner:
                         # Exclude loopback subnet
                         if not subnet.startswith("127."):
                             # Determine the interface name from previous non-indented line
-                            if current_iface and (
-                                    not self.is_virtual_interface(current_iface) or self.args.include_virtual):
+                            if current_iface and (not self.is_virtual_interface(current_iface) or self.args.virtual):
                                 subnets.append(subnet)
                 else:
                     # New interface
@@ -1483,8 +1873,7 @@ class NetworkScanner:
                             # Exclude loopback subnet
                             if not subnet.startswith("::1"):
                                 # Determine the interface name from previous non-indented line
-                                if current_iface and (
-                                        not self.is_virtual_interface(current_iface) or self.args.include_virtual):
+                                if current_iface and (not self.is_virtual_interface(current_iface) or self.args.virtual):
                                     subnets.append(subnet)
                     else:
                         # New interface
@@ -1598,7 +1987,7 @@ class NetworkScanner:
             self.logger.debug(f"nmap output was: {output}")
         return devices
 
-    def classify_devices(self, devices: List[Dict[str, str]]) -> Dict[str, List[Dict[str, str]]]:
+    def classify_devices(self, devices: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """
         Classify devices into different categories.
         """
@@ -1618,9 +2007,12 @@ class DiagnosticsCommand(BaseCommand):
         """
         self.logger.info("Starting automated network diagnostics...")
 
-        # Scan the network
-        scanner = NetworkScanner(self.args, self.logger, self.config, self.mac_lookup)
-        classified_devices = scanner.execute()
+        # Load devices from file or scan the network
+        if self.args.input_file:
+            classified_devices = self.load_devices_from_file(self.args.input_file)
+        else:
+            scanner = NetworkScanner(self.args, self.logger, self.config, self.mac_lookup)
+            classified_devices = scanner.execute()
 
         # Save devices to a JSON file if output is requested
         if self.args.output_file:
@@ -1633,11 +2025,11 @@ class DiagnosticsCommand(BaseCommand):
         if not self.args.discovery:
             self.perform_diagnostics(classified_devices)
 
-    def perform_diagnostics(self, classified_devices: Dict[str, List[Dict[str, str]]]):
+    def perform_diagnostics(self, classified_devices: Dict[str, List[Dict[str, Any]]]):
         """
         Perform diagnostics on the classified devices and collect issues.
         """
-        issues_found = []
+        issues_found: List[DiagnoseIssue] = []
 
         for device_type, devices in classified_devices.items():
             for device in devices:
@@ -1666,7 +2058,7 @@ class DiagnosticsCommand(BaseCommand):
         else:
             self.logger.info("No issues detected during diagnostics.")
 
-    def get_diagnostic_class(self, device_type: str, device: Dict[str, str]) -> GeneralDeviceDiagnostics:
+    def get_diagnostic_class(self, device_type: str, device: Dict[str, Any]) -> GeneralDeviceDiagnostics:
         """
         Get the appropriate diagnostic class based on device type.
         """
@@ -1685,7 +2077,7 @@ class DiagnosticsCommand(BaseCommand):
         else:
             return OtherDeviceDiagnostics(device_type, device, self.logger, self.args, self.config, self.mac_lookup)
 
-    def save_devices_to_file(self, classified_devices: Dict[str, List[Dict[str, str]]], filename: str) -> None:
+    def save_devices_to_file(self, classified_devices: Dict[str, List[Dict[str, Any]]], filename: str) -> None:
         """
         Save the classified devices to a JSON file.
         """
@@ -1697,12 +2089,30 @@ class DiagnosticsCommand(BaseCommand):
 
         try:
             with open(filename, 'w') as f:
-                json.dump(classified_devices, f, indent=4, cls=SetEncoder)
+                json.dump(classified_devices, f, indent=2, cls=SetEncoder)
             self.logger.info(f"Discovered devices saved to '{filename}'.")
         except Exception as e:
             self.logger.error(f"Failed to save devices to file: {e}")
 
-    def display_devices(self, classified_devices: Dict[str, List[Dict[str, str]]]) -> None:
+    def load_devices_from_file(self, filename: str) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Load the classified devices from a JSON file.
+        """
+        try:
+            with open(filename, 'w') as f:
+                classified_devices = json.load(f)
+
+            if classified_devices:
+                self.logger.info(f"Discovered devices loaded from '{filename}'.")
+            else:
+                classified_devices = {}
+                self.logger.warning(f"No devices found in file '{filename}'.")
+
+            return classified_devices
+        except Exception as e:
+            self.logger.error(f"Failed to save devices to file: {e}")
+
+    def display_devices(self, classified_devices: Dict[str, List[Dict[str, Any]]]) -> None:
         """
         Display the classified devices in a tabular format.
         """
@@ -2055,7 +2465,6 @@ class SystemInfoCommand(BaseCommand):
     """
     Gather and display system network information, including IPv4 and IPv6.
     """
-
     def execute(self) -> None:
         """
         Execute the system information gathering.
@@ -2153,8 +2562,7 @@ class SystemInfoCommand(BaseCommand):
                 localhost_v6 = any(ns.startswith('::1') for ns in resolv_conf_dns_v6)
 
                 if localhost_v4 or localhost_v6:
-                    self.logger.debug(
-                        "resolv.conf points to localhost. Querying systemd-resolved for real DNS servers.")
+                    self.logger.debug("resolv.conf points to localhost. Querying systemd-resolved for real DNS servers.")
                     try:
                         result = subprocess.run(['resolvectl', 'status'], capture_output=True, text=True, check=True)
                         # Use regex to find DNS servers for each interface
@@ -2535,7 +2943,7 @@ class DeviceClassifier:
         self.config = config
         self.mac_lookup = mac_lookup
 
-    def classify(self, devices: List[Dict[str, str]]) -> Dict[str, List[Dict[str, str]]]:
+    def classify(self, devices: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """
         Classify the list of devices into categories.
         """
@@ -2559,7 +2967,7 @@ class DeviceClassifier:
 
         return classified
 
-    def infer_device_type(self, device: Dict[str, str]) -> str:
+    def infer_device_type(self, device: Dict[str, Any]) -> str:
         """
         Infer the device type based on its attributes.
         """
@@ -2571,8 +2979,7 @@ class DeviceClassifier:
                 if device_type.priority < highest_priority:
                     matched_device_type = device_type.name
                     highest_priority = device_type.priority
-                    self.logger.debug(
-                        f"Device {device.get('MAC', 'N/A')} matched {matched_device_type} with priority {device_type.priority}.")
+                    self.logger.debug(f"Device {device.get('MAC', 'N/A')} matched {matched_device_type} with priority {device_type.priority}.")
 
         if matched_device_type == "Unknown":
             self.logger.debug(f"Device {device.get('MAC', 'N/A')} classified as Unknown.")
@@ -2627,19 +3034,14 @@ def parse_arguments() -> argparse.Namespace:
         help='Perform automated diagnostics on the network.'
     )
     diagnose_parser.add_argument(
-        '--include-virtual', '-V',
+        '--virtual', '-V',
         action='store_true',
-        help='Include virtual devices in diagnostics.'
+        help='Enable virtual interfaces in network scanning.'
     )
     diagnose_parser.add_argument(
-        '--nikto', '-N',
+        '--ipv6', '-6',
         action='store_true',
-        help='Run Nikto web server scanner on discovered devices.'
-    )
-    diagnose_parser.add_argument(
-        '--credentials', '-C',
-        action='store_true',
-        help='Check for default credentials on discovered devices.'
+        help='Enable IPv6 scanning in network scanning.'
     )
     diagnose_parser.add_argument(
         '--discovery', '-d',
@@ -2647,14 +3049,36 @@ def parse_arguments() -> argparse.Namespace:
         help='Perform network discovery to find devices only.'
     )
     diagnose_parser.add_argument(
-        '--ipv6', '-6',
-        action='store_true',
-        help='Enable IPv6 scanning.'
-    )
-    diagnose_parser.add_argument(
         '--output-file', '-o',
         type=str,
         help='File to store discovered devices.'
+    )
+    diagnose_parser.add_argument(
+        '--input-file', '-i',
+        type=str,
+        help='File to load discovered devices.'
+    )
+    diagnose_parser.add_argument(
+        '--execution', '-e',
+        type=ExecutionMode,
+        choices=[mode.value for mode in ExecutionMode],
+        default=ExecutionMode.DOCKER,
+        help='Execution mode for scanning tools.'
+    )
+    diagnose_parser.add_argument(
+        '--nikto', '-N',
+        action='store_true',
+        help='Run Nikto web server scanner on discovered devices.'
+    )
+    diagnose_parser.add_argument(
+        '--golismero', '-G',
+        action='store_true',
+        help='Run Golismero automated scanning on discovered devices.'
+    )
+    diagnose_parser.add_argument(
+        '--credentials', '-C',
+        action='store_true',
+        help='Check for default credentials on discovered devices.'
     )
 
     # Subparser for traffic-monitor
