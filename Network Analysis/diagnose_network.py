@@ -23,7 +23,7 @@
 # -vv, --debug                Enable debug logging (DEBUG level).
 #
 # System Info Command Options:
-# -t, --traceroute            Perform a traceroute to a specified address (default: 8.8.8.8, [2001:4860:4860::8888]).
+# -t, --traceroute            Perform a traceroute to a specified address (default: 8.8.8.8, 2001:4860:4860::8888).
 #
 # Traffic Monitor Command Options:
 # -i, --interface             Specify the network interface to monitor (e.g., wlan0, eth0).
@@ -42,6 +42,7 @@
 # -N, --nikto                 Enable Nikto scanning for discovered devices.
 # -C, --credentials           Enable default credentials check for discovered devices.
 # -d, --discovery             Perform device discovery only.
+# -6, --ipv6                  Enable IPv6 scanning.
 # -o, --output-file           Specify a file to save discovered devices.
 #
 # WiFi Command Options:
@@ -644,10 +645,13 @@ class GeneralDeviceDiagnostics(ABC):
         Ping the specified IP address to check its reachability.
         """
         try:
-            # Using the system's ping command. '-c 1' sends one packet.
-            result = subprocess.run(['ping', '-c', '1', '-W', '2', ip],
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL)
+            if ':' in ip:
+                # Likely IPv6
+                cmd = ['ping6', '-c', '1', '-W', '2', ip]
+            else:
+                # IPv4
+                cmd = ['ping', '-c', '1', '-W', '2', ip]
+            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if result.returncode == 0:
                 self.logger.debug(f"Ping to {ip} successful.")
                 return True
@@ -1372,6 +1376,7 @@ class NetworkScanner:
         self.logger = logger
         self.config = config
         self.mac_lookup = mac_lookup
+        self.ipv6_enabled = args.ipv6  # New line to store IPv6 flag
 
     def execute(self) -> Dict[str, List[Dict[str, str]]]:
         """
@@ -1393,18 +1398,20 @@ class NetworkScanner:
             # Dynamically determine the active subnets
             subnets = self.get_active_subnets()
             if not subnets:
-                self.logger.error("No active subnets detected.")
+                self.logger.error("No devices found on the network.")
                 return []
 
             all_devices = []
             for subnet in subnets:
                 self.logger.debug(f"Scanning subnet: {subnet}")
-                # Use nmap for comprehensive scanning with OS detection and service enumeration
-                # -O: Enable OS detection
-                # -sV: Probe open ports to determine service/version info
-                # -T4: Faster execution
-                # -oX: Output in XML format to stdout
-                scan_command = ['sudo', 'nmap', '-O', '-sV', '-T4', '-oX', '-', subnet]
+                # Determine if subnet is IPv6 based on presence of ':'
+                if '/' in subnet and ':' in subnet:
+                    # IPv6 subnet
+                    scan_command = ['sudo', 'nmap', '-O', '-sV', '-T4', '-6', '-oX', '-', subnet]
+                else:
+                    # IPv4 subnet
+                    scan_command = ['sudo', 'nmap', '-O', '-sV', '-T4', '-oX', '-', subnet]
+
                 self.logger.debug(f"Executing command: {' '.join(scan_command)}")
                 result = subprocess.run(scan_command, capture_output=True, text=True)
 
@@ -1431,15 +1438,16 @@ class NetworkScanner:
 
     def get_active_subnets(self) -> List[str]:
         """
-        Determine the active subnets based on the system's non-loopback IPv4 addresses.
+        Determine the active subnets based on the system's non-loopback IPv4 and IPv6 addresses.
         Excludes virtual interfaces by default unless self.args.include_virtual is True.
         """
         subnets = []
         try:
-            result = subprocess.run(['ip', '-4', 'addr'], capture_output=True, text=True, check=True)
-            lines = result.stdout.splitlines()
+            # Retrieve IPv4 subnets
+            result_v4 = subprocess.run(['ip', '-4', 'addr'], capture_output=True, text=True, check=True)
+            lines_v4 = result_v4.stdout.splitlines()
             current_iface = None
-            for line in lines:
+            for line in lines_v4:
                 if line.startswith(' '):
                     if 'inet ' in line:
                         parts = line.strip().split()
@@ -1458,6 +1466,32 @@ class NetworkScanner:
                     iface_info = line.split(':', 2)
                     if len(iface_info) >= 2:
                         current_iface = iface_info[1].strip().split('@')[0]
+
+            # If IPv6 is enabled, retrieve IPv6 subnets
+            if self.ipv6_enabled:
+                result_v6 = subprocess.run(['ip', '-6', 'addr'], capture_output=True, text=True, check=True)
+                lines_v6 = result_v6.stdout.splitlines()
+                current_iface = None
+                for line in lines_v6:
+                    if line.startswith(' '):
+                        if 'inet6 ' in line:
+                            parts = line.strip().split()
+                            ip_cidr = parts[1]  # e.g., '2001:db8::1/64'
+                            ip, prefix = ip_cidr.split('/')
+                            prefix = int(prefix)
+                            subnet = self.calculate_subnet(ip, prefix)
+                            # Exclude loopback subnet
+                            if not subnet.startswith("::1"):
+                                # Determine the interface name from previous non-indented line
+                                if current_iface and (
+                                        not self.is_virtual_interface(current_iface) or self.args.include_virtual):
+                                    subnets.append(subnet)
+                    else:
+                        # New interface
+                        iface_info = line.split(':', 2)
+                        if len(iface_info) >= 2:
+                            current_iface = iface_info[1].strip().split('@')[0]
+
             # Remove duplicates
             subnets = list(set(subnets))
             self.logger.debug(f"Active subnets: {subnets}")
@@ -1514,6 +1548,8 @@ class NetworkScanner:
                 for addr in addresses:
                     addr_type = addr.get('addrtype')
                     if addr_type == 'ipv4':
+                        device['IP'] = addr.get('addr', 'N/A')
+                    elif addr_type == 'ipv6':
                         device['IP'] = addr.get('addr', 'N/A')
                     elif addr_type == 'mac':
                         device['MAC'] = addr.get('addr', 'N/A')
@@ -2033,8 +2069,9 @@ class SystemInfoCommand(BaseCommand):
 
         traceroute_info_v4 = None
         traceroute_info_v6 = None
+
         for traceroute_target in self.args.traceroute:
-            if traceroute_target.startswith('[') and traceroute_target.endswith(']'):
+            if ':' in traceroute_target:
                 traceroute_info_v6 = self.perform_traceroute(traceroute_target)
             else:
                 traceroute_info_v4 = self.perform_traceroute(traceroute_target)
@@ -2169,9 +2206,8 @@ class SystemInfoCommand(BaseCommand):
         self.logger.info(f"Performing traceroute to {target}...")
         try:
             # Determine if target is IPv6 based on being enclosed in []
-            if target.startswith('[') and target.endswith(']'):
+            if ':' in target:
                 family = 'inet6'
-                target = target[1:-1]  # Remove the brackets
                 cmd = ['traceroute', '-n', '-6', target]
             else:
                 family = 'inet'
@@ -2580,7 +2616,7 @@ def parse_arguments() -> argparse.Namespace:
         '--traceroute', '-t',
         type=str,
         nargs='*',
-        default=['8.8.8.8', '[2001:4860:4860::8888]'],
+        default=['8.8.8.8', '2001:4860:4860::8888'],
         help='Perform a traceroute to the specified target.'
     )
 
@@ -2609,6 +2645,11 @@ def parse_arguments() -> argparse.Namespace:
         '--discovery', '-d',
         action='store_true',
         help='Perform network discovery to find devices only.'
+    )
+    diagnose_parser.add_argument(
+        '--ipv6', '-6',
+        action='store_true',
+        help='Enable IPv6 scanning.'
     )
     diagnose_parser.add_argument(
         '--output-file', '-o',
