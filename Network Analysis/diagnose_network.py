@@ -22,6 +22,9 @@
 # -v, --verbose               Enable verbose logging (INFO level).
 # -vv, --debug                Enable debug logging (DEBUG level).
 #
+# System Info Command Options:
+# -t, --traceroute            Perform a traceroute to a specified address (default: 8.8.8.8, [2001:4860:4860::8888]).
+#
 # Traffic Monitor Command Options:
 # -i, --interface             Specify the network interface to monitor (e.g., wlan0, eth0).
 # --dhcp-threshold            Set DHCP flood threshold (default: 100).
@@ -51,6 +54,9 @@
 # Exit code 0 on success, non-zero on failure.
 #
 # Requirements:
+#  System-Info Command:
+#  - resolvectl (install via: apt install systemd-resolv)
+#  - traceroute (install via: apt install traceroute)
 #  Diagnose Command:
 #  - requests (install via: pip install requests)
 #  - nmap (install via: apt install nmap)
@@ -80,6 +86,7 @@ import time
 import threading
 import queue
 import shutil
+import re
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Set
 from collections import defaultdict, deque
@@ -2010,77 +2017,255 @@ class TrafficMonitorCommand(BaseCommand):
 # System Information Command
 class SystemInfoCommand(BaseCommand):
     """
-    Gather and display system network information.
+    Gather and display system network information, including IPv4 and IPv6.
     """
+
     def execute(self) -> None:
         """
         Execute the system information gathering.
         """
         self.logger.info("Gathering system network information...")
-        ip_info = self.get_ip_info()
-        routing_info = self.get_routing_info()
+        ip_info_v4 = self.get_ip_info('inet')
+        ip_info_v6 = self.get_ip_info('inet6')
+        routing_info_v4 = self.get_routing_info('inet')
+        routing_info_v6 = self.get_routing_info('inet6')
         dns_info = self.get_dns_info()
-        self.display_system_info(ip_info, routing_info, dns_info)
 
-    def get_ip_info(self) -> str:
+        traceroute_info_v4 = None
+        traceroute_info_v6 = None
+        for traceroute_target in self.args.traceroute:
+            if traceroute_target.startswith('[') and traceroute_target.endswith(']'):
+                traceroute_info_v6 = self.perform_traceroute(traceroute_target)
+            else:
+                traceroute_info_v4 = self.perform_traceroute(traceroute_target)
+
+        self.display_system_info(ip_info_v4, ip_info_v6, routing_info_v4, routing_info_v6, dns_info, traceroute_info_v4, traceroute_info_v6)
+
+    def get_ip_info(self, family: str = 'inet') -> str:
         """
-        Retrieve IP configuration using the 'ip addr' command.
+        Retrieve IP configuration using the 'ip addr' command for the specified family.
         """
-        self.logger.debug("Retrieving IP configuration...")
+        self.logger.debug(f"Retrieving IP configuration for {family}...")
         try:
-            result = subprocess.run(['ip', 'addr'], capture_output=True, text=True, check=True)
+            if family == 'inet':
+                cmd = ['ip', '-4', 'addr', 'show']
+            elif family == 'inet6':
+                cmd = ['ip', '-6', 'addr', 'show']
+            else:
+                self.logger.error(f"Unknown IP family: {family}")
+                return ""
+
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return result.stdout
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to get IP information: {e}")
+            if family == 'inet6':
+                self.logger.info("IPv6 is not supported on this system.")
+            else:
+                self.logger.error(f"Failed to get IP information for {family}: {e}")
             return ""
 
-    def get_routing_info(self) -> str:
+    def get_routing_info(self, family: str = 'inet') -> str:
         """
-        Retrieve routing table using the 'ip route' command.
+        Retrieve routing table using the 'ip route' command for the specified family.
         """
-        self.logger.debug("Retrieving routing table...")
+        self.logger.debug(f"Retrieving routing table for {family}...")
         try:
-            result = subprocess.run(['ip', 'route'], capture_output=True, text=True, check=True)
+            if family == 'inet6':
+                cmd = ['ip', '-6', 'route', 'show']
+            else:
+                cmd = ['ip', 'route', 'show']
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return result.stdout
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Failed to get routing information: {e}")
+            if family == 'inet6':
+                self.logger.info("IPv6 routing information is not available on this system.")
+            else:
+                self.logger.error(f"Failed to get routing information for {family}: {e}")
             return ""
 
-    def get_dns_info(self) -> List[str]:
+    def get_dns_info(self) -> Dict[str, List[str]]:
         """
-        Retrieve DNS server information from /etc/resolv.conf.
+        Retrieve DNS server information, handling systemd-resolved if resolv.conf points to localhost.
+        Returns a dictionary mapping network interfaces to their DNS servers for both IPv4 and IPv6.
         """
         self.logger.debug("Retrieving DNS servers...")
-        dns_servers = []
+        dns_info = {}
         try:
             with open('/etc/resolv.conf', 'r') as f:
+                resolv_conf_dns_v4 = []
+                resolv_conf_dns_v6 = []
                 for line in f:
                     if line.startswith('nameserver'):
-                        dns_servers.append(line.split()[1])
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            dns_server = parts[1]
+                            if re.match(r'^(\d{1,3}\.){3}\d{1,3}$', dns_server):
+                                resolv_conf_dns_v4.append(dns_server)
+                            elif re.match(r'^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$', dns_server):
+                                resolv_conf_dns_v6.append(dns_server)
+
+                if resolv_conf_dns_v4:
+                    dns_info['resolv.conf (IPv4)'] = resolv_conf_dns_v4
+                    self.logger.debug(f"IPv4 DNS servers from resolv.conf: {resolv_conf_dns_v4}")
+                if resolv_conf_dns_v6:
+                    dns_info['resolv.conf (IPv6)'] = resolv_conf_dns_v6
+                    self.logger.debug(f"IPv6 DNS servers from resolv.conf: {resolv_conf_dns_v6}")
+
+                # Check if resolv.conf points to localhost for IPv4 or IPv6
+                localhost_v4 = any(ns.startswith('127.') for ns in resolv_conf_dns_v4)
+                localhost_v6 = any(ns.startswith('::1') for ns in resolv_conf_dns_v6)
+
+                if localhost_v4 or localhost_v6:
+                    self.logger.debug(
+                        "resolv.conf points to localhost. Querying systemd-resolved for real DNS servers.")
+                    try:
+                        result = subprocess.run(['resolvectl', 'status'], capture_output=True, text=True, check=True)
+                        # Use regex to find DNS servers for each interface
+                        interface_pattern = re.compile(r'Link\s+\d+\s+\(([^)]+)\)')
+                        dns_server_pattern = re.compile(r'DNS Servers:\s+(.+)')
+
+                        current_iface = None
+                        for line in result.stdout.splitlines():
+                            iface_match = interface_pattern.match(line)
+                            if iface_match:
+                                current_iface = iface_match.group(1).strip()
+                                self.logger.debug(f"Detected interface: {current_iface}")
+                            else:
+                                dns_match = dns_server_pattern.search(line)
+                                if dns_match and current_iface:
+                                    servers = dns_match.group(1).strip().split()
+                                    ipv4_servers = [s for s in servers if re.match(r'^(\d{1,3}\.){3}\d{1,3}$', s)]
+                                    ipv6_servers = [s for s in servers if
+                                                    re.match(r'^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$', s)]
+                                    if ipv4_servers:
+                                        dns_info.setdefault(f'{current_iface} (IPv4)', []).extend(ipv4_servers)
+                                        self.logger.debug(f"Found IPv4 DNS servers for {current_iface}: {ipv4_servers}")
+                                    if ipv6_servers:
+                                        dns_info.setdefault(f'{current_iface} (IPv6)', []).extend(ipv6_servers)
+                                        self.logger.debug(f"Found IPv6 DNS servers for {current_iface}: {ipv6_servers}")
+                    except subprocess.CalledProcessError as e:
+                        self.logger.error(f"Failed to run resolvectl: {e}")
+                    except FileNotFoundError:
+                        self.logger.error("resolvectl command not found. Ensure systemd-resolved is installed.")
         except Exception as e:
             self.logger.error(f"Failed to read DNS information: {e}")
-        return dns_servers
 
-    def display_system_info(self, ip_info: str, routing_info: str, dns_info: List[str]) -> None:
+        # Remove duplicates while preserving order for each interface
+        for iface, servers in dns_info.items():
+            seen = set()
+            unique_servers = []
+            for dns in servers:
+                if dns not in seen:
+                    seen.add(dns)
+                    unique_servers.append(dns)
+            dns_info[iface] = unique_servers
+
+        return dns_info
+
+    def perform_traceroute(self, target: str) -> Optional[str]:
         """
-        Display the gathered system information.
+        Perform a traceroute to the specified target and return the output.
+        """
+        self.logger.info(f"Performing traceroute to {target}...")
+        try:
+            # Determine if target is IPv6 based on being enclosed in []
+            if target.startswith('[') and target.endswith(']'):
+                family = 'inet6'
+                target = target[1:-1]  # Remove the brackets
+                cmd = ['traceroute', '-n', '-6', target]
+            else:
+                family = 'inet'
+                cmd = ['traceroute', '-n', target]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            self.logger.debug(f"Traceroute ({family}) completed successfully.")
+            return result.stdout
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.strip() if e.stderr else str(e)
+            if family == 'inet6' and 'Address family for hostname not supported' in error_msg:
+                self.logger.info(f"Traceroute to {target} for {family} failed: IPv6 is not supported.")
+            else:
+                self.logger.error(f"Traceroute to {target} for {family} failed: {error_msg}")
+        except FileNotFoundError:
+            self.logger.info("traceroute command not found. Install it using your package manager.")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during traceroute for {family}: {e}")
+        return None
+
+    def display_system_info(
+            self,
+            ip_info_v4: str,
+            ip_info_v6: str,
+            routing_info_v4: str,
+            routing_info_v6: str,
+            dns_info: Dict[str, List[str]],
+            traceroute_info_v4: Optional[str],
+            traceroute_info_v6: Optional[str]
+    ) -> None:
+        """
+        Display the gathered system information for both IPv4 and IPv6.
         """
         if console:
-            console.print(Panel("[bold underline]IP Configuration[/bold underline]", style="cyan"))
-            console.print(ip_info)
-            console.print(Panel("[bold underline]Routing Table[/bold underline]", style="cyan"))
-            console.print(routing_info)
-            console.print(Panel("[bold underline]DNS Servers[/bold underline]", style="cyan"))
-            for dns in dns_info:
-                console.print(f"- {dns}")
+            if ip_info_v4:
+                console.print(Panel("[bold underline]Configuration (IPv4)[/bold underline]", style="cyan"))
+                console.print(ip_info_v4)
+            if ip_info_v6:
+                console.print(Panel("[bold underline]Configuration (IPv6)[/bold underline]", style="cyan"))
+                console.print(ip_info_v6)
+
+            if routing_info_v4:
+                console.print(Panel("[bold underline]Routing Table (IPv4)[/bold underline]", style="cyan"))
+                console.print(routing_info_v4)
+            if routing_info_v6:
+                console.print(Panel("[bold underline]Routing Table (IPv6)[/bold underline]", style="cyan"))
+                console.print(routing_info_v6)
+
+            if dns_info:
+                console.print(Panel("[bold underline]DNS Servers[/bold underline]", style="cyan"))
+                for iface, dns_servers in dns_info.items():
+                    console.print(f"[bold]{iface}:[/bold]")
+                    for dns in dns_servers:
+                        console.print(f"  - {dns}")
+
+            if traceroute_info_v4:
+                console.print(Panel("[bold underline]Traceroute (IPv4)[/bold underline]", style="cyan"))
+                console.print(traceroute_info_v4)
+            if traceroute_info_v6:
+                console.print(Panel("[bold underline]Traceroute (IPv6)[/bold underline]", style="cyan"))
+                console.print(traceroute_info_v6)
         else:
-            print("\n=== IP Configuration ===")
-            print(ip_info)
-            print("\n=== Routing Table ===")
-            print(routing_info)
-            print("\n=== DNS Servers ===")
-            for dns in dns_info:
-                print(f"- {dns}")
+            if ip_info_v4:
+                print("\n=== Configuration (IPv4) ===")
+                print(ip_info_v4)
+            if ip_info_v6:
+                print("\n=== Configuration (IPv6) ===")
+                print(ip_info_v6)
+
+            if routing_info_v4:
+                print("\n=== Routing Table (IPv4) ===")
+                print(routing_info_v4)
+            if routing_info_v6:
+                print("\n=== Routing Table (IPv6) ===")
+                print(routing_info_v6)
+
+            if dns_info:
+                print("\n=== DNS Servers ===")
+                for iface, dns_servers in dns_info.items():
+                    print(f"\n--- {iface} ---")
+                    for dns in dns_servers:
+                        print(f"- {dns}")
+
+            if traceroute_info_v4:
+                print("\n=== Traceroute (IPv4) ===")
+                print(traceroute_info_v4)
+            if traceroute_info_v6:
+                print("\n=== Traceroute (IPv6) ===")
+                print(traceroute_info_v6)
 
 
 # Wifi Diagnostics Command
@@ -2390,6 +2575,13 @@ def parse_arguments() -> argparse.Namespace:
         'system-info',
         aliases=['si'],
         help='Display detailed network information about the system.'
+    )
+    sys_info_parser.add_argument(
+        '--traceroute', '-t',
+        type=str,
+        nargs='*',
+        default=['8.8.8.8', '[2001:4860:4860::8888]'],
+        help='Perform a traceroute to the specified target.'
     )
 
     # Subparser for diagnose
