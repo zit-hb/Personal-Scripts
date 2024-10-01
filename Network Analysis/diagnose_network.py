@@ -25,6 +25,18 @@
 # System Info Command Options:
 # -t, --traceroute            Perform a traceroute to a specified address (default: 8.8.8.8, 2001:4860:4860::8888).
 #
+# Diagnostics Command Options:
+# -V, --virtual               Enable virtual interfaces in network scanning.
+# -6, --ipv6                  Enable IPv6 in network scanning.
+# -d, --discovery             Perform device discovery only.
+# -o, --output-file           Specify a file to save discovered devices.
+# -i, --input-file            Specify a file to load discovered devices.
+# -e, --execution             Specify the execution mode (choices: docker, native) (default: docker).
+# -N, --nikto                 Enable Nikto scanning for discovered devices.
+# -G, --golismero             Enable Golismero automated scanning for discovered devices.
+# -C, --credentials           Enable default credentials check for discovered devices.
+# -A, --all                   Enable all available diagnostic tools.
+#
 # Traffic Monitor Command Options:
 # -i, --interface             Specify the network interface to monitor (e.g., wlan0, eth0).
 # --dhcp-threshold            Set DHCP flood threshold (default: 100).
@@ -36,17 +48,6 @@
 # --http-threshold            Set HTTP abuse threshold (default: 1000).
 # --malformed-threshold       Set malformed packets threshold (default: 50).
 # --rogue-dhcp-threshold      Set rogue DHCP server threshold (default: 1).
-#
-# Diagnostics Command Options:
-# -V, --virtual               Enable virtual interfaces in network scanning.
-# -6, --ipv6                  Enable IPv6 scanning in network scanning.
-# -d, --discovery             Perform device discovery only.
-# -o, --output-file           Specify a file to save discovered devices.
-# -i, --input-file            Specify a file to load discovered devices.
-# -e, --execution             Specify the execution mode (choices: docker, native) (default: docker).
-# -N, --nikto                 Enable Nikto scanning for discovered devices.
-# -G, --golismero             Enable Golismero automated scanning for discovered devices.
-# -C, --credentials           Enable default credentials check for discovered devices.
 #
 # WiFi Command Options:
 # -s, --ssid                  Specify the SSID to perform targeted diagnostics.
@@ -99,14 +100,16 @@ import re
 import tempfile
 from enum import Enum
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Set, Tuple, Any
+from typing import List, Optional, Dict, Set, Tuple, Any, TypeVar, Type, Union, get_origin, get_args
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass, fields
 import xml.etree.ElementTree as ET
 
 # Ignore unnecessary warnings
 import warnings
+from urllib.parse import urlparse
+
 from urllib3.exceptions import InsecureRequestWarning
 warnings.simplefilter('ignore', InsecureRequestWarning)
 
@@ -154,7 +157,8 @@ except ImportError:
     BEAUTIFULSOUP_AVAILABLE = False
 
 # Initialize Rich console if available
-console = Console() if Console else None
+console = Console() if RICH_AVAILABLE else None
+
 
 # Constants
 class ExecutionMode(str, Enum):
@@ -168,6 +172,8 @@ class DiagnoseIssue:
     device_type: str
     hostname: str
     ip: str
+    port: int
+    product: str
     description: str
 
 
@@ -175,7 +181,6 @@ class DiagnoseIssue:
 class WifiIssue:
     issue_type: str
     location: str
-    ip_address: str
     description: str
 
 
@@ -386,6 +391,95 @@ class GamingServicesConfig:
 
 
 @dataclass
+class DeviceAddress:
+    address: str
+    address_type: str
+    vendor: Optional[str] = None
+
+
+@dataclass
+class DeviceServiceScript:
+    script_id: str
+    output: str
+
+
+@dataclass
+class DeviceService:
+    confidence: Optional[str]
+    method: Optional[str]
+    name: Optional[str]
+    product: Optional[str]
+    version: Optional[str]
+    service_fingerprint: Optional[str]
+    cpe_list: List[str] = field(default_factory=list)
+    scripts: List[DeviceServiceScript] = field(default_factory=list)
+
+
+@dataclass
+class DevicePort:
+    port_id: int
+    protocol: str
+    state: str
+    reason: Optional[str] = None
+    service: Optional[DeviceService] = None
+
+
+@dataclass
+class DeviceOsMatch:
+    accuracy: int
+    name: str
+    os_family: Optional[str] = None
+    os_gen: Optional[str] = None
+    os_type: Optional[str] = None
+    vendor: Optional[str] = None
+    cpe_list: List[str] = field(default_factory=list)
+    ports_used: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DeviceOs:
+    os_matches: List[DeviceOsMatch] = field(default_factory=list)
+    ports_used: List[str] = field(default_factory=list)  # Simplified as list of strings
+
+
+@dataclass
+class DeviceTraceHop:
+    host: Optional[str]
+    ip_address: Optional[str]
+    round_trip_time: Optional[float]
+    time_to_live: Optional[int]
+
+
+@dataclass
+class DeviceTrace:
+    hops: List[DeviceTraceHop] = field(default_factory=list)
+
+
+@dataclass
+class DeviceUptime:
+    last_boot_time: str
+    uptime_seconds: int
+
+
+@dataclass
+class Device:
+    ip_addresses: List[str] = field(default_factory=list)
+    mac_address: Optional[str] = None
+    vendor: Optional[str] = None
+    hostnames: List[str] = field(default_factory=list)
+    operating_system: Optional[str] = None
+    os_matches: List[DeviceOsMatch] = field(default_factory=list)
+    ports: List[DevicePort] = field(default_factory=list)
+    uptime: Optional[DeviceUptime] = None
+    distance: Optional[int] = None
+    trace: Optional[DeviceTrace] = None
+    rtt_variance: Optional[int] = None
+    smoothed_rtt: Optional[int] = None
+    timeout: Optional[int] = None
+    os_info: Optional[DeviceOs] = None
+
+
+@dataclass
 class DeviceType:
     """
     Represents a type of network device with specific identification criteria.
@@ -396,35 +490,39 @@ class DeviceType:
     os_keywords: Set[str] = field(default_factory=set)
     priority: int = 0  # Lower number means higher priority
 
-    def matches(self, device: Dict[str, Any], mac_lookup) -> bool:
+    def matches(self, device: Device) -> bool:
         """
         Determines if a given device matches the criteria of this device type.
         """
-        ports = set(device.get("Ports", []))
-        os_info = device.get("OS", "").lower()
-        mac = device.get("MAC", "N/A")
-        vendor = mac_lookup.get_vendor(mac).lower() if mac != 'N/A' else "unknown"
+        # Construct the set of port descriptions as "port_id/protocol"
+        device_ports = set()
+        for port in device.ports:
+            if port.state == 'open' and port.service:
+                port_desc = f"{port.port_id}/{port.protocol.lower()}"
+                device_ports.add(port_desc)
 
-        # Check vendor match
+        # Extract and process OS information
+        os_info = device.operating_system.lower() if device.operating_system else ""
+
+        # Extract and process vendor information
+        vendor = device.vendor.lower() if device.vendor else "unknown"
+
+        # Find matches based on DeviceTypeConfig requirements
         vendor_match = any(v in vendor for v in self.vendors)
-
-        # Check ports match
-        ports_match = bool(self.ports.intersection(ports))
-
-        # Check OS keywords
+        ports_match = bool(self.ports.intersection(device_ports))
         os_match = any(keyword in os_info for keyword in self.os_keywords) if self.os_keywords else False
 
         # Combine conditions based on device type requirements
         if self.name == "Phone":
             return vendor_match or ports_match
-        if self.name == "Smart":
+        elif self.name == "Smart":
             return vendor_match or os_match
-        if self.name == "Game":
+        elif self.name == "Game":
             return (vendor_match or os_match) and ports_match
-        if self.name == "Computer":
-            return os_match or ports
+        elif self.name == "Computer":
+            return os_match or bool(device_ports)
 
-        # Default: require both vendor and ports to match
+        # Default condition: require both vendor and ports to match
         return vendor_match and ports_match
 
 
@@ -437,46 +535,43 @@ class DeviceTypeConfig:
     device_types: List[DeviceType] = field(default_factory=lambda: [
         DeviceType(
             name="Router",
-            vendors={'fritz!box', 'asus', 'netgear', 'tp-link', 'd-link',
-                     'linksys', 'belkin', 'synology', 'ubiquiti', 'mikrotik', 'zyxel'},
-            ports={'80/tcp http', '443/tcp https', '23/tcp telnet', '22/tcp ssh'},
+            vendors={'fritz!box', 'asus', 'netgear', 'tp-link', 'd-link', 'linksys', 'belkin', 'synology', 'ubiquiti', 'mikrotik', 'zyxel'},
+            ports={'80/tcp', '443/tcp', '23/tcp', '22/tcp'},
             priority=1
         ),
         DeviceType(
             name="Switch",
             vendors={'cisco', 'hp', 'd-link', 'netgear', 'ubiquiti', 'juniper', 'huawei'},
-            ports={'22/tcp ssh', '23/tcp telnet', '161/udp snmp', '161/tcp snmp'},
+            ports={'22/tcp', '23/tcp', '161/udp', '161/tcp'},
             priority=2
         ),
         DeviceType(
             name="Printer",
-            vendors={'hp', 'canon', 'epson', 'brother', 'lexmark', 'samsung', 'xerox'},
-            ports={'9100/tcp jetdirect', '515/tcp lpd', '631/tcp ipp'},
+            vendors={'hp', 'canon', 'epson', 'brother', 'lexmark', 'samsung', 'xerox', 'lightspeed'},
+            ports={'9100/tcp', '515/tcp', '631/tcp'},
             priority=3
         ),
         DeviceType(
             name="Phone",
             vendors={'cisco', 'yealink', 'polycom', 'avaya', 'grandstream'},
-            ports={'5060/tcp sip', '5060/udp sip'},
+            ports={'5060/tcp', '5060/udp'},
             priority=4
         ),
         DeviceType(
             name="Smart",
-            vendors={'google', 'amazon', 'ring', 'nest', 'philips', 'samsung', 'lg', 'lifi labs', 'roborock'},
+            vendors={'google', 'amazon', 'ring', 'nest', 'philips', 'samsung', 'lg', 'lifi labs', 'roborock', 'harman'},
             os_keywords={'smart', 'iot', 'camera', 'thermostat', 'light', 'sensor', 'hub'},
             priority=5
         ),
         DeviceType(
             name="Game",
             vendors={'sony', 'microsoft', 'nintendo'},
-            ports={'3074/tcp xbox', '3074/udp xbox', '3075/tcp playstation',
-                   '3075/udp playstation', '3076/tcp nintendo', '3076/udp nintendo'},
+            ports={'3074/tcp', '3074/udp', '3075/tcp', '3075/udp', '3076/tcp', '3076/udp'},
             priority=6
         ),
         DeviceType(
             name="Computer",
-            ports={'22/tcp ssh', '139/tcp netbios-ssn', '445/tcp microsoft-ds',
-                   '3389/tcp rdp', '5900/tcp vnc'},
+            ports={'22/tcp', '139/tcp', '445/tcp', '3389/tcp', '5900/tcp'},
             os_keywords={'windows', 'macos', 'linux'},
             priority=7
         ),
@@ -514,6 +609,7 @@ class AppConfig:
 class MacVendorLookup:
     """
     Lookup MAC address vendors using OUI data.
+    This class is currently not in use, but it might become useful again in the future.
     """
     DEFAULT_OUI_URL = "https://standards-oui.ieee.org/oui/oui.txt"
     DEFAULT_OUI_JSON_PATH = "oui.json"
@@ -601,14 +697,13 @@ class MacVendorLookup:
 
 # Base class for all commands
 class BaseCommand(ABC):
-    def __init__(self, args: argparse.Namespace, logger: logging.Logger, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
+    def __init__(self, args: argparse.Namespace, logger: logging.Logger, config: AppConfig):
         """
         Initialize the BaseCommand with arguments and logger.
         """
         self.args = args
         self.logger = logger
         self.config = config
-        self.mac_lookup = mac_lookup
 
     @abstractmethod
     def execute(self) -> None:
@@ -621,7 +716,7 @@ class BaseCommand(ABC):
         """
         Print a table with the given title, columns, and rows.
         """
-        if console:
+        if RICH_AVAILABLE:
             table = Table(title=title, box=box.MINIMAL_DOUBLE_HEAD)
             for col in columns:
                 table.add_column(col, style="cyan", overflow="fold", no_wrap=False)
@@ -637,12 +732,12 @@ class BaseCommand(ABC):
             print()
 
 
-# General Device Diagnostics Class
-class GeneralDeviceDiagnostics(ABC):
+# Base class for all diagnostics
+class BaseDiagnostics(ABC):
     """
     Abstract base class for device diagnostics.
     """
-    def __init__(self, device_type: str, device: Dict[str, Any], logger: logging.Logger, args: argparse.Namespace, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
+    def __init__(self, device_type: str, device: Device, logger: logging.Logger, args: argparse.Namespace, config: AppConfig):
         """
         Initialize with device information and a logger.
         """
@@ -651,7 +746,7 @@ class GeneralDeviceDiagnostics(ABC):
         self.logger = logger
         self.args = args
         self.config = config
-        self.mac_lookup = mac_lookup
+        self.tools = SharedDiagnosticsTools(device, logger)
 
     @abstractmethod
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
@@ -660,264 +755,267 @@ class GeneralDeviceDiagnostics(ABC):
         """
         pass
 
-    def check_port(self, ip: str, port: int) -> bool:
+    def create_issue(self, description: str, port: int) -> DiagnoseIssue:
         """
-        Check if a specific port is open on the given IP.
+        Create a DiagnoseIssue instance with the device's details.
         """
-        try:
-            self.logger.debug(f"Checking if port {port} is open on {ip}.")
-            with socket.create_connection((ip, port), timeout=2):
-                self.logger.debug(f"Port {port} on {ip} is open.")
-                return True
-        except (socket.timeout, ConnectionRefusedError, OSError):
-            self.logger.debug(f"Port {port} on {ip} is closed or unreachable.")
-            return False
-        except Exception as e:
-            self.logger.warning(f"Error while checking port {port} on {ip}: {e}")
-            return False
+        hostname = self.tools.get_device_hostname() or ''
+        ip = self.tools.get_device_ip() or ''
 
-    def ping_device(self, ip: str) -> bool:
+        product = ''
+        for available_port in self.device.ports:
+            if available_port.port_id == port and available_port.state.lower() == "open":
+                product = available_port.service.product
+                break
+
+        return DiagnoseIssue(
+            device_type=self.device_type,
+            hostname=hostname,
+            ip=ip,
+            port=port,
+            product=product,
+            description=description
+        )
+
+
+# General Device Diagnostics Class
+class SharedDiagnosticsTools:
+    def __init__(self, device: Device, logger: logging.Logger):
         """
-        Ping the specified IP address to check its reachability.
+        Initialize with device information and a logger.
+        """
+        self.device = device
+        self.logger = logger
+
+    def truncate_string(self, text: str, max_length: int, collapse: bool = False) -> str:
+        """
+        Truncate a string to the specified maximum length.
+        Optionally collapse whitespace and newlines.
+        """
+        if collapse:
+            text = re.sub(r"\W+", " ", text)
+
+        if len(text) > max_length:
+            truncated_text = text[:max_length] + "..."
+            return truncated_text
+        else:
+            return text
+
+    def make_http_request(
+            self,
+            url: str,
+            hostname: Optional[str] = None,
+            method: str = 'GET',
+            params: Optional[Dict[str, Any]] = None,
+            data: Optional[Dict[str, Any]] = None,
+            json_payload: Optional[Any] = None,
+            headers: Optional[Dict[str, str]] = None,
+            timeout: int = 5,
+            verify: Optional[bool] = None,
+            auth: Optional[Tuple[str, str]] = None
+    ) -> Optional[requests.Response]:
+        """
+        Makes an HTTP/HTTPS request to the specified URL with optional parameters.
         """
         try:
-            if ':' in ip:
-                # Likely IPv6
-                cmd = ['ping6', '-c', '1', '-W', '2', ip]
+            # Parse the URL to determine the protocol
+            parsed_url = urlparse(url)
+            protocol = parsed_url.scheme.lower()
+
+            if protocol not in ['http', 'https']:
+                self.logger.error(f"Unsupported protocol '{protocol}' in URL: {url}")
+                return None
+
+            # Determine SSL verification
+            if verify is None:
+                verify = protocol == 'https'
+
+            # Prepare headers
+            request_headers = headers.copy() if headers else {}
+            if hostname:
+                request_headers['Host'] = hostname
+
+            # Log the request details
+            self.logger.debug(f"Preparing to make a {'encrypted' if verify else 'plain'} {method.upper()} request to {url} (timeout: {timeout} seconds)")
+            self.logger.debug(f"Headers: {request_headers}")
+            if params:
+                self.logger.debug(f"Query Parameters: {params}")
+            if data:
+                self.logger.debug(f"Form Data: {data}")
+            if json_payload:
+                self.logger.debug(f"JSON Payload: {json_payload}")
+
+            # Make the HTTP request
+            response = requests.request(
+                method=method.upper(),
+                url=url,
+                headers=request_headers,
+                params=params,
+                data=data,
+                json=json_payload,
+                timeout=timeout,
+                verify=verify,
+                auth=auth
+            )
+
+            # Log the response status
+            self.logger.debug(f"Received response with status code: {response.status_code}")
+
+            return response
+
+        except requests.exceptions.RequestException as e:
+            self.logger.info(f"HTTP request to {url} failed: {e}")
+            raise e
+
+    def has_open_port(self, port: int, protocol: str = 'tcp'):
+        """
+        Check if the device has an open port with the specified port number and protocol.
+        """
+        for port in self.device.ports:
+            if port.port_id == port and port.protocol == protocol:
+                return port.state.lower() == 'open'
+        return False
+
+    def get_device_ip(self) -> Optional[str]:
+        """
+        Get the first IP address of the device.
+        """
+        if self.device.ip_addresses:
+            return self.device.ip_addresses[0]
+        else:
+            self.logger.error("No IP address found for the device.")
+            return None
+
+    def get_device_hostname(self) -> Optional[str]:
+        """
+        Get the first hostname of the device.
+        """
+        if self.device.hostnames:
+            return self.device.hostnames[0]
+        else:
+            self.logger.debug(f"No hostname found for the device {self.get_device_ip()}.")
+            return None
+
+    def get_device_urls(self) -> List[str]:
+        """
+        Generates a list of URLs for all open ports that appear to be web servers.
+        Uses http:// for plaintext web servers and https:// for TLS-enabled web servers.
+        """
+        urls: List[str] = []
+
+        # Regular expression to detect HTTP responses in fingerprints
+        http_pattern = re.compile(r"HTTP/\d\.\d", re.IGNORECASE)
+
+        # Set of service names commonly associated with web servers
+        web_service_names = {"http", "https"}
+
+        # Iterate through all open ports
+        for port in self.device.ports:
+            if port.state.lower() != "open":
+                continue  # Skip non-open ports
+
+            service = port.service
+            if not service:
+                continue  # Skip ports without service information
+
+            is_web = False
+            uses_tls = False
+
+            # Check if the service name indicates a web server
+            if service.name and service.name.lower() in web_service_names:
+                is_web = True
+
+            # If not identified by name, check the service fingerprint for HTTP patterns
+            if not is_web and service.service_fingerprint:
+                if http_pattern.search(service.service_fingerprint):
+                    is_web = True
+
+            if not is_web:
+                continue  # Not a web server
+
+            # Determine if the service uses TLS
+            # First, check if any script indicates SSL/TLS
+            for script in service.scripts:
+                if "ssl" in script.script_id.lower() or "tls" in script.script_id.lower():
+                    uses_tls = True
+                    break  # No need to check further scripts
+
+            # If not determined by scripts, check the fingerprint for SSL
+            if not uses_tls and service.service_fingerprint:
+                if re.search(r"\bSSL\b", service.service_fingerprint, re.IGNORECASE):
+                    uses_tls = True
+
+            # Select the protocol based on TLS usage
+            protocol = "https" if uses_tls else "http"
+
+            # Select the IP address to use
+            if not self.device.ip_addresses:
+                continue  # No IP address available
+            ip = self.device.ip_addresses[0]  # Use the first IP address
+
+            # Construct the URL
+            # Default ports for HTTP and HTTPS don't need to be included
+            if (protocol == "http" and port.port_id == 80) or (protocol == "https" and port.port_id == 443):
+                url = f"{protocol}://{ip}"
             else:
-                # IPv4
-                cmd = ['ping', '-c', '1', '-W', '2', ip]
-            result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if result.returncode == 0:
-                self.logger.debug(f"Ping to {ip} successful.")
-                return True
-            else:
-                self.logger.debug(f"Ping to {ip} failed.")
-                return False
-        except Exception as e:
-            self.logger.error(f"Error while pinging {ip}: {e}")
-            return False
+                url = f"{protocol}://{ip}:{port.port_id}"
 
+            urls.append(url)
 
-# Common Diagnostics Class
-class CommonDiagnostics(GeneralDeviceDiagnostics):
-    """
-    Encapsulates shared diagnostic functionalities for various devices.
-    Enhancements include caching of port and SSL checks, optimized protocol handling,
-    and integration with Nikto for web server vulnerability scanning.
-    """
-    def __init__(self, device_type: str, device: Dict[str, Any], logger: logging.Logger, args: argparse.Namespace, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
+        return urls
+
+    def determine_port_from_url(self, url: str) -> int:
         """
-        Initialize with device information, a logger, and configuration.
-        Sets up caches for port and SSL certificate checks.
+        Determine the port and protocol from a URL.
         """
-        super().__init__(device_type, device, logger, args, config, mac_lookup)
-
-        # Initialize caches
-        self.port_status_cache: Dict[int, bool] = {}      # Cache for port open status {port: bool}
-        self.ssl_valid_cache: Optional[bool] = None       # Cache for SSL certificate validity
-        self.nikto_scanned: bool = False                  # Flag to ensure Nikto scan is performed only once
-        self.golismero_scanned: bool = False              # Flag to ensure Golismero scan is performed only once
-
-    def diagnose(self) -> Optional[List[DiagnoseIssue]]:
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    def perform_standard_checks(self, ip: str, hostname: str, vendor_key: str) -> List[DiagnoseIssue]:
-        """
-        Perform all standard checks and return a list of issues.
-        Utilizes caching to prevent redundant port and SSL certificate checks.
-        Each check method decides independently whether to perform its checks.
-        """
-        issues: List[DiagnoseIssue] = []
-
-        # Check and cache port statuses
-        self._check_ports(ip, [80, 443])
-
-        # Determine protocol availability
-        protocols = self._determine_protocols()
-
-        # Check SSL validity if HTTPS is available
-        if protocols['https']:
-            self._check_ssl_validity(ip, hostname)
-
-        # Update protocol availability based on SSL validity
-        protocols = self._determine_protocols()
-
-        # Perform individual checks
-        issues.extend(self._check_web_services(protocols, hostname, ip, vendor_key))
-        issues.extend(self._check_snmp_configuration(ip))
-
-        return issues
-
-    def _check_ports(self, ip: str, ports: List[int]) -> None:
-        """
-        Check the status of the specified ports and update the cache.
-        """
-        for port in ports:
-            if port not in self.port_status_cache:
-                self.port_status_cache[port] = self._is_port_open(ip, port)
-                self.logger.debug(f"Port {port} status for {ip}: {self.port_status_cache[port]}")
-
-    def _is_port_open(self, ip: str, port: int) -> bool:
-        """
-        Check if a specific port is open on the given IP.
-        """
-        try:
-            with socket.create_connection((ip, port), timeout=3):
-                self.logger.debug(f"Port {port} on {ip} is open.")
-                return True
-        except (socket.timeout, ConnectionRefusedError, OSError) as e:
-            self.logger.debug(f"Port {port} on {ip} is closed or unreachable: {e}")
-            return False
-
-    def _determine_protocols(self) -> Dict[str, bool]:
-        """
-        Determine the availability of HTTP and HTTPS protocols based on port statuses.
-        """
-        return {
-            'http': self.port_status_cache.get(80, False),
-            'https': self.port_status_cache.get(443, False) and self.ssl_valid_cache is True
-        }
-
-    def _check_ssl_validity(self, ip: str, hostname: str) -> None:
-        """
-        Check if HTTPS is valid and cache the result.
-        """
-        if self.ssl_valid_cache is None:
-            self.ssl_valid_cache = self._is_valid_https(ip, hostname)
-            self.logger.debug(f"HTTPS validity for {hostname} ({ip}): {self.ssl_valid_cache}")
-
-    def _is_valid_https(self, ip: str, hostname: str) -> bool:
-        """
-        Check if HTTPS connection can be established using _make_request.
-        Returns True if connection is successful, False otherwise.
-        """
-        try:
-            # Attempt to make a simple GET request to the root endpoint over HTTPS
-            self._make_request('https', ip, hostname, endpoint="/", timeout=5)
-            self.logger.debug(f"Successfully connected to HTTPS {hostname} ({ip}).")
-            return True
-        except requests.exceptions.SSLError as e:
-            self.logger.info(f"SSL Error when connecting to HTTPS {hostname} ({ip}): {e}")
-            return False
-        except requests.RequestException as e:
-            self.logger.info(f"Failed to establish HTTPS connection to {hostname} ({ip}): {e}")
-            return False
-
-    def _make_request(self, protocol: str, ip: str, hostname: str, endpoint: str = "/", port: Optional[int] = None, timeout: int = 5) -> requests.Response:
-        """
-        Helper method to make HTTP/HTTPS requests using the IP in the URL
-        and setting the Host header to the hostname.
-        """
-        if port is None:
+        parsed_url = urlparse(url)
+        port = parsed_url.port
+        protocol = parsed_url.scheme.lower()
+        if not port:
             port = 443 if protocol == 'https' else 80
+        return port
 
-        url = f"{protocol}://{ip}:{port}{endpoint}"
-        headers = {'Host': hostname}
-        verify = protocol == 'https'
 
-        self.logger.debug(f"Making {protocol.upper()} request to {url} with Host header '{hostname}'.")
-        response = requests.get(url, headers=headers, timeout=timeout, verify=verify)
-        return response
+# Common Diagnostics
+class ExternalResourcesDiagnostics(BaseDiagnostics):
+    def diagnose(self) -> Optional[List[DiagnoseIssue]]:
+        issues: List[DiagnoseIssue] = []
+        issues.extend(self.extract_nmap_scripts())
 
-    def _check_admin_interface(self, protocol: str, ip: str, hostname: str, vendor_key: str) -> List[DiagnoseIssue]:
-        """
-        Generic method to check admin interfaces over the specified protocol.
-        """
-        issues = []
-        port = 80 if protocol == 'http' else 443
+        urls: List[str] = self.tools.get_device_urls()
+        for url in urls:
+            if self.args.all or self.args.nikto:
+                issues.extend(self.scan_with_nikto(url, self.args.execution))
 
-        try:
-            self.logger.debug(f"Checking {protocol.upper()} admin interfaces on {ip} for vendor '{vendor_key}'.")
-            admin_endpoints = self.config.endpoints.get_vendor_config(vendor_key)['sensitive_endpoints']
-            for endpoint in admin_endpoints:
-                try:
-                    response = self._make_request(protocol, ip, hostname, endpoint=endpoint, port=port)
-                    if 200 <= response.status_code < 300:
-                        # Admin interface is accessible
-                        issues.append(self.create_issue(f"Admin interface {endpoint} is accessible over {protocol.upper()}"))
-                        self.logger.info(f"Admin interface {endpoint} is accessible over {protocol.upper()} on {ip}.")
-                        break  # Assume one admin interface is sufficient
-                except requests.RequestException:
-                    continue  # Try the next endpoint
-        except Exception as e:
-            self.logger.error(f"Error while checking {protocol.upper()} admin interface on {ip}: {e}")
+            if self.args.all or self.args.golismero:
+                issues.extend(self.scan_with_golismero(url, self.args.execution))
+
         return issues
 
-    def _check_web_services(self, protocols: Dict[str, bool], hostname: str, ip: str, vendor_key: str) -> List[DiagnoseIssue]:
+    def extract_nmap_scripts(self) -> List[DiagnoseIssue]:
         """
-        Perform web service-specific checks including HTTP response validation and Nikto scanning.
-        Each web service check decides independently based on protocol availability.
+        Extract and parse Nmap scripts from the device's services.
         """
         issues: List[DiagnoseIssue] = []
-        for protocol in ['https', 'http']:
-            if protocols.get(protocol):
-                issues.extend(self._validate_web_service_response(protocol, hostname, ip))
-                issues.extend(self._check_admin_interface(protocol, ip, hostname, vendor_key))
-                if self.args.nikto:
-                    issues.extend(self._scan_web_service_with_nikto(protocol, hostname, ip, self.args.execution))
-                if self.args.golismero:
-                    issues.extend(self._scan_with_golismero(ip, hostname, self.args.execution))
-                if self.args.credentials:
-                    issues.extend(self._check_default_credentials(protocol, ip, vendor_key))
+
+        for port in self.device.ports:
+            if port.service:
+                for script in port.service.scripts:
+                    if script.script_id in ['http-title', 'fingerprint-strings']:
+                        continue
+
+                    truncated_output = self.tools.truncate_string(script.output, 250, collapse=True)
+                    issue_description = f"Nmap {script.script_id}: {truncated_output}"
+                    issues.append(self.create_issue(issue_description, port.port_id))
+                    self.logger.info(f"Created nmap script issue {script.script_id} on port {port.port_id}: {truncated_output}")
 
         return issues
 
-    def _validate_web_service_response(self, protocol: str, hostname: str, ip: str) -> List[DiagnoseIssue]:
-        """
-        Perform comprehensive checks on the specified protocol's service, including response codes and security headers.
-        """
-        issues: List[DiagnoseIssue] = []
-        port = 443 if protocol == 'https' else 80
-
-        try:
-            response = self._make_request(protocol, ip, hostname, endpoint="/", timeout=5)
-            # Check for successful response
-            if not response.ok:
-                issues.append(self.create_issue(f"{protocol.upper()} response code {response.status_code}"))
-                self.logger.info(f"{protocol.upper()} response code {response.status_code} from {hostname} ({ip})")
-
-            # Check for security headers
-            issues.extend(self._check_security_headers(response, hostname, ip))
-        except requests.exceptions.SSLError as ssl_err:
-            issues.append(self.create_issue(f"SSL Error on {protocol.upper()} port {port} - {ssl_err}"))
-            self.logger.error(f"SSL Error on {protocol.upper()} port {port} for {hostname} ({ip}): {ssl_err}")
-        except requests.exceptions.ConnectionError as conn_err:
-            issues.append(self.create_issue(f"Connection Error on {protocol.upper()} port {port} - {conn_err}"))
-            self.logger.error(f"Connection Error on {protocol.upper()} port {port} for {hostname} ({ip}): {conn_err}")
-        except requests.exceptions.Timeout:
-            issues.append(self.create_issue(f"Timeout while connecting to {protocol.upper()} port {port}"))
-            self.logger.error(f"Timeout while connecting to {protocol.upper()} port {port} for {hostname} ({ip})")
-        except Exception as e:
-            issues.append(self.create_issue(f"Unexpected error on {protocol.upper()} port {port} - {e}"))
-            self.logger.error(f"Unexpected error on {protocol.upper()} port {port} for {hostname} ({ip}): {e}")
-
-        return issues
-
-    def _check_security_headers(self, response: requests.Response, hostname: str, ip: str) -> List[DiagnoseIssue]:
-        """
-        Check for the presence of critical security headers in the HTTP response.
-        """
-        issues = []
-        security_headers = self.config.http_security.security_headers
-
-        missing_headers = [header for header in security_headers if header.lower() not in response.headers.lower_items()]
-        if missing_headers:
-            issues.append(self.create_issue(f"Missing security headers: {', '.join(missing_headers)}"))
-            self.logger.info(f"Missing security headers on {hostname} ({ip}): {', '.join(missing_headers)}")
-        return issues
-
-    def _scan_web_service_with_nikto(self, protocol: str, hostname: str, ip: str, execution: ExecutionMode) -> List[
-        DiagnoseIssue]:
+    def scan_with_nikto(self, target_url: str, execution: ExecutionMode) -> List[DiagnoseIssue]:
         """
         Perform a Nikto scan on the web service and create issues based on the findings.
         """
         issues: List[DiagnoseIssue] = []
-
-        # Check if Nikto has already been scanned for this device
-        if getattr(self, 'nikto_scanned', False):
-            self.logger.debug(f"Nikto scan already performed for {hostname} ({ip}). Skipping.")
-            return issues
 
         # Check if Nikto is installed or Docker image is available
         if execution == ExecutionMode.NATIVE:
@@ -933,10 +1031,10 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
             self.logger.warning(f"Unsupported execution mode '{execution}'. Skipping Nikto scan.")
             return issues
 
-        self.logger.debug(f"Starting Nikto scan on {protocol.upper()}://{ip} with execution mode '{execution}'.")
+        self.logger.debug(f"Starting Nikto scan on {target_url} with execution mode '{execution}'.")
 
-        # Create a temporary file to store the Nikto XML output
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.xml') as temp_output_file:
+        # Create a temporary file to store the Nikto JSON output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as temp_output_file:
             temp_output_path = temp_output_file.name
 
         try:
@@ -944,19 +1042,18 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
             if execution == ExecutionMode.NATIVE:
                 nikto_command = [
                     'nikto',
-                    '-h', f"{protocol}://{ip}",
-                    '-Format', 'xml',
-                    '-output', temp_output_path  # Output to temp file
+                    '-h', target_url,
+                    '-Format', 'json',
+                    '-output', temp_output_path
                 ]
             elif execution == ExecutionMode.DOCKER:
-                # Mount the temporary file into the Docker container
                 nikto_command = [
                     'docker', 'run', '--rm',
-                    '-v', f"{os.path.abspath(temp_output_path)}:/output.xml",
+                    '-v', f"{os.path.abspath(temp_output_path)}:/output.json",
                     docker_image,
-                    '-h', f"{protocol}://{ip}",
-                    '-Format', 'xml',
-                    '-output', '/output.xml'  # Output inside Docker container
+                    '-h', target_url,
+                    '-Format', 'json',
+                    '-output', '/output.json'
                 ]
 
             self.logger.debug(f"Executing command: {' '.join(nikto_command)}")
@@ -970,38 +1067,43 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
             )
             self.logger.debug("Nikto scan completed. Parsing results from output file.")
 
-            # Read the scan results from the temporary XML file
+            # Read the scan results from the temporary JSON file
             with open(temp_output_path, 'r') as f:
                 nikto_output = f.read()
 
-            # Parse the Nikto XML output
-            root = ET.fromstring(nikto_output)
+            # Parse the Nikto JSON output
+            try:
+                data = json.loads(nikto_output)
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to decode Nikto JSON output for {target_url}: {e}")
+                return issues
 
-            # Iterate through each issue found by Nikto
-            for item in root.findall('.//item'):
-                description_elem = item.find('description')
-                description = description_elem.text.strip() if description_elem is not None else "No description provided."
+            # Check if 'vulnerabilities' key exists
+            vulnerabilities = data.get('vulnerabilities', [])
+            if not vulnerabilities:
+                self.logger.info(f"No vulnerabilities found by Nikto on ({target_url}).")
+                return issues
 
-                uri_elem = item.find('uri')
-                uri = uri_elem.text.strip() if uri_elem is not None else "N/A"
-
-                method_elem = item.find('method')
-                method = method_elem.text.strip() if method_elem is not None else "UNKNOWN"
+            # Iterate through each vulnerability found by Nikto
+            for vuln in vulnerabilities:
+                description = vuln.get('msg', 'No description provided.').strip()
+                uri = vuln.get('url', 'N/A').strip()
+                method = vuln.get('method', 'UNKNOWN').strip()
 
                 issue_description = f"Nikto: {description} [URI: {uri}, Method: {method}]"
 
                 # Create an issue for each Nikto finding
-                issues.append(self.create_issue(issue_description))
-                self.logger.info(f"Nikto Issue on {hostname} ({ip}): {issue_description}")
+                port = self.tools.determine_port_from_url(uri)
+                issues.append(self.create_issue(issue_description, port))
+                self.logger.info(f"Nikto issue on ({target_url}): {issue_description}")
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Nikto scan failed on {protocol}://{ip}: {e.stderr.strip()}")
-        except ET.ParseError as e:
-            self.logger.error(f"Failed to parse Nikto XML output for {protocol}://{ip}: {e}")
+            self.logger.error(f"Nikto scan failed on {target_url}: {e.stderr.strip()}")
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse Nikto JSON output for {target_url}: {e}")
         except Exception as e:
-            self.logger.error(f"Unexpected error during Nikto scan on {protocol}://{ip}: {e}")
+            self.logger.error(f"Unexpected error during Nikto scan on {target_url}: {e}")
         finally:
-            self.nikto_scanned = True
             try:
                 os.remove(temp_output_path)
                 self.logger.debug(f"Removed temporary output file {temp_output_path}.")
@@ -1010,16 +1112,11 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
 
         return issues
 
-    def _scan_with_golismero(self, ip: str, hostname: str, execution: ExecutionMode) -> List[DiagnoseIssue]:
+    def scan_with_golismero(self, target_url: str, execution: ExecutionMode) -> List[DiagnoseIssue]:
         """
         Perform a Golismero scan on the target device and parse the results.
         """
         issues: List[DiagnoseIssue] = []
-
-        # Check if Golismero has already been scanned for this device
-        if getattr(self, 'golismero_scanned', False):
-            self.logger.debug(f"Golismero scan already performed for {hostname} ({ip}). Skipping.")
-            return issues
 
         # Check if Golismero is installed or Docker image is available
         if execution == ExecutionMode.NATIVE:
@@ -1035,7 +1132,7 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
             self.logger.warning(f"Unsupported execution mode '{execution}'. Skipping Golismero scan.")
             return issues
 
-        self.logger.debug(f"Starting Golismero scan on {ip} with execution mode '{execution}'.")
+        self.logger.debug(f"Starting Golismero scan on {target_url} with execution mode '{execution}'.")
 
         # Create a temporary file to store the scan output
         with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as temp_output_file:
@@ -1047,7 +1144,7 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
                 golismero_command = [
                     'golismero.py',
                     'scan',
-                    ip,
+                    target_url,
                     '-o', temp_output_path
                 ]
             elif execution == ExecutionMode.DOCKER:
@@ -1056,7 +1153,7 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
                     '-v', f"{os.path.abspath(temp_output_path)}:/output.json",
                     docker_image,
                     'scan',
-                    ip,
+                    target_url,
                     '-o', '/output.json'
                 ]
 
@@ -1077,7 +1174,7 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
 
             # Log general information from the scan summary
             summary = scan_results.get('summary', {})
-            self.logger.info(f"Golismero Scan Summary for {hostname} ({ip}):")
+            self.logger.info(f"Golismero Scan Summary for {target_url}:")
             self.logger.info(f"Report Time: {summary.get('report_time')}")
             self.logger.info(f"Run Time: {summary.get('run_time')}")
             self.logger.info(f"Audit Name: {summary.get('audit_name')}")
@@ -1094,11 +1191,12 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
                 # Only create issues for vulnerabilities that are not informational
                 if level != 'informational':
                     issue_description = f"{title}: {description} | Solution: {solution}"
-                    issues.append(self.create_issue(f"Golismero [{level.upper()}]: {issue_description}"))
-                    self.logger.info(f"Golismero Issue on {hostname} ({ip}): {level.capitalize()} - {title} - {description}")
+                    port = self.tools.determine_port_from_url(target_url)
+                    issues.append(self.create_issue(f"Golismero [{level.upper()}]: {issue_description}", port))
+                    self.logger.info(f"Golismero issue on {target_url}: {level.capitalize()} - {title} - {description}")
                 else:
                     # Log informational findings without creating issues
-                    self.logger.info(f"Golismero Info on {hostname} ({ip}): {title} - {description}")
+                    self.logger.info(f"Golismero info on {target_url}: {title} - {description}")
 
             # Optionally, log additional resources information if needed
             resources = scan_results.get('resources', {})
@@ -1106,13 +1204,12 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
                 self.logger.info(f"Resource: {resource.get('display_name')} - {resource.get('display_content')}")
 
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Golismero scan failed on {ip}: {e.stderr.strip()}")
+            self.logger.error(f"Golismero scan failed on {target_url}: {e.stderr.strip()}")
         except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse Golismero JSON output for {ip}: {e}")
+            self.logger.error(f"Failed to parse Golismero JSON output for {target_url}: {e}")
         except Exception as e:
-            self.logger.error(f"Unexpected error during Golismero scan on {ip}: {e}")
+            self.logger.error(f"Unexpected error during Golismero scan on {target_url}: {e}")
         finally:
-            self.golismero_scanned = True
             try:
                 os.remove(temp_output_path)
                 self.logger.debug(f"Removed temporary output file {temp_output_path}.")
@@ -1121,12 +1218,405 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
 
         return issues
 
-    def _snmp_query(self, ip: str, community: str) -> bool:
+
+class HttpSecurityDiagnostics(BaseDiagnostics):
+    def diagnose(self) -> Optional[List[DiagnoseIssue]]:
+        issues: List[DiagnoseIssue] = []
+        urls: List[str] = self.tools.get_device_urls()
+        hostname: str = self.tools.get_device_hostname()
+        vendor: str = self.device.vendor or ''
+
+        for url in urls:
+            issues.extend(self.validate_web_service_response(url, hostname))
+            issues.extend(self.check_http_admin_interface(url, hostname, vendor))
+
+        return issues
+
+    def validate_web_service_response(self, url: str, hostname: str) -> List[DiagnoseIssue]:
+        """
+        Perform comprehensive checks on the specified protocol's service, including response codes and security headers.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        port = self.tools.determine_port_from_url(url)
+        try:
+            response = self.tools.make_http_request(url, hostname)
+            if response is None or not response.ok:
+                issues.append(self.create_issue(f"Request to {url} failed, response code {response.status_code if response else 'none'}", port))
+                self.logger.info(f"Response code {response.status_code if response else 'none'} on {url} for {hostname}")
+
+            issues.extend(self._check_security_headers(response))
+        except requests.exceptions.SSLError as ssl_err:
+            issues.append(self.create_issue(f"SSL Error on {url} - {ssl_err}", port))
+            self.logger.info(f"SSL Error for on {url} for {hostname}: {ssl_err}")
+        except requests.exceptions.ConnectionError as conn_err:
+            issues.append(self.create_issue(f"Connection Error on {url} - {conn_err}", port))
+            self.logger.info(f"Connection error on {url} for {hostname}: {conn_err}")
+        except requests.exceptions.Timeout:
+            issues.append(self.create_issue(f"Timeout while connecting to {url}", port))
+            self.logger.info(f"Timeout while connecting to {url} for {hostname}")
+        except Exception as e:
+            self.logger.info(f"Unexpected error on {url} for {hostname}: {e}")
+
+        return issues
+
+    def _check_security_headers(self, response: requests.Response) -> List[DiagnoseIssue]:
+        """
+        Check for the presence of critical security headers in the HTTP response.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        if response is None:
+            return issues
+
+        security_headers = self.config.http_security.security_headers
+
+        missing_headers = [header for header in security_headers if header.lower() not in response.headers.lower_items()]
+        if missing_headers:
+            port = self.tools.determine_port_from_url(response.url)
+            issues.append(self.create_issue(f"Missing security headers: {', '.join(missing_headers)}", port))
+            self.logger.info(f"Missing security headers: {', '.join(missing_headers)}")
+        return issues
+
+    def check_http_admin_interface(self, url: str, hostname: str, vendor: str) -> List[DiagnoseIssue]:
+        """
+        Generic method to check admin interfaces over the specified protocol.
+        """
+        issues = []
+        try:
+            self.logger.debug(f"Checking admin interfaces on {url} for vendor '{vendor}'.")
+            admin_endpoints = self.config.endpoints.get_vendor_config(vendor)['sensitive_endpoints']
+            for endpoint in admin_endpoints:
+                try:
+                    response = self.tools.make_http_request(url, hostname, verify=False)
+                    if response is None:
+                        continue
+                    if 200 <= response.status_code < 300:
+                        # Admin interface is accessible
+                        port = self.tools.determine_port_from_url(url)
+                        issues.append(self.create_issue(f"Admin interface {url}{endpoint} is accessible", port))
+                        self.logger.info(f"Admin interface {url}{endpoint} is accessible.")
+                        break  # Assume one admin interface is sufficient
+                except requests.RequestException:
+                    continue  # Try the next endpoint
+        except Exception as e:
+            self.logger.info(f"Error while checking admin interface on {url}: {e}")
+        return issues
+
+
+class HttpAuthenticationDiagnostics(BaseDiagnostics):
+    def diagnose(self) -> Optional[List[DiagnoseIssue]]:
+        issues: List[DiagnoseIssue] = []
+
+        if self.args.all or self.args.credentials:
+            urls: List[str] = self.tools.get_device_urls()
+            hostname = self.tools.get_device_hostname()
+            for url in urls:
+                issues.extend(self.check_default_credentials(url, hostname))
+
+        return issues
+
+    def check_default_credentials(self, url: str, hostname: Optional[str]) -> List[DiagnoseIssue]:
+        """
+        Check for default credentials on the device based on the vendor.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        if not BEAUTIFULSOUP_AVAILABLE:
+            self.logger.error("BeautifulSoup is not installed. Install it using 'pip install beautifulsoup4'.")
+            return issues
+
+        try:
+            self.logger.debug(f"Initiating default credentials check on {url}.")
+
+            # Retrieve the list of default credentials for the specified vendor
+            vendor: str = self.device.vendor or ''
+            credentials = self.config.credentials.get_vendor_credentials(vendor)
+            self.logger.debug(f"Retrieved {len(credentials)} default credentials for vendor '{vendor}' to check on {url}.")
+
+            # Determine the authentication method required by the device's admin interface
+            auth_method = self._identify_authentication_method(url, hostname)
+            if not auth_method:
+                self.logger.info(f"No authentication required for {url}. Skipping default credentials check.")
+                return issues  # No authentication needed; no default credentials issue
+
+            self.logger.debug(f"Authentication method for {url}: {auth_method}")
+
+            # Iterate through each set of default credentials and attempt authentication
+            for cred in credentials:
+                username = cred.get('username')
+                password = cred.get('password')
+                if not username or not password:
+                    self.logger.warning(f"Invalid credential entry: {cred}. Skipping.")
+                    continue  # Skip invalid credential entries
+
+                self.logger.debug(f"Attempting to authenticate on {url} with username='{username}' and password='{password}'.")
+
+                if self._attempt_authentication(url, hostname, username, password, auth_method):
+                    issue_description = f"Default credentials used: {username}/{password}"
+                    port = self.tools.determine_port_from_url(url)
+                    issues.append(self.create_issue(issue_description, port))
+                    self.logger.info(f"Default credentials successfully used on {url}: {username}/{password}")
+                    break  # Stop after first successful authentication
+        except Exception as e:
+            self.logger.info(f"Unexpected error while checking default credentials on {url}: {e}")
+        return issues
+
+    def _identify_authentication_method(self, url: str, hostname: Optional[str]) -> Optional[str]:
+        """
+        Identify the authentication method required by the device's admin interface.
+        """
+        try:
+            self.logger.debug(f"Sending unauthenticated request to {url} to determine authentication method.")
+
+            response = self.tools.make_http_request(url, hostname, verify=False)
+            if response is None:
+                self.logger.debug(f"No response received from {url}. Assuming no authentication required.")
+                return None
+
+            if response.status_code == 401:
+                self.logger.debug(f"Received 401 Unauthorized from {url}. Assuming HTTP Basic Authentication.")
+                return 'basic'
+            elif response.status_code == 200:
+                # Analyze the response content to detect a login form
+                soup = BeautifulSoup(response.text, 'html.parser')
+                form = soup.find('form')
+                if form:
+                    password_inputs = form.find_all('input', {'type': 'password'})
+                    if password_inputs:
+                        self.logger.debug(f"Login form detected on {url}. Assuming Form-Based Authentication.")
+                        return 'form'
+                self.logger.debug(f"No authentication required as no login form detected on {url}.")
+                return None
+            else:
+                self.logger.debug(f"Received unexpected status code {response.status_code} from {url}. Assuming no authentication.")
+                return None
+        except Exception as e:
+            self.logger.info(f"Unexpected error while determining authentication method for {url}: {e}")
+        return None
+
+    def _attempt_authentication(self, url: str, hostname: Optional[str], username: str, password: str, auth_method: str) -> bool:
+        """
+        Attempt to authenticate to the device's admin interface using the specified authentication method.
+        """
+        try:
+            if auth_method == 'basic':
+                return self._attempt_basic_authentication(url, hostname, username, password)
+            elif auth_method == 'form':
+                return self._attempt_form_based_authentication(url, hostname, username, password)
+            else:
+                self.logger.error(f"Unsupported authentication method '{auth_method}' for {url}.")
+        except Exception as e:
+            self.logger.info(f"Unexpected error during authentication to {url} with username='{username}': {e}")
+        return False
+
+    def _attempt_basic_authentication(self, url: str, hostname: Optional[str], username: str, password: str) -> bool:
+        """
+        Attempt HTTP Basic Authentication.
+        """
+        headers = {'Host': hostname if hostname else "N/A"}
+        self.logger.debug(f"Initiating HTTP Basic Authentication to {url} with username='{username}'.")
+
+        try:
+            response = self.tools.make_http_request(
+                url=url,
+                hostname=hostname,
+                auth=(username, password),
+                headers=headers,
+                verify=False
+            )
+
+            if response is None:
+                self.logger.debug(f"No response received during HTTP Basic Authentication for {username}/{password} on {url}.")
+                return False
+
+            if response.status_code in [200, 302]:
+                self.logger.debug(f"HTTP Basic Authentication succeeded for {username}/{password} on {url} with status code {response.status_code}.")
+                return True
+            else:
+                self.logger.debug(f"HTTP Basic Authentication failed for {username}/{password} on {url} with status code {response.status_code}.")
+        except Exception as e:
+            self.logger.debug(f"HTTP Basic Authentication request to {url} with {username}/{password} failed: {e}")
+        return False
+
+    def _attempt_form_based_authentication(self, url: str, hostname: Optional[str], username: str, password: str) -> bool:
+        """
+        Attempt Form-Based Authentication by submitting credentials through the login form.
+        """
+        headers = {'Host': hostname if hostname else "N/A"}
+        self.logger.debug(f"Fetching login form from {url} for form-based authentication.")
+
+        try:
+            # Fetch the login page to retrieve the form details
+            response = self.tools.make_http_request(
+                url=url,
+                hostname=hostname,
+                headers=headers,
+                verify=False
+            )
+
+            if response is None or response.status_code != 200:
+                self.logger.debug(f"Failed to retrieve login page from {url}. Status code: {response.status_code if response else 'No Response'}")
+                return False
+
+            soup = BeautifulSoup(response.text, 'html.parser')
+            form = self._extract_login_form(soup)
+            if not form:
+                self.logger.debug(f"No suitable login form found on {url}.")
+                return False
+
+            form_details = self._parse_login_form(form, url)
+            if not form_details:
+                self.logger.debug(f"Failed to parse login form on {url}.")
+                return False
+
+            form_action, form_method, form_data = form_details
+
+            # Populate form data with credentials
+            form_data = self._populate_form_data(form_data, username, password)
+
+            self.logger.debug(f"Submitting form to {form_action} with data: {form_data}")
+
+            # Submit the form with the populated data
+            if form_method.lower() == 'post':
+                post_response = self.tools.make_http_request(
+                    url=form_action,
+                    hostname=hostname,
+                    method='POST',
+                    data=form_data,
+                    headers=headers,
+                    verify=False
+                )
+            else:
+                # For GET method forms
+                post_response = self.tools.make_http_request(
+                    url=form_action,
+                    hostname=hostname,
+                    method='GET',
+                    params=form_data,
+                    headers=headers,
+                    verify=False
+                )
+
+            # Determine if authentication was successful based on response
+            if post_response and post_response.status_code in [200, 302]:
+                self.logger.debug(f"Form-Based Authentication succeeded for {username}/{password} on {form_action} with status code {post_response.status_code}.")
+                return True
+            else:
+                self.logger.debug(f"Form-Based Authentication failed for {username}/{password} on {form_action} with status code {post_response.status_code if post_response else 'No Response'}.")
+        except Exception as e:
+            self.logger.debug(f"Form-Based Authentication request to {url} with {username}/{password} failed: {e}")
+        return False
+
+    def _extract_login_form(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
+        """
+        Extract the login form from the parsed HTML soup.
+        """
+        # Attempt to find form elements that likely represent a login form
+        forms = soup.find_all('form')
+        for form in forms:
+            # Check for input fields that indicate a login form
+            input_types = [input_tag.get('type', '').lower() for input_tag in form.find_all('input')]
+            if 'password' in input_types:
+                return form
+        return None
+
+    def _parse_login_form(self, form: BeautifulSoup, base_url: str) -> Optional[Tuple[str, str, Dict[str, str]]]:
+        """
+        Parse the login form to extract action URL, method, and input fields.
+        """
+        try:
+            # Extract form action (target URL)
+            action = form.get('action')
+            if not action:
+                action_url = base_url  # Default to current URL if action is not specified
+            elif not action.startswith('http'):
+                # Handle relative URLs
+                if action.startswith('/'):
+                    parsed_url = urlparse(base_url)
+                    action_url = f"{parsed_url.scheme}://{parsed_url.netloc}{action}"
+                else:
+                    # Relative path without leading slash
+                    action_url = f"{base_url}/{action}"
+            else:
+                action_url = action
+
+            # Extract form method (GET or POST)
+            method = form.get('method', 'post').lower()
+
+            # Extract all input fields within the form
+            inputs = form.find_all('input')
+            form_data = {}
+            for input_tag in inputs:
+                input_name = input_tag.get('name')
+                input_type = input_tag.get('type', '').lower()
+                input_value = input_tag.get('value', '')
+
+                if not input_name:
+                    continue  # Skip inputs without a name attribute
+
+                if input_type == 'password':
+                    form_data[input_name] = ''  # Placeholder for password
+                elif input_type in ['text', 'email', 'username']:
+                    form_data[input_name] = ''  # Placeholder for username
+                elif input_type in ['hidden', 'submit']:
+                    form_data[input_name] = input_value
+                else:
+                    form_data[input_name] = input_value  # Default handling
+
+            return action_url, method, form_data
+        except Exception as e:
+            self.logger.info(f"Error parsing login form: {e}")
+        return None
+
+    def _populate_form_data(self, form_data: Dict[str, str], username: str, password: str) -> Dict[str, str]:
+        """
+        Populate the form data with the provided username and password.
+        """
+        for key, value in form_data.items():
+            if 'user' in key.lower():
+                form_data[key] = username
+            elif 'pass' in key.lower():
+                form_data[key] = password
+        return form_data
+
+
+class SnmpSecurityDiagnostics(BaseDiagnostics):
+    def diagnose(self) -> Optional[List[DiagnoseIssue]]:
+        issues: List[DiagnoseIssue] = []
+        ip: str = self.tools.get_device_ip()
+
+        issues.extend(self.check_snmp_configuration(ip))
+        return issues
+
+    def check_snmp_configuration(self, ip: str) -> List[DiagnoseIssue]:
+        """
+        Check SNMP configuration for potential vulnerabilities.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        snmp_port = 161
+        if not self.tools.has_open_port(snmp_port, 'udp'):
+            return issues  # Skip SNMP check if port is not open
+
+        try:
+            self.logger.debug(f"Checking SNMP configuration on {ip}.")
+            # Example logic: Attempt SNMP queries with default community strings
+            for community in self.config.snmp_communities:
+
+                if self._snmp_query(ip, snmp_port, community):
+                    issues.append(self.create_issue(f"SNMP is accessible with community string '{community}'.", snmp_port))
+                    self.logger.info(f"SNMP is accessible with community string '{community}' on {ip}.")
+                    break  # Assume one accessible SNMP community is sufficient
+        except Exception as e:
+            self.logger.info(f"Error while checking SNMP configuration on {ip}: {e}")
+        return issues
+
+    def _snmp_query(self, ip: str, port: int, community: str) -> bool:
         """
         Perform an SNMP GET request to the specified IP using the provided community string.
         Returns True if the community string is valid (i.e., SNMP is accessible), False otherwise.
         """
-        port = 161  # Standard SNMP port
         timeout = 2  # Seconds
 
         try:
@@ -1192,337 +1682,14 @@ class CommonDiagnostics(GeneralDeviceDiagnostics):
                 sock.close()
 
         except Exception as e:
-            self.logger.error(f"Error while performing SNMP GET to {ip} with community '{community}': {e}")
+            self.logger.info(f"Error while performing SNMP GET to {ip} with community '{community}': {e}")
 
         self.logger.info(f"SNMP community '{community}' is invalid or not accessible on {ip}.")
         return False
 
-    def _check_snmp_configuration(self, ip: str) -> List[DiagnoseIssue]:
-        """
-        Check SNMP configuration for potential vulnerabilities.
-        """
-        issues = []
-        try:
-            self.logger.debug(f"Checking SNMP configuration on {ip}.")
-            # Example logic: Attempt SNMP queries with default community strings
-            for community in self.config.snmp_communities:
-                if self._snmp_query(ip, community):
-                    issues.append(self.create_issue(f"SNMP is accessible with community string '{community}'."))
-                    self.logger.info(f"SNMP is accessible with community string '{community}' on {ip}.")
-                    break  # Assume one accessible SNMP community is sufficient
-        except Exception as e:
-            self.logger.error(f"Error while checking SNMP configuration on {ip}: {e}")
-        return issues
 
-    def _check_default_credentials(self, protocol: str, ip: str, vendor_key: str) -> List[DiagnoseIssue]:
-        """
-        Check for default credentials on the device based on the vendor.
-        """
-        issues: List[DiagnoseIssue] = []
-
-        if not BEAUTIFULSOUP_AVAILABLE:
-            self.logger.warning("BeautifulSoup is not installed. Install it using 'pip install beautifulsoup4'.")
-            return issues
-
-        try:
-            self.logger.debug(f"Initiating default credentials check on {ip} using protocol {protocol.upper()}.")
-
-            # Retrieve the list of default credentials for the specified vendor
-            credentials = self.config.credentials.get_vendor_credentials(vendor_key)
-            self.logger.debug(f"Retrieved {len(credentials)} default credentials for vendor '{vendor_key}' to check on {ip}.")
-
-            # Determine the authentication method required by the device's admin interface
-            auth_method = self._identify_authentication_method(protocol, ip)
-            if not auth_method:
-                self.logger.info(f"No authentication required for {ip}. Skipping default credentials check.")
-                return issues  # No authentication needed; no default credentials issue
-
-            self.logger.debug(f"Authentication method for {ip}: {auth_method}")
-
-            # Iterate through each set of default credentials and attempt authentication
-            for cred in credentials:
-                username = cred.get('username')
-                password = cred.get('password')
-                if not username or not password:
-                    self.logger.warning(f"Invalid credential entry: {cred}. Skipping.")
-                    continue  # Skip invalid credential entries
-
-                self.logger.debug(f"Attempting to authenticate on {ip} with username='{username}' and password='{password}'.")
-
-                if self._attempt_authentication(protocol, ip, username, password, auth_method):
-                    issue_description = f"Default credentials used: {username}/{password}"
-                    issues.append(self.create_issue(issue_description))
-                    self.logger.info(f"Default credentials successfully used on {ip}: {username}/{password}")
-                    break  # Stop after first successful authentication
-        except Exception as e:
-            self.logger.error(f"Unexpected error while checking default credentials on {ip}: {e}")
-        return issues
-
-    def _identify_authentication_method(self, protocol: str, ip: str) -> Optional[str]:
-        """
-        Identify the authentication method required by the device's admin interface.
-        """
-        try:
-            url = f"{protocol}://{ip}/"
-            self.logger.debug(f"Sending unauthenticated request to {url} to determine authentication method.")
-
-            response = requests.get(url, timeout=5, verify=(protocol == 'https'))
-
-            if response.status_code == 401:
-                self.logger.debug(f"Received 401 Unauthorized from {url}. Assuming HTTP Basic Authentication.")
-                return 'basic'
-            elif response.status_code == 200:
-                # Analyze the response content to detect a login form
-                soup = BeautifulSoup(response.text, 'html.parser')
-                form = soup.find('form')
-                if form:
-                    password_inputs = form.find_all('input', {'type': 'password'})
-                    if password_inputs:
-                        self.logger.debug(f"Login form detected on {url}. Assuming Form-Based Authentication.")
-                        return 'form'
-                self.logger.debug(f"No authentication required as no login form detected on {url}.")
-                return None
-            else:
-                self.logger.debug(
-                    f"Received unexpected status code {response.status_code} from {url}. Assuming no authentication.")
-                return None
-        except requests.RequestException as e:
-            self.logger.error(f"RequestException while determining authentication method for {ip}: {e}")
-        except Exception as e:
-            self.logger.error(f"Unexpected error while determining authentication method for {ip}: {e}")
-        return None
-
-    def _attempt_authentication(self, protocol: str, ip: str, username: str, password: str, auth_method: str) -> bool:
-        """
-        Attempt to authenticate to the device's admin interface using the specified authentication method.
-        """
-        try:
-            if auth_method == 'basic':
-                return self._attempt_basic_authentication(protocol, ip, username, password)
-            elif auth_method == 'form':
-                return self._attempt_form_based_authentication(protocol, ip, username, password)
-            else:
-                self.logger.error(f"Unsupported authentication method '{auth_method}' for {ip}.")
-        except Exception as e:
-            self.logger.error(f"Unexpected error during authentication to {ip} with username='{username}': {e}")
-        return False
-
-    def _attempt_basic_authentication(self, protocol: str, ip: str, username: str, password: str) -> bool:
-        """
-        Attempt HTTP Basic Authentication.
-        """
-        url = f"{protocol}://{ip}/"
-        headers = {'Host': self.device.get("Hostname", "N/A")}
-        self.logger.debug(f"Initiating HTTP Basic Authentication to {url} with username='{username}'.")
-
-        try:
-            response = requests.get(
-                url,
-                auth=(username, password),
-                headers=headers,
-                timeout=5,
-                verify=(protocol == 'https')
-            )
-
-            if response.status_code in [200, 302]:
-                self.logger.debug(f"HTTP Basic Authentication succeeded for {username}/{password} on {url} with status code {response.status_code}.")
-                return True
-            else:
-                self.logger.debug(f"HTTP Basic Authentication failed for {username}/{password} on {url} with status code {response.status_code}.")
-        except requests.RequestException as e:
-            self.logger.debug(f"HTTP Basic Authentication request to {url} with {username}/{password} failed: {e}")
-        return False
-
-    def _attempt_form_based_authentication(self, protocol: str, ip: str, username: str, password: str) -> bool:
-        """
-        Attempt Form-Based Authentication by submitting credentials through the login form.
-        """
-        base_url = f"{protocol}://{ip}"
-        login_page_url = base_url + "/"
-        headers = {'Host': self.device.get("Hostname", "N/A")}
-        self.logger.debug(f"Fetching login form from {login_page_url} for form-based authentication.")
-
-        try:
-            # Fetch the login page to retrieve the form details
-            response = requests.get(
-                login_page_url,
-                headers=headers,
-                timeout=5,
-                verify=(protocol == 'https')
-            )
-
-            if response.status_code != 200:
-                self.logger.debug(f"Failed to retrieve login page from {login_page_url}. Status code: {response.status_code}")
-                return False
-
-            soup = BeautifulSoup(response.text, 'html.parser')
-            form = self._extract_login_form(soup)
-            if not form:
-                self.logger.debug(f"No suitable login form found on {login_page_url}.")
-                return False
-
-            form_details = self._parse_login_form(form, base_url)
-            if not form_details:
-                self.logger.debug(f"Failed to parse login form on {login_page_url}.")
-                return False
-
-            form_action, form_method, form_data = form_details
-
-            # Populate form data with credentials
-            form_data = self._populate_form_data(form_data, username, password)
-
-            self.logger.debug(f"Submitting form to {form_action} with data: {form_data}")
-
-            # Submit the form with the populated data
-            if form_method.lower() == 'post':
-                post_response = requests.post(
-                    form_action,
-                    data=form_data,
-                    headers=headers,
-                    timeout=5,
-                    verify=(protocol == 'https'),
-                    allow_redirects=False  # To detect successful login via redirects
-                )
-            else:
-                # For GET method forms
-                post_response = requests.get(
-                    form_action,
-                    params=form_data,
-                    headers=headers,
-                    timeout=5,
-                    verify=(protocol == 'https'),
-                    allow_redirects=False
-                )
-
-            # Determine if authentication was successful based on response
-            if post_response.status_code in [200, 302]:
-                self.logger.debug(f"Form-Based Authentication succeeded for {username}/{password} on {form_action} with status code {post_response.status_code}.")
-                return True
-            else:
-                self.logger.debug(f"Form-Based Authentication failed for {username}/{password} on {form_action} with status code {post_response.status_code}.")
-
-        except requests.RequestException as e:
-            self.logger.debug(f"Form-Based Authentication request to {login_page_url} with {username}/{password} failed: {e}")
-        except Exception as e:
-            self.logger.error(f"Unexpected error during Form-Based Authentication to {login_page_url} with {username}/{password}: {e}")
-        return False
-
-    def _extract_login_form(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
-        """
-        Extract the login form from the parsed HTML soup.
-        """
-        # Attempt to find form elements that likely represent a login form
-        forms = soup.find_all('form')
-        for form in forms:
-            # Check for input fields that indicate a login form
-            input_types = [input_tag.get('type', '').lower() for input_tag in form.find_all('input')]
-            if 'password' in input_types:
-                return form
-        return None
-
-    def _parse_login_form(self, form: BeautifulSoup, base_url: str) -> Optional[Tuple[str, str, Dict[str, str]]]:
-        """
-        Parse the login form to extract action URL, method, and input fields.
-        """
-        try:
-            # Extract form action (target URL)
-            action = form.get('action')
-            if not action:
-                action = '/'  # Default to root if action is not specified
-            elif not action.startswith('http'):
-                # Handle relative URLs
-                if action.startswith('/'):
-                    action_url = f"{base_url}{action}"
-                else:
-                    action_url = f"{base_url}/{action}"
-            else:
-                action_url = action
-
-            # Extract form method (GET or POST)
-            method = form.get('method', 'post').lower()
-
-            # Extract all input fields within the form
-            inputs = form.find_all('input')
-            form_data = {}
-            for input_tag in inputs:
-                input_name = input_tag.get('name')
-                input_type = input_tag.get('type', '').lower()
-                input_value = input_tag.get('value', '')
-
-                if not input_name:
-                    continue  # Skip inputs without a name attribute
-
-                if input_type == 'password':
-                    form_data[input_name] = ''  # Placeholder for password
-                elif input_type in ['text', 'email', 'username']:
-                    form_data[input_name] = ''  # Placeholder for username
-                elif input_type in ['hidden', 'submit']:
-                    form_data[input_name] = input_value
-                else:
-                    form_data[input_name] = input_value  # Default handling
-
-            return (action_url, method, form_data)
-        except Exception as e:
-            self.logger.error(f"Error parsing login form: {e}")
-        return None
-
-    def _populate_form_data(self, form_data: Dict[str, str], username: str, password: str) -> Dict[str, str]:
-        """
-        Populate the form data with the provided username and password.
-        """
-        for key, value in form_data.items():
-            if 'user' in key.lower():
-                form_data[key] = username
-            elif 'pass' in key.lower():
-                form_data[key] = password
-        return form_data
-
-    def create_issue(self, description: str) -> DiagnoseIssue:
-        """
-        Create a DiagnoseIssue instance with the device's details.
-        """
-        return DiagnoseIssue(
-            device_type=self.device_type,
-            hostname=self.device.get("Hostname", "N/A"),
-            ip=self.device.get("IP", "N/A"),
-            description=description
-        )
-
-    def diagnose_common(self) -> Dict:
-        """
-        Perform common diagnostics steps and return a context dictionary.
-        """
-        context = {}
-        ip = self.device.get("IP", "N/A")
-        hostname = self.device.get("Hostname", "N/A")
-        mac = self.device.get("MAC", "").upper()
-
-        if ip == "N/A":
-            self.logger.debug(f"{hostname} IP is N/A. Skipping diagnostics.")
-            return context
-
-        self.logger.debug(f"Starting common diagnostics for device: {hostname} ({ip})")
-
-        # Ping Check
-        if not self.ping_device(ip):
-            context['ping'] = False
-            self.logger.info(f"Device {hostname} ({ip}) is not responding to ping.")
-        else:
-            context['ping'] = True
-            self.logger.debug(f"Device {hostname} ({ip}) is reachable via ping.")
-
-        # Vendor Determination
-        vendor = self.mac_lookup.get_vendor(mac) if mac != 'N/A' else "unknown"
-        vendor_key = vendor.lower() if vendor else "unknown"
-        context['vendor'] = vendor
-        context['vendor_key'] = vendor_key
-        self.logger.debug(f"Device {hostname} ({ip}) vendor determined as: {vendor}")
-
-        return context
-
-
-# Specific Diagnostics Classes
-class RouterDiagnostics(CommonDiagnostics):
+# Device-Type Specific Diagnostics Classes
+class RouterDiagnostics(BaseDiagnostics):
     """
     Perform diagnostics specific to routers.
     """
@@ -1530,27 +1697,10 @@ class RouterDiagnostics(CommonDiagnostics):
 
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
         issues: List[DiagnoseIssue] = []
-        ip: str = self.device.get("IP", "N/A")
-        hostname: str = self.device.get("Hostname", "N/A")
-
-        context: Dict = self.diagnose_common()
-        if not context:
-            return issues
-
-        if not context.get('ping', False):
-            issues.append(self.create_issue(f"{self.DEVICE_TYPE} is not responding to ping."))
-            self.logger.info(f"{self.DEVICE_TYPE} {hostname} ({ip}) is not responding to ping.")
-            return issues
-
-        vendor_key: str = context.get('vendor_key', 'unknown')
-
-        # Perform standard checks
-        issues.extend(self.perform_standard_checks(ip, hostname, vendor_key))
-
         return issues
 
 
-class PrinterDiagnostics(CommonDiagnostics):
+class PrinterDiagnostics(BaseDiagnostics):
     """
     Perform diagnostics specific to printers.
     """
@@ -1558,27 +1708,10 @@ class PrinterDiagnostics(CommonDiagnostics):
 
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
         issues: List[DiagnoseIssue] = []
-        ip: str = self.device.get("IP", "N/A")
-        hostname: str = self.device.get("Hostname", "N/A")
-
-        context: Dict = self.diagnose_common()
-        if not context:
-            return issues
-
-        if not context.get('ping', False):
-            issues.append(self.create_issue(f"{self.DEVICE_TYPE} is not responding to ping."))
-            self.logger.info(f"{self.DEVICE_TYPE} {hostname} ({ip}) is not responding to ping.")
-            return issues
-
-        vendor_key: str = context.get('vendor_key', 'unknown')
-
-        # Perform standard checks
-        issues.extend(self.perform_standard_checks(ip, hostname, vendor_key))
-
         return issues
 
 
-class PhoneDiagnostics(CommonDiagnostics):
+class PhoneDiagnostics(BaseDiagnostics):
     """
     Perform diagnostics specific to VoIP and mobile phones.
     """
@@ -1586,51 +1719,10 @@ class PhoneDiagnostics(CommonDiagnostics):
 
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
         issues: List[DiagnoseIssue] = []
-        ip: str = self.device.get("IP", "N/A")
-        hostname: str = self.device.get("Hostname", "N/A")
-
-        context: Dict = self.diagnose_common()
-        if not context:
-            return issues
-
-        if not context.get('ping', False):
-            issues.append(self.create_issue(f"{self.DEVICE_TYPE} is not responding to ping."))
-            self.logger.info(f"{self.DEVICE_TYPE} {hostname} ({ip}) is not responding to ping.")
-            return issues
-
-        vendor_key: str = context.get('vendor_key', 'unknown')
-
-        # Perform standard checks
-        issues.extend(self.perform_standard_checks(ip, hostname, vendor_key))
-
-        # Secure SIP Checks
-        issues.extend(self.check_secure_sip(ip, vendor_key))
-
-        return issues
-
-    def check_secure_sip(self, ip: str, vendor_key: str) -> List[DiagnoseIssue]:
-        """
-        Check if SIP is configured securely on the phone (e.g., using TLS).
-        """
-        issues: List[DiagnoseIssue] = []
-        try:
-            self.logger.debug(f"Checking secure SIP configuration on {self.DEVICE_TYPE} {ip} for vendor '{vendor_key}'.")
-
-            # Define secure SIP ports
-            secure_sip_ports: List[int] = self.config.vendor_configs.get(vendor_key, {}).get('secure_sip_ports', [5061])
-
-            for port in secure_sip_ports:
-                if not self._is_port_open(ip, port):
-                    issues.append(self.create_issue(f"SIP over TLS Port {port} is not open"))
-                    self.logger.info(f"SIP over TLS Port {port} is not open on {self.DEVICE_TYPE} {ip}.")
-                else:
-                    self.logger.debug(f"SIP over TLS Port {port} is open on {self.DEVICE_TYPE} {ip}.")
-        except Exception as e:
-            self.logger.error(f"Error while checking secure SIP on {self.DEVICE_TYPE} {ip}: {e}")
         return issues
 
 
-class SmartDiagnostics(CommonDiagnostics):
+class SmartDiagnostics(BaseDiagnostics):
     """
     Perform diagnostics specific to smart devices, including IoT devices.
     """
@@ -1638,27 +1730,10 @@ class SmartDiagnostics(CommonDiagnostics):
 
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
         issues: List[DiagnoseIssue] = []
-        ip: str = self.device.get("IP", "N/A")
-        hostname: str = self.device.get("Hostname", "N/A")
-
-        context: Dict = self.diagnose_common()
-        if not context:
-            return issues
-
-        if not context.get('ping', False):
-            issues.append(self.create_issue(f"{self.DEVICE_TYPE} is not responding to ping."))
-            self.logger.info(f"{self.DEVICE_TYPE} {hostname} ({ip}) is not responding to ping.")
-            return issues
-
-        vendor_key: str = context.get('vendor_key', 'unknown')
-
-        # Perform standard checks
-        issues.extend(self.perform_standard_checks(ip, hostname, vendor_key))
-
         return issues
 
 
-class GameDiagnostics(CommonDiagnostics):
+class GameDiagnostics(BaseDiagnostics):
     """
     Perform diagnostics specific to game consoles like PlayStation, Xbox, and Nintendo Switch.
     """
@@ -1666,92 +1741,25 @@ class GameDiagnostics(CommonDiagnostics):
 
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
         issues: List[DiagnoseIssue] = []
-        ip: str = self.device.get("IP", "N/A")
-        hostname: str = self.device.get("Hostname", "N/A")
-
-        context: Dict = self.diagnose_common()
-        if not context:
-            return issues
-
-        if not context.get('ping', False):
-            issues.append(self.create_issue(f"{self.DEVICE_TYPE} is not responding to ping."))
-            self.logger.info(f"{self.DEVICE_TYPE} {hostname} ({ip}) is not responding to ping.")
-            return issues
-
-        vendor_key: str = context.get('vendor_key', 'unknown')
-
-        # Perform standard checks
-        issues.extend(self.perform_standard_checks(ip, hostname, vendor_key))
-
-        # Gaming-Specific Service Checks
-        issues.extend(self.check_gaming_services(ip, vendor_key))
-
-        return issues
-
-    def check_gaming_services(self, ip: str, vendor_key: str) -> List[DiagnoseIssue]:
-        """
-        Check for vulnerabilities or misconfigurations in gaming-specific services.
-        """
-        issues: List[DiagnoseIssue] = []
-        try:
-            self.logger.debug(f"Checking gaming-specific services on {self.DEVICE_TYPE} {ip} for vendor '{vendor_key}'.")
-            hostname: str = self.device.get("Hostname", "N/A")
-
-            # Initialize an empty dictionary to collect all matching gaming services
-            gaming_services: Dict[int, str] = {}
-            for key, services in self.config.gaming_services.gaming_services.items():
-                if key.lower() in vendor_key.lower():
-                    gaming_services.update(services)
-
-            for port, service in gaming_services.items():
-                if self._is_port_open(ip, port):
-                    self.logger.debug(f"Gaming service port {port} ({service}) is open on {self.DEVICE_TYPE} {ip}.")
-
-                    # Example check: Ensure that sensitive gaming ports are not accessible over HTTP
-                    if service in ["Xbox Live", "PlayStation Network", "Nintendo Switch"]:
-                        url: str = f"http://{ip}:{port}"
-                        try:
-                            response: requests.Response = self._make_request(
-                                protocol='http',
-                                ip=ip,
-                                hostname=hostname,
-                                endpoint="/",
-                                port=port,
-                                timeout=3
-                            )
-                            if response.status_code == 200:
-                                issues.append(self.create_issue(f"Gaming service port {port} ({service}) is accessible over HTTP"))
-                                self.logger.info(f"Gaming service port {port} ({service}) is accessible over HTTP on {self.DEVICE_TYPE} {ip}.")
-                        except requests.RequestException as e:
-                            self.logger.debug(f"HTTP request to {url} failed: {e}")
-                            continue  # Unable to determine, proceed to next check
-                else:
-                    self.logger.debug(f"Gaming service port {port} ({service}) is closed on {self.DEVICE_TYPE} {ip}.")
-        except Exception as e:
-            self.logger.error(f"Error while checking gaming-specific services on {self.DEVICE_TYPE} {ip}: {e}")
         return issues
 
 
-class ComputerDiagnostics(GeneralDeviceDiagnostics):
+class ComputerDiagnostics(BaseDiagnostics):
     """
     Perform diagnostics for laptops, desktops, and phones.
     """
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
-        """
-        Diagnose the client device for common issues.
-        """
-        return []
+        issues: List[DiagnoseIssue] = []
+        return issues
 
 
-class OtherDeviceDiagnostics(GeneralDeviceDiagnostics):
+class OtherDeviceDiagnostics(BaseDiagnostics):
     """
     Perform diagnostics for other types of devices.
     """
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
-        """
-        Diagnose other devices for reachability.
-        """
-        return []
+        issues: List[DiagnoseIssue] = []
+        return issues
 
 
 # Network Scanner and Classifier
@@ -1759,17 +1767,16 @@ class NetworkScanner:
     """
     Scan the network and classify connected devices.
     """
-    def __init__(self, args: argparse.Namespace, logger: logging.Logger, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
+    def __init__(self, args: argparse.Namespace, logger: logging.Logger, config: AppConfig):
         """
         Initialize the network scanner with arguments and logger.
         """
         self.args = args
         self.logger = logger
         self.config = config
-        self.mac_lookup = mac_lookup
-        self.ipv6_enabled = args.ipv6  # New line to store IPv6 flag
+        self.ipv6_enabled = args.ipv6
 
-    def execute(self) -> Dict[str, List[Dict[str, Any]]]:
+    def execute(self) -> Dict[str, List[Device]]:
         """
         Execute the network scanning and classification.
         """
@@ -1781,7 +1788,7 @@ class NetworkScanner:
 
         return self.classify_devices(devices)
 
-    def scan_network(self) -> List[Dict[str, str]]:
+    def scan_network(self) -> List[Device]:
         """
         Scan the active subnets using nmap to discover devices.
         """
@@ -1792,16 +1799,16 @@ class NetworkScanner:
                 self.logger.error("No devices found on the network.")
                 return []
 
-            all_devices = []
+            all_devices: List[Device] = []
             for subnet in subnets:
                 self.logger.debug(f"Scanning subnet: {subnet}")
                 # Determine if subnet is IPv6 based on presence of ':'
                 if '/' in subnet and ':' in subnet:
                     # IPv6 subnet
-                    scan_command = ['sudo', 'nmap', '-O', '-sV', '-T4', '-6', '-oX', '-', subnet]
+                    scan_command = ['sudo', 'nmap', '-A', '-T4', '-6', '-oX', '-', subnet]
                 else:
                     # IPv4 subnet
-                    scan_command = ['sudo', 'nmap', '-O', '-sV', '-T4', '-oX', '-', subnet]
+                    scan_command = ['sudo', 'nmap', '-A', '-T4', '-oX', '-', subnet]
 
                 self.logger.debug(f"Executing command: {' '.join(scan_command)}")
                 result = subprocess.run(scan_command, capture_output=True, text=True)
@@ -1920,7 +1927,7 @@ class NetworkScanner:
         self.logger.debug(f"Calculated subnet for IP {ip}/{prefix}: {subnet}")
         return subnet
 
-    def parse_nmap_output(self, output: str) -> List[Dict[str, str]]:
+    def parse_nmap_output(self, output: str) -> List[Device]:
         """
         Parse the XML output from nmap to extract device information.
         """
@@ -1932,53 +1939,135 @@ class NetworkScanner:
                 if status is not None and status.get('state') != 'up':
                     continue
 
-                device = {}
+                device = Device()
+
+                # Addresses
                 addresses = host.findall('address')
                 for addr in addresses:
                     addr_type = addr.get('addrtype')
-                    if addr_type == 'ipv4':
-                        device['IP'] = addr.get('addr', 'N/A')
-                    elif addr_type == 'ipv6':
-                        device['IP'] = addr.get('addr', 'N/A')
+                    address = addr.get('addr', 'N/A')
+                    if addr_type in ['ipv4', 'ipv6']:
+                        device.ip_addresses.append(address)
                     elif addr_type == 'mac':
-                        device['MAC'] = addr.get('addr', 'N/A')
-                        device['Vendor'] = addr.get('vendor', 'Unknown')
+                        device.mac_address = address
+                        device.vendor = addr.get('vendor', 'Unknown')
 
                 # Hostnames
                 hostnames = host.find('hostnames')
                 if hostnames is not None:
-                    name = hostnames.find('hostname')
-                    device['Hostname'] = name.get('name') if name is not None else "N/A"
-                else:
-                    device['Hostname'] = "N/A"
+                    for name in hostnames.findall('hostname'):
+                        hostname = name.get('name')
+                        if hostname:
+                            device.hostnames.append(hostname)
 
                 # OS
                 os_elem = host.find('os')
                 if os_elem is not None:
-                    os_matches = os_elem.findall('osmatch')
-                    if os_matches:
-                        device['OS'] = os_matches[0].get('name', 'Unknown')
+                    for osmatch in os_elem.findall('osmatch'):
+                        os_match = DeviceOsMatch(
+                            accuracy=int(osmatch.get('accuracy', '0')),
+                            name=osmatch.get('name', 'Unknown'),
+                            os_family=None,
+                            os_gen=None,
+                            os_type=None,
+                            vendor=None
+                        )
+                        # OS Classes and CPEs
+                        for osclass in osmatch.findall('osclass'):
+                            os_match.os_family = osclass.get('osfamily', os_match.os_family)
+                            os_match.os_gen = osclass.get('osgen', os_match.os_gen)
+                            os_match.os_type = osclass.get('type', os_match.os_type)
+                            os_match.vendor = osclass.get('vendor', os_match.vendor)
+                            for cpe in osclass.findall('cpe'):
+                                if cpe.text:
+                                    os_match.cpe_list.append(cpe.text)
+                        device.os_matches.append(os_match)
+                    if device.os_matches:
+                        device.operating_system = device.os_matches[0].name
                     else:
-                        device['OS'] = "Unknown"
-                else:
-                    device['OS'] = "Unknown"
+                        device.operating_system = "Unknown"
 
                 # Ports
-                ports = set()
                 ports_elem = host.find('ports')
                 if ports_elem is not None:
                     for port in ports_elem.findall('port'):
-                        state = port.find('state')
-                        if state is not None and state.get('state') == 'open':
-                            service = port.find('service')
-                            service_name = service.get('name', 'unknown') if service is not None else 'unknown'
-                            portid = port.get('portid')
-                            protocol = port.get('protocol')
-                            port_info = f"{portid}/{protocol} {service_name}"
-                            ports.add(port_info)
-                device['Ports'] = ports
+                        port_state = port.find('state')
+                        if port_state is not None and port_state.get('state') == 'open':
+                            service_elem = port.find('service')
+                            service = None
+                            if service_elem is not None:
+                                service = DeviceService(
+                                    confidence=service_elem.get('conf'),
+                                    method=service_elem.get('method'),
+                                    name=service_elem.get('name'),
+                                    product=service_elem.get('product'),
+                                    version=service_elem.get('version'),
+                                    service_fingerprint=service_elem.get('servicefp'),
+                                    cpe_list=[cpe.text for cpe in service_elem.findall('cpe') if cpe.text]
+                                )
+                                # Scripts
+                                for script_elem in port.findall('script'):
+                                    script = DeviceServiceScript(
+                                        script_id=script_elem.get('id', ''),
+                                        output=script_elem.get('output', '')
+                                    )
+                                    service.scripts.append(script)
+                            port_info = DevicePort(
+                                port_id=int(port.get('portid')),
+                                protocol=port.get('protocol', 'unknown'),
+                                state=port_state.get('state', 'unknown'),
+                                reason=port_state.get('reason'),
+                                service=service
+                            )
+                            device.ports.append(port_info)
+
+                # OS Detection Ports Used
+                os_elem = host.find('os')
+                if os_elem is not None:
+                    for portused in os_elem.findall('portused'):
+                        proto = portused.get('proto', '')
+                        portid = portused.get('portid', '')
+                        state = portused.get('state', '')
+                        port_info = f"{portid}/{proto} {state}"
+                        if device.os_matches:
+                            device.os_matches[0].ports_used.append(port_info)
+
+                # Uptime
+                uptime_elem = host.find('uptime')
+                if uptime_elem is not None:
+                    device.uptime = DeviceUptime(
+                        last_boot_time=uptime_elem.get('lastboot', ''),
+                        uptime_seconds=int(uptime_elem.get('seconds', '0'))
+                    )
+
+                # Distance
+                distance_elem = host.find('distance')
+                if distance_elem is not None:
+                    device.distance = int(distance_elem.get('value', '0'))
+
+                # Trace
+                trace_elem = host.find('trace')
+                if trace_elem is not None:
+                    trace = DeviceTrace()
+                    for hop in trace_elem.findall('hop'):
+                        device_trace_hop = DeviceTraceHop(
+                            host=hop.get('host'),
+                            ip_address=hop.get('ipaddr'),
+                            round_trip_time=float(hop.get('rtt')) if hop.get('rtt') else None,
+                            time_to_live=int(hop.get('ttl')) if hop.get('ttl') else None
+                        )
+                        trace.hops.append(device_trace_hop)
+                    device.trace = trace
+
+                # Timing Information
+                times_elem = host.find('times')
+                if times_elem is not None:
+                    device.rtt_variance = int(times_elem.get('rttvar', '0'))
+                    device.smoothed_rtt = int(times_elem.get('srtt', '0'))
+                    device.timeout = int(times_elem.get('to', '0'))
 
                 devices.append(device)
+
         except ET.ParseError as e:
             self.logger.error(f"Failed to parse nmap XML output: {e}")
             self.logger.debug(f"nmap output was: {output}")
@@ -1987,20 +2076,23 @@ class NetworkScanner:
             self.logger.debug(f"nmap output was: {output}")
         return devices
 
-    def classify_devices(self, devices: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    def classify_devices(self, devices: List[Device]) -> Dict[str, List[Device]]:
         """
         Classify devices into different categories.
         """
-        classifier = DeviceClassifier(self.logger, self.config, self.mac_lookup)
+        classifier = DeviceClassifier(self.logger, self.config)
         classified = classifier.classify(devices)
         return classified
 
 
 # Diagnostics Command
+# Specific Diagnostics Classes
 class DiagnosticsCommand(BaseCommand):
     """
     Perform automated network diagnostics.
     """
+    DataclassType = TypeVar('DataclassType')
+
     def execute(self) -> None:
         """
         Execute the network diagnostics.
@@ -2011,7 +2103,7 @@ class DiagnosticsCommand(BaseCommand):
         if self.args.input_file:
             classified_devices = self.load_devices_from_file(self.args.input_file)
         else:
-            scanner = NetworkScanner(self.args, self.logger, self.config, self.mac_lookup)
+            scanner = NetworkScanner(self.args, self.logger, self.config)
             classified_devices = scanner.execute()
 
         # Save devices to a JSON file if output is requested
@@ -2025,7 +2117,7 @@ class DiagnosticsCommand(BaseCommand):
         if not self.args.discovery:
             self.perform_diagnostics(classified_devices)
 
-    def perform_diagnostics(self, classified_devices: Dict[str, List[Dict[str, Any]]]):
+    def perform_diagnostics(self, classified_devices: Dict[str, List[Device]]):
         """
         Perform diagnostics on the classified devices and collect issues.
         """
@@ -2033,8 +2125,9 @@ class DiagnosticsCommand(BaseCommand):
 
         for device_type, devices in classified_devices.items():
             for device in devices:
-                diagnostic = self.get_diagnostic_class(device_type, device)
-                if diagnostic:
+                self.logger.info(f"Performing diagnostics on {device.ip_addresses[0]} ({device_type}).")
+                diagnostics = self.get_diagnostic_classes(device_type, device)
+                for diagnostic in diagnostics:
                     issues = diagnostic.diagnose()
                     for issue in issues:
                         if issue not in issues_found:
@@ -2046,6 +2139,8 @@ class DiagnosticsCommand(BaseCommand):
                 issue.device_type,
                 issue.hostname,
                 issue.ip,
+                str(issue.port),
+                issue.product,
                 issue.description
             ]
             for issue in issues_found
@@ -2053,54 +2148,118 @@ class DiagnosticsCommand(BaseCommand):
 
         # Display issues found
         if rows:
-            columns = ["Device Type", "Hostname", "IP Address", "Issue"]
+            columns = ["Device Type", "Hostname", "IP Address", "Port", "Product", "Issue"]
             self.print_table("Diagnostics Issues", columns, rows)
         else:
             self.logger.info("No issues detected during diagnostics.")
 
-    def get_diagnostic_class(self, device_type: str, device: Dict[str, Any]) -> GeneralDeviceDiagnostics:
+    def get_diagnostic_classes(self, device_type: str, device: Device) -> List[BaseDiagnostics]:
         """
-        Get the appropriate diagnostic class based on device type.
+        Get a list of diagnostic classes based on device type.
         """
-        if device_type in ["Router", "Switch"]:
-            return RouterDiagnostics(device_type, device, self.logger, self.args, self.config, self.mac_lookup)
-        elif device_type == "Printer":
-            return PrinterDiagnostics(device_type, device, self.logger, self.args, self.config, self.mac_lookup)
-        elif device_type == "Phone":
-            return PhoneDiagnostics(device_type, device, self.logger, self.args, self.config, self.mac_lookup)
-        elif device_type == "Smart":
-            return SmartDiagnostics(device_type, device, self.logger, self.args, self.config, self.mac_lookup)
-        elif device_type == "Game":
-            return GameDiagnostics(device_type, device, self.logger, self.args, self.config, self.mac_lookup)
-        elif device_type == "Computer":
-            return ComputerDiagnostics(device_type, device, self.logger, self.args, self.config, self.mac_lookup)
-        else:
-            return OtherDeviceDiagnostics(device_type, device, self.logger, self.args, self.config, self.mac_lookup)
+        diagnostics: List[BaseDiagnostics] = [
+            ExternalResourcesDiagnostics(device_type, device, self.logger, self.args, self.config),
+            HttpAuthenticationDiagnostics(device_type, device, self.logger, self.args, self.config),
+            HttpSecurityDiagnostics(device_type, device, self.logger, self.args, self.config),
+            SnmpSecurityDiagnostics(device_type, device, self.logger, self.args, self.config),
+        ]
 
-    def save_devices_to_file(self, classified_devices: Dict[str, List[Dict[str, Any]]], filename: str) -> None:
+        # Mapping of device types to their corresponding diagnostic classes
+        device_type_mapping: Dict[str, Type[BaseDiagnostics]] = {
+            "Router": RouterDiagnostics,
+            "Switch": RouterDiagnostics,
+            "Printer": PrinterDiagnostics,
+            "Phone": PhoneDiagnostics,
+            "Smart": SmartDiagnostics,
+            "Game": GameDiagnostics,
+            "Computer": ComputerDiagnostics,
+        }
+
+        # Retrieve the diagnostic class based on device_type, defaulting to OtherDeviceDiagnostics
+        diagnostic_class = device_type_mapping.get(device_type, OtherDeviceDiagnostics)
+
+        # Instantiate and add the device-specific diagnostic class
+        diagnostics.append(diagnostic_class(device_type, device, self.logger, self.args, self.config))
+
+        self.logger.debug(f"Diagnostics for device type '{device_type}': {[diag.__class__.__name__ for diag in diagnostics]}")
+
+        return diagnostics
+
+    def save_devices_to_file(self, classified_devices: Dict[str, List[Device]], filename: str) -> None:
         """
         Save the classified devices to a JSON file.
         """
-        class SetEncoder(json.JSONEncoder):
-            def default(self, obj):
-                if isinstance(obj, set):
-                    return list(obj)
-                return json.JSONEncoder.default(self, obj)
-
         try:
+            # Convert Device instances to dictionaries
+            serializable_data = {
+                device_type: [asdict(device) for device in devices]
+                for device_type, devices in classified_devices.items()
+            }
+
             with open(filename, 'w') as f:
-                json.dump(classified_devices, f, indent=2, cls=SetEncoder)
+                json.dump(serializable_data, f, indent=2)
+
             self.logger.info(f"Discovered devices saved to '{filename}'.")
         except Exception as e:
             self.logger.error(f"Failed to save devices to file: {e}")
 
-    def load_devices_from_file(self, filename: str) -> Dict[str, List[Dict[str, Any]]]:
+    def _from_dict(self, cls: Type[DataclassType], data: Dict[str, Any]) -> DataclassType:
+        """
+        Recursively convert a dictionary to a dataclass instance.
+        """
+        if not is_dataclass(cls):
+            return data  # Base case: not a dataclass
+
+        fieldtypes = {f.name: f.type for f in fields(cls)}
+        init_kwargs = {}
+        for field_name, field_type in fieldtypes.items():
+            if field_name not in data:
+                continue  # Missing field; use default
+
+            value = data[field_name]
+            if value is None:
+                init_kwargs[field_name] = None
+                continue
+
+            origin = get_origin(field_type)
+            args = get_args(field_type)
+
+            if origin is Union and type(None) in args:
+                # It's an Optional field
+                non_none_type = args[0] if args[1] == type(None) else args[1]
+                if is_dataclass(non_none_type):
+                    init_kwargs[field_name] = self._from_dict(non_none_type, value)
+                else:
+                    init_kwargs[field_name] = value
+            elif origin is list:
+                # It's a List field
+                list_item_type = args[0]
+                if is_dataclass(list_item_type):
+                    init_kwargs[field_name] = [self._from_dict(list_item_type, item) for item in value]
+                else:
+                    init_kwargs[field_name] = value
+            elif is_dataclass(field_type):
+                # It's a nested dataclass
+                init_kwargs[field_name] = self._from_dict(field_type, value)
+            else:
+                # It's a simple field
+                init_kwargs[field_name] = value
+
+        return cls(**init_kwargs)
+
+    def load_devices_from_file(self, filename: str) -> Dict[str, List[Device]]:
         """
         Load the classified devices from a JSON file.
         """
         try:
-            with open(filename, 'w') as f:
-                classified_devices = json.load(f)
+            with open(filename, 'r') as f:
+                data = json.load(f)
+
+            classified_devices = {}
+            for device_type, devices_list in data.items():
+                classified_devices[device_type] = [
+                    self._from_dict(Device, device_dict) for device_dict in devices_list
+                ]
 
             if classified_devices:
                 self.logger.info(f"Discovered devices loaded from '{filename}'.")
@@ -2110,24 +2269,28 @@ class DiagnosticsCommand(BaseCommand):
 
             return classified_devices
         except Exception as e:
-            self.logger.error(f"Failed to save devices to file: {e}")
+            self.logger.error(f"Failed to load devices from file: {e}")
+            return {}
 
-    def display_devices(self, classified_devices: Dict[str, List[Dict[str, Any]]]) -> None:
+    def display_devices(self, classified_devices: Dict[str, List[Device]]) -> None:
         """
         Display the classified devices in a tabular format.
         """
         for device_type, devices in classified_devices.items():
-            title = f"{device_type}s"
-            columns = ["Hostname", "IP Address", "MAC Address", "Vendor", "OS", "Open Ports"]
+            title = f"{device_type.capitalize()}s"
+            columns = ["Hostname", "IP Addresses", "MAC Address", "Vendor", "OS", "Open Ports"]
             rows = []
             for device in devices:
-                hostname = device.get("Hostname", "N/A")
-                ip = device.get("IP", "N/A")
-                mac = device.get("MAC", "N/A")
-                vendor = device.get("Vendor", "Unknown")
-                os_info = device.get("OS", "Unknown")
-                open_ports = ", ".join(device.get("Ports", []))
-                rows.append([hostname, ip, mac, vendor, os_info, open_ports])
+                hostname = ", ".join(device.hostnames) if device.hostnames else "N/A"
+                ip_addresses = ", ".join(device.ip_addresses) if device.ip_addresses else "N/A"
+                mac = device.mac_address if device.mac_address else "N/A"
+                vendor = device.vendor if device.vendor else "Unknown"
+                os_info = device.operating_system if device.operating_system else "Unknown"
+                open_ports = ", ".join(
+                    f"{port.port_id}/{port.protocol} {port.service.name if port.service and port.service.name else 'unknown'}"
+                    for port in device.ports if port.service
+                ) if device.ports else "N/A"
+                rows.append([hostname, ip_addresses, mac, vendor, os_info, open_ports])
             self.print_table(title, columns, rows)
 
 
@@ -2136,8 +2299,8 @@ class TrafficMonitorCommand(BaseCommand):
     """
     Monitor network traffic to detect anomalies.
     """
-    def __init__(self, args: argparse.Namespace, logger: logging.Logger, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
-        super().__init__(args, logger, config, mac_lookup)
+    def __init__(self, args: argparse.Namespace, logger: logging.Logger, config: AppConfig):
+        super().__init__(args, logger, config)
 
         # Initialize packet queue and processing thread
         self.packet_queue = queue.Queue()
@@ -2454,7 +2617,7 @@ class TrafficMonitorCommand(BaseCommand):
         """
         Report detected anomalies based on the verbosity level.
         """
-        if console:
+        if RICH_AVAILABLE:
             console.print(message, style="bold red")
         else:
             print(message)
@@ -2654,7 +2817,7 @@ class SystemInfoCommand(BaseCommand):
         """
         Display the gathered system information for both IPv4 and IPv6.
         """
-        if console:
+        if RICH_AVAILABLE:
             if ip_info_v4:
                 console.print(Panel("[bold underline]Configuration (IPv4)[/bold underline]", style="cyan"))
                 console.print(ip_info_v4)
@@ -2823,7 +2986,6 @@ class WifiDiagnosticsCommand(BaseCommand):
             issues.append(WifiIssue(
                 issue_type="Authentication",
                 location=net['SSID'],
-                ip_address="N/A",
                 description=f"Open and unsecured network on channel {net['Channel']}."
             ))
 
@@ -2833,7 +2995,6 @@ class WifiDiagnosticsCommand(BaseCommand):
             issues.append(WifiIssue(
                 issue_type="Signal",
                 location=net['SSID'],
-                ip_address="N/A",
                 description=f"Low signal strength: {net['Signal']}% on channel {net['Channel']}."
             ))
 
@@ -2856,7 +3017,6 @@ class WifiDiagnosticsCommand(BaseCommand):
             return WifiIssue(
                 issue_type="Interference",
                 location=f"Channel {channel}",
-                ip_address="",
                 description=f"High number of networks ({count}) on this channel causing interference."
             )
         return None
@@ -2911,13 +3071,12 @@ class WifiDiagnosticsCommand(BaseCommand):
             [
                 issue.issue_type,
                 issue.location,
-                issue.ip_address,
                 issue.description
             ]
             for issue in issues
         ]
 
-        columns = ["Issue Type", "SSID/Channel", "IP Address", "Description"]
+        columns = ["Issue Type", "SSID/Channel", "Description"]
         self.print_table("WiFi Diagnostics Issues", columns, rows)
 
     def safe_int(self, value: str) -> int:
@@ -2935,15 +3094,14 @@ class DeviceClassifier:
     """
     Classify devices based on their attributes.
     """
-    def __init__(self, logger: logging.Logger, config: AppConfig, mac_lookup: Optional[MacVendorLookup] = None):
+    def __init__(self, logger: logging.Logger, config: AppConfig):
         """
         Initialize the DeviceClassifier with a logger and configuration.
         """
         self.logger = logger
         self.config = config
-        self.mac_lookup = mac_lookup
 
-    def classify(self, devices: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    def classify(self, devices: List[Device]) -> Dict[str, List[Device]]:
         """
         Classify the list of devices into categories.
         """
@@ -2967,24 +3125,25 @@ class DeviceClassifier:
 
         return classified
 
-    def infer_device_type(self, device: Dict[str, Any]) -> str:
+    def infer_device_type(self, device: Device) -> str:
         """
         Infer the device type based on its attributes.
         """
         matched_device_type = "Unknown"
         highest_priority = float('inf')
+        mac_address = device.mac_address if device.mac_address else 'N/A'
 
         for device_type in sorted(self.config.device_types.device_types, key=lambda dt: dt.priority):
-            if device_type.matches(device, self.mac_lookup):
+            if device_type.matches(device):
                 if device_type.priority < highest_priority:
                     matched_device_type = device_type.name
                     highest_priority = device_type.priority
-                    self.logger.debug(f"Device {device.get('MAC', 'N/A')} matched {matched_device_type} with priority {device_type.priority}.")
+                    self.logger.debug(f"Device {mac_address} matched {matched_device_type} with priority {device_type.priority}.")
 
         if matched_device_type == "Unknown":
-            self.logger.debug(f"Device {device.get('MAC', 'N/A')} classified as Unknown.")
+            self.logger.debug(f"Device {mac_address} classified as Unknown.")
         else:
-            self.logger.debug(f"Device {device.get('MAC', 'N/A')} classified as {matched_device_type}.")
+            self.logger.debug(f"Device {mac_address} classified as {matched_device_type}.")
 
         return matched_device_type
 
@@ -3041,7 +3200,7 @@ def parse_arguments() -> argparse.Namespace:
     diagnose_parser.add_argument(
         '--ipv6', '-6',
         action='store_true',
-        help='Enable IPv6 scanning in network scanning.'
+        help='Enable IPv6 in network scanning.'
     )
     diagnose_parser.add_argument(
         '--discovery', '-d',
@@ -3079,6 +3238,11 @@ def parse_arguments() -> argparse.Namespace:
         '--credentials', '-C',
         action='store_true',
         help='Check for default credentials on discovered devices.'
+    )
+    diagnose_parser.add_argument(
+        '--all', '-A',
+        action='store_true',
+        help='Run all available diagnostic tools.'
     )
 
     # Subparser for traffic-monitor
@@ -3189,7 +3353,7 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> logging.Logger:
                                   datefmt='%Y-%m-%d %H:%M:%S')
 
     # Console handler
-    if console:
+    if RICH_AVAILABLE:
         handler = RichHandler(rich_tracebacks=True)
         if debug:
             handler.setLevel(logging.DEBUG)
@@ -3239,18 +3403,13 @@ def main() -> None:
     if not RICH_AVAILABLE:
         logger.warning("Rich library not found. Install it using 'pip install rich' for better output formatting. Really recommended.")
 
-    if args.command in ['diagnose', 'dg']:
-        mac_lookup = MacVendorLookup(logger)
-    else:
-        mac_lookup = None  # Not needed for other commands
-
     # Instantiate and execute the appropriate command
     command_class = COMMAND_CLASSES.get(args.command)
     if not command_class:
         logger.error(f"Unknown command: {args.command}")
         sys.exit(1)
 
-    command = command_class(args, logger, config, mac_lookup)
+    command = command_class(args, logger, config)
     command.execute()
 
     logger.info("Network diagnostics completed successfully.")
