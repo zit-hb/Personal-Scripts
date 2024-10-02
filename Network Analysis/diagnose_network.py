@@ -7,7 +7,7 @@
 # This script provides comprehensive network diagnostics to
 # automatically troubleshoot network issues.
 # It includes functionalities such as system information gathering, device discovery,
-# automated diagnostics, advanced network traffic monitoring, and wifi analysis.
+# automated diagnostics, advanced network traffic monitoring, and WiFi analysis.
 #
 # Usage:
 # ./diagnose_network.py [command] [options]
@@ -17,6 +17,7 @@
 # - diagnose (dg)             Perform automated diagnostics on the network.
 # - traffic-monitor (tm)      Monitor network traffic to detect anomalies using Scapy.
 # - wifi (wf)                 Perform WiFi diagnostics and analyze available networks.
+# - container (co)            Run the script inside of a Docker container.
 #
 # Global Options:
 # -v, --verbose               Enable verbose logging (INFO level).
@@ -28,7 +29,7 @@
 # Diagnostics Command Options:
 # -V, --virtual               Enable virtual interfaces in network scanning.
 # -6, --ipv6                  Enable IPv6 in network scanning.
-# -d, --discovery             Perform device discovery only.
+# -d, --discovery             Perform network discovery to find devices only.
 # -o, --output-file           Specify a file to save discovered devices.
 # -i, --input-file            Specify a file to load discovered devices.
 # -e, --execution             Specify the execution mode (choices: docker, native) (default: docker).
@@ -55,30 +56,43 @@
 # -i, --interface             Specify the network interface to scan (e.g., wlan0, wlp3s0).
 # -m, --signal-threshold      Set the minimum signal strength threshold (default: 50).
 #
+# Container Command Options:
+# -n, --network               Docker network mode to use (choices: bridge, host, macvlan, default) (default: host).
+# -w, --work-dir              Specify the working directory to mount into the container (default: working directory).
+# --                          Pass additional arguments to the script inside the container.
+#
 # Returns:
 # Exit code 0 on success, non-zero on failure.
 #
-# Requirements:
-#  System-Info Command:
-#  - resolvectl (install via: apt install systemd-resolv)
-#  - traceroute (install via: apt install traceroute)
-#  Diagnose Command:
-#  - requests (install via: pip install requests)
-#  - docker (install via: apt install docker.io)
-#  - nmap (install via: apt install nmap)
-#   Nikto Check (native):
-#   - nikto (install via: apt install nikto)
-#   Golismero Check (native):
-#   - golismero (install via: pip install golismero)
-#   Credentials Check:
-#   - BeautifulSoup (install via: pip install beautifulsoup4)
-#  Traffic-Monitor Command:
-#  - scapy (install via: pip install scapy)
-#  Wifi Command:
-#  - nmcli (install via: apt install network-manager)
-#  Optional:
-#  - rich (install via: pip install rich)
-#  - python-dotenv (install via: pip install python-dotenv)
+# Requirements with container:
+# - Python3
+# - Docker (install via: apt install docker.io)
+# - psutil (optional, for macvlan) (install via: apt install python3-psutil)
+#
+# Requirements without container:
+# - System Info Command:
+#   - traceroute (install via: apt install traceroute)
+#
+# - Diagnose Command:
+#   - requests (install via: pip install requests)
+#   - nmap (install via: apt install nmap)
+#   - docker (install via: apt install docker.io)
+#   - Nikto Check (native):
+#     - nikto (install via: apt install nikto)
+#   - Golismero Check (native):
+#     - golismero (install via: pip install golismero)
+#   - Credentials Check:
+#     - BeautifulSoup (install via: pip install beautifulsoup4)
+#
+# - Traffic Monitor Command:
+#   - scapy (install via: pip install scapy)
+#
+# - WiFi Command:
+#   - nmcli (install via: apt install network-manager)
+#
+# Optional:
+# - rich (install via: pip install rich)
+# - python-dotenv (install via: pip install python-dotenv)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
@@ -98,6 +112,8 @@ import queue
 import shutil
 import re
 import tempfile
+import ipaddress
+from urllib.parse import urlparse
 from enum import Enum
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Set, Tuple, Any, TypeVar, Type, Union, get_origin, get_args
@@ -108,8 +124,6 @@ import xml.etree.ElementTree as ET
 
 # Ignore unnecessary warnings
 import warnings
-from urllib.parse import urlparse
-
 from urllib3.exceptions import InsecureRequestWarning
 warnings.simplefilter('ignore', InsecureRequestWarning)
 
@@ -155,6 +169,14 @@ try:
 except ImportError:
     BeautifulSoup = None
     BEAUTIFULSOUP_AVAILABLE = False
+
+# Attempt to import psutil for system information
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    PSUTIL_AVAILABLE = False
 
 # Initialize Rich console if available
 console = Console() if RICH_AVAILABLE else None
@@ -596,13 +618,13 @@ class AppConfig:
     Comprehensive application configuration encompassing credentials, endpoints, device types,
     HTTP security settings, gaming services, SNMP communities, and more.
     """
-    credentials: CredentialsConfig = CredentialsConfig()
-    endpoints: EndpointsConfig = EndpointsConfig()
-    device_types: DeviceTypeConfig = DeviceTypeConfig()
-    http_security: HttpSecurityConfig = HttpSecurityConfig()
-    gaming_services: GamingServicesConfig = GamingServicesConfig()
+    credentials: CredentialsConfig = field(default_factory=CredentialsConfig)
+    endpoints: EndpointsConfig = field(default_factory=EndpointsConfig)
+    device_types: DeviceTypeConfig = field(default_factory=DeviceTypeConfig)
+    http_security: HttpSecurityConfig = field(default_factory=HttpSecurityConfig)
+    gaming_services: GamingServicesConfig = field(default_factory=GamingServicesConfig)
     snmp_communities: Set[str] = field(default_factory=lambda: {"public", "private", "admin"})
-    docker: DockerConfig = DockerConfig()
+    docker: DockerConfig = field(default_factory=DockerConfig)
 
 
 # MAC Vendor Lookup Class
@@ -693,6 +715,65 @@ class MacVendorLookup:
         oui_entry = self.oui_dict.get(mac_prefix, "Unknown")
         self.logger.debug(f"MAC Prefix: {mac_prefix}, Vendor: {oui_entry}")
         return oui_entry
+
+
+# Device Classifier Class
+class DeviceClassifier:
+    """
+    Classify devices based on their attributes.
+    """
+    def __init__(self, logger: logging.Logger, config: AppConfig):
+        """
+        Initialize the DeviceClassifier with a logger and configuration.
+        """
+        self.logger = logger
+        self.config = config
+
+    def classify(self, devices: List[Device]) -> Dict[str, List[Device]]:
+        """
+        Classify the list of devices into categories.
+        """
+        classified = {
+            "Router": [],
+            "Switch": [],
+            "Printer": [],
+            "Phone": [],
+            "Smart": [],
+            "Game": [],
+            "Computer": [],
+            "Unknown": []
+        }
+
+        for device in devices:
+            device_type = self.infer_device_type(device)
+            classified[device_type].append(device)
+
+        # Remove empty categories
+        classified = {k: v for k, v in classified.items() if v}
+
+        return classified
+
+    def infer_device_type(self, device: Device) -> str:
+        """
+        Infer the device type based on its attributes.
+        """
+        matched_device_type = "Unknown"
+        highest_priority = float('inf')
+        mac_address = device.mac_address if device.mac_address else 'N/A'
+
+        for device_type in sorted(self.config.device_types.device_types, key=lambda dt: dt.priority):
+            if device_type.matches(device):
+                if device_type.priority < highest_priority:
+                    matched_device_type = device_type.name
+                    highest_priority = device_type.priority
+                    self.logger.debug(f"Device {mac_address} matched {matched_device_type} with priority {device_type.priority}.")
+
+        if matched_device_type == "Unknown":
+            self.logger.debug(f"Device {mac_address} classified as Unknown.")
+        else:
+            self.logger.debug(f"Device {mac_address} classified as {matched_device_type}.")
+
+        return matched_device_type
 
 
 # Base class for all commands
@@ -2752,9 +2833,9 @@ class SystemInfoCommand(BaseCommand):
                                         dns_info.setdefault(f'{current_iface} (IPv6)', []).extend(ipv6_servers)
                                         self.logger.debug(f"Found IPv6 DNS servers for {current_iface}: {ipv6_servers}")
                     except subprocess.CalledProcessError as e:
-                        self.logger.error(f"Failed to run resolvectl: {e}")
+                        self.logger.info(f"Failed to run resolvectl: {e}")
                     except FileNotFoundError:
-                        self.logger.error("resolvectl command not found. Ensure systemd-resolved is installed.")
+                        self.logger.info("resolvectl command not found. Ensure systemd-resolved is installed.")
         except Exception as e:
             self.logger.error(f"Failed to read DNS information: {e}")
 
@@ -2797,7 +2878,7 @@ class SystemInfoCommand(BaseCommand):
             if family == 'inet6' and 'Address family for hostname not supported' in error_msg:
                 self.logger.info(f"Traceroute to {target} for {family} failed: IPv6 is not supported.")
             else:
-                self.logger.error(f"Traceroute to {target} for {family} failed: {error_msg}")
+                self.logger.info(f"Traceroute to {target} for {family} failed: {error_msg}")
         except FileNotFoundError:
             self.logger.info("traceroute command not found. Install it using your package manager.")
         except Exception as e:
@@ -3089,63 +3170,416 @@ class WifiDiagnosticsCommand(BaseCommand):
             return 0
 
 
-# Device Classifier Class
-class DeviceClassifier:
-    """
-    Classify devices based on their attributes.
-    """
-    def __init__(self, logger: logging.Logger, config: AppConfig):
+class ContainerCommand(BaseCommand):
+    def execute(self) -> None:
+        macvlan_created: bool = False
+        macvlan_iface_created: bool = False
+        network_name: str = ''
+        host_iface: str = ''
+        try:
+            # Define paths and image tag
+            script_path: str = os.path.abspath(__file__)
+            image_tag: str = 'diagnose-network'
+
+            # Prepare the arguments
+            if self.args.arguments and self.args.arguments[0] == '--':
+                script_args: list = self.args.arguments[1:]
+            else:
+                script_args = self.args.arguments if self.args.arguments else ['-h']
+
+            # Find the first non-option argument (command)
+            command = next((arg for arg in script_args if not arg.startswith('-')), '')
+            privileged_commands = {'system-info', 'si', 'wifi', 'wf', 'traffic-monitor', 'tm'}
+            privileged = command in privileged_commands
+
+            if command in ['container', 'co']:
+                self.logger.error("... why? סּ_סּ")
+                return
+
+            # Determine the working directory
+            if self.args.work_dir:
+                work_dir_host: str = os.path.abspath(self.args.work_dir)
+                if not os.path.exists(work_dir_host):
+                    self.logger.error(f"Specified working directory does not exist: {work_dir_host}")
+                    return
+                self.logger.info(f"Using specified working directory: {work_dir_host}")
+            else:
+                work_dir_host = os.getcwd()
+                self.logger.info(f"No working directory specified. Using current directory: {work_dir_host}")
+
+            # Build the Docker image
+            self._build_docker_image(image_tag)
+
+            # Mount the script as read-only
+            script_container_path: str = '/diagnose_network.py'
+            mount_script: str = f"{script_path}:{script_container_path}:ro"
+
+            # Mount the working directory
+            work_dir_container: str = '/work_dir'
+            mount_work_dir: str = f"{work_dir_host}:{work_dir_container}"
+
+            # Prepare Docker run command
+            run_cmd: list = [
+                'docker', 'run',
+                '--rm',
+                '-it',
+                '-v', mount_script,  # Mount script as read-only
+                '-v', mount_work_dir,  # Mount working directory
+                '-w', work_dir_container,  # Set working directory inside container
+                '-v', '/var/run/docker.sock:/var/run/docker.sock',  # Mount Docker socket
+            ]
+
+            # Handle privileged mode
+            if privileged:
+                self.logger.info("Running container in privileged mode.")
+                # Run the container in privileged mode
+                run_cmd.append('--privileged')
+                # Mount the D-Bus system bus socket
+                if os.path.exists('/run/dbus/system_bus_socket'):
+                    run_cmd.extend(['-v', '/run/dbus/system_bus_socket:/run/dbus/system_bus_socket'])
+                # Mount /etc/machine-id
+                if os.path.exists('/etc/machine-id'):
+                    run_cmd.extend(['-v', '/etc/machine-id:/etc/machine-id:ro'])
+                # Set environment variable for D-Bus system bus address
+                run_cmd.extend(['-e', 'DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket'])
+
+            # Handle network mode
+            network_mode: str = self.args.network
+            if network_mode == 'macvlan':
+                network_name = 'diagnose_network_macvlan'
+                parent_iface, subnet, gateway = self._detect_network_parameters()
+                if not parent_iface or not subnet or not gateway:
+                    self.logger.error("Failed to detect network parameters.")
+                    raise RuntimeError("Network parameter detection failed.")
+                host_iface = f"{parent_iface}.host"
+                macvlan_created = self._setup_macvlan_network(network_name, parent_iface, subnet, gateway)
+                if not macvlan_created:
+                    self.logger.error("Failed to set up macvlan network.")
+                    raise RuntimeError("Macvlan network setup failed.")
+                macvlan_iface_created = self._setup_macvlan_interface(host_iface, parent_iface, subnet)
+                if not macvlan_iface_created:
+                    self.logger.error("Failed to set up macvlan interface.")
+                    raise RuntimeError("Macvlan interface setup failed.")
+                run_cmd.extend(['--network', network_name])
+                self.logger.info(f"Attached container to macvlan network: {network_name}")
+            elif network_mode == 'host':
+                run_cmd.extend(['--network', 'host'])
+                self.logger.info("Using host network mode.")
+            elif network_mode == 'default':
+                self.logger.info("Using default network mode.")
+                # Do not add any --network parameter
+            else:
+                run_cmd.extend(['--network', network_mode])
+                self.logger.info(f"Using network mode: {network_mode}")
+
+            # Specify the image and command to run inside the container
+            run_cmd.extend([
+                image_tag,
+                'python3', script_container_path,
+            ] + script_args)
+
+            self.logger.debug(f"Running command: {' '.join(run_cmd)}")
+            subprocess.run(run_cmd, check=True)
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"An error occurred while running Docker: {e}")
+        except Exception as e:
+            self.logger.exception("An unexpected error occurred")
+        finally:
+            # Clean up macvlan interface and network if they were created
+            if macvlan_iface_created:
+                self._cleanup_macvlan_interface(host_iface)
+            if macvlan_created:
+                self._cleanup_macvlan_network(network_name)
+
+    def _build_docker_image(self, image_tag: str) -> None:
         """
-        Initialize the DeviceClassifier with a logger and configuration.
+        Builds the Docker image using an embedded Dockerfile.
         """
-        self.logger = logger
-        self.config = config
-
-    def classify(self, devices: List[Device]) -> Dict[str, List[Device]]:
+        dockerfile: str = """
+        FROM ubuntu:24.04
+        RUN apt-get update && apt-get install -y \\
+            sudo \\
+            systemd \\
+            dbus \\
+            python3 \\
+            python3-rich \\
+            python3-bs4 \\
+            python3-requests \\
+            python3-psutil \\
+            nmap \\
+            nikto \\
+            iproute2 \\
+            docker.io \\
+            traceroute \\
+            network-manager \\
+            && rm -rf /var/lib/apt/lists/*
         """
-        Classify the list of devices into categories.
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dockerfile_path: str = os.path.join(temp_dir, 'Dockerfile')
+            with open(dockerfile_path, 'w') as f:
+                f.write(dockerfile)
+
+            build_cmd: list = ['docker', 'build', '-t', image_tag, temp_dir]
+            self.logger.debug(f"Running command: {' '.join(build_cmd)}")
+
+            try:
+                if self.args.debug:
+                    # In debug mode, show the output
+                    subprocess.run(build_cmd, check=True)
+                else:
+                    # In non-debug mode, suppress the output
+                    subprocess.run(build_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                self.logger.info(f"Docker image '{image_tag}' built successfully.")
+            except subprocess.CalledProcessError as e:
+                self.logger.error(f"Failed to build Docker image '{image_tag}': {e}")
+                raise
+
+    def _setup_macvlan_network(self, network_name: str, parent_iface: str, subnet: str, gateway: str) -> bool:
         """
-        classified = {
-            "Router": [],
-            "Switch": [],
-            "Printer": [],
-            "Phone": [],
-            "Smart": [],
-            "Game": [],
-            "Computer": [],
-            "Unknown": []
-        }
-
-        for device in devices:
-            device_type = self.infer_device_type(device)
-            classified[device_type].append(device)
-
-        # Remove empty categories
-        classified = {k: v for k, v in classified.items() if v}
-
-        return classified
-
-    def infer_device_type(self, device: Device) -> str:
+        Sets up a macvlan network to allow the container to have its own network interface.
+        Returns True if the network was created, False otherwise.
         """
-        Infer the device type based on its attributes.
+        try:
+            # Remove any existing network with the same name
+            subprocess.run(
+                ['docker', 'network', 'rm', network_name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+
+            # Create the macvlan network
+            create_network_cmd: list = [
+                'docker', 'network', 'create', '-d', 'macvlan',
+                '--subnet', subnet,
+                '--gateway', gateway,
+                '--opt', f'parent={parent_iface}',
+                network_name
+            ]
+            self.logger.debug(f"Creating macvlan network with command: {' '.join(create_network_cmd)}")
+            subprocess.run(create_network_cmd, check=True)
+            self.logger.info(f"Created macvlan network: {network_name}")
+            return True
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to set up macvlan network: {e}")
+            return False
+        except Exception as e:
+            self.logger.exception("An unexpected error occurred during macvlan network setup.")
+            return False
+
+    def _cleanup_macvlan_network(self, network_name: str) -> None:
         """
-        matched_device_type = "Unknown"
-        highest_priority = float('inf')
-        mac_address = device.mac_address if device.mac_address else 'N/A'
+        Cleans up the macvlan network created earlier.
+        """
+        try:
+            subprocess.run(
+                ['docker', 'network', 'rm', network_name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True
+            )
+            self.logger.info(f"Removed macvlan network: {network_name}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to remove macvlan network: {e}")
+        except Exception as e:
+            self.logger.exception("An unexpected error occurred during macvlan network cleanup.")
 
-        for device_type in sorted(self.config.device_types.device_types, key=lambda dt: dt.priority):
-            if device_type.matches(device):
-                if device_type.priority < highest_priority:
-                    matched_device_type = device_type.name
-                    highest_priority = device_type.priority
-                    self.logger.debug(f"Device {mac_address} matched {matched_device_type} with priority {device_type.priority}.")
+    def _setup_macvlan_interface(self, host_iface: str, parent_iface: str, subnet: str) -> bool:
+        """
+        Sets up a macvlan interface on the host.
+        Returns True if the interface was created, False otherwise.
+        """
+        try:
+            ip_address: Optional[str] = self._get_host_ip(subnet)
+            if not ip_address:
+                self.logger.error("Failed to calculate host IP for macvlan interface.")
+                return False
 
-        if matched_device_type == "Unknown":
-            self.logger.debug(f"Device {mac_address} classified as Unknown.")
-        else:
-            self.logger.debug(f"Device {mac_address} classified as {matched_device_type}.")
+            # Check if the interface already exists
+            if self._interface_exists(host_iface):
+                self.logger.info(f"Macvlan interface {host_iface} already exists. Skipping creation.")
+                return True
+            else:
+                self.logger.debug(f"Creating macvlan interface on host: {host_iface} with IP {ip_address}")
+                subprocess.run(
+                    ['sudo', 'ip', 'link', 'add', host_iface, 'link',
+                     parent_iface, 'type', 'macvlan', 'mode', 'bridge'],
+                    check=True
+                )
+                subnet_prefix: str = subnet.split('/')[1]
+                subprocess.run(['sudo', 'ip', 'addr', 'add', f'{ip_address}/{subnet_prefix}', 'dev', host_iface], check=True)
+                subprocess.run(['sudo', 'ip', 'link', 'set', host_iface, 'up'], check=True)
+                self.logger.info(f"Created macvlan interface on host: {host_iface}")
+                return True
 
-        return matched_device_type
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to set up macvlan interface: {e}")
+            return False
+        except Exception as e:
+            self.logger.exception("An unexpected error occurred during macvlan interface setup.")
+            return False
+
+    def _cleanup_macvlan_interface(self, host_iface: str) -> None:
+        """
+        Cleans up the macvlan interface created earlier.
+        """
+        try:
+            subprocess.run(['sudo', 'ip', 'link', 'delete', host_iface], check=True)
+            self.logger.info(f"Removed macvlan interface: {host_iface}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Failed to remove macvlan interface: {e}")
+        except Exception as e:
+            self.logger.exception("An unexpected error occurred during macvlan interface cleanup.")
+
+    def _interface_exists(self, interface_name: str) -> bool:
+        """
+        Checks if a network interface exists on the system.
+        """
+        try:
+            result = subprocess.run(
+                ['ip', 'link', 'show', interface_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            return result.returncode == 0
+        except Exception as e:
+            self.logger.exception(f"Error checking if interface {interface_name} exists.")
+            return False
+
+    def _detect_network_parameters(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """
+        Automatically detects the parent network interface, subnet, and gateway.
+        Returns a tuple (parent_interface, subnet, gateway).
+        """
+        try:
+            # Determine the default gateway
+            default_gateway: Optional[str] = self._get_default_gateway()
+
+            if not default_gateway:
+                self.logger.error("Unable to determine the default gateway.")
+                return (None, None, None)
+
+            # Determine the parent interface based on the default gateway
+            parent_iface: Optional[str] = self._get_interface_for_gateway(default_gateway)
+
+            if not parent_iface:
+                self.logger.error("Unable to determine the parent interface for the default gateway.")
+                return (None, None, None)
+
+            # Get the subnet associated with the parent interface
+            subnet: Optional[str] = self._get_subnet(parent_iface)
+
+            if not subnet:
+                self.logger.error(f"Unable to determine the subnet for interface {parent_iface}.")
+                return (parent_iface, None, None)
+
+            # Get the gateway IP
+            gateway_ip: str = default_gateway
+
+            self.logger.info(f"Detected parent interface: {parent_iface}")
+            self.logger.info(f"Detected subnet: {subnet}")
+            self.logger.info(f"Detected gateway: {gateway_ip}")
+
+            return (parent_iface, subnet, gateway_ip)
+
+        except Exception as e:
+            self.logger.exception("Error while detecting network parameters.")
+            return (None, None, None)
+
+    def _get_default_gateway(self) -> Optional[str]:
+        """
+        Retrieves the default gateway using the system's routing table.
+        """
+        try:
+            result = subprocess.run(['ip', 'route', 'show', 'default'], stdout=subprocess.PIPE, text=True)
+            output: str = result.stdout.strip()
+            if not output:
+                self.logger.error("No default route found.")
+                return None
+            # Example output: "default via 192.168.1.1 dev eth0"
+            parts: list = output.split()
+            if 'via' in parts and 'dev' in parts:
+                via_index: int = parts.index('via') + 1
+                gateway: str = parts[via_index]
+                return gateway
+            else:
+                self.logger.error("Unexpected format of default route.")
+                return None
+        except Exception as e:
+            self.logger.exception("Failed to retrieve the default gateway.")
+            return None
+
+    def _get_interface_for_gateway(self, gateway: str) -> Optional[str]:
+        """
+        Determines the network interface associated with the given gateway IP.
+        """
+        try:
+            # Use `ip route get` to find the interface
+            result = subprocess.run(['ip', 'route', 'get', gateway], stdout=subprocess.PIPE, text=True)
+            output: str = result.stdout.strip()
+            if not output:
+                self.logger.error("No route found for the gateway.")
+                return None
+            # Example output: "192.168.1.1 via 192.168.1.1 dev eth0 src 192.168.1.100 uid 1000"
+            parts: list = output.split()
+            if 'dev' in parts:
+                dev_index: int = parts.index('dev') + 1
+                iface: str = parts[dev_index]
+                return iface
+            else:
+                self.logger.error("Unable to find interface in route output.")
+                return None
+        except Exception as e:
+            self.logger.exception("Failed to determine the interface for the gateway.")
+            return None
+
+    def _get_subnet(self, interface: str) -> Optional[str]:
+        """
+        Retrieves the subnet for the given network interface.
+        """
+        try:
+            result = subprocess.run(['ip', 'addr', 'show', interface], stdout=subprocess.PIPE, text=True)
+            output: str = result.stdout.strip()
+            if not output:
+                self.logger.error(f"No information found for interface {interface}.")
+                return None
+            # Look for the line containing 'inet ' to find the subnet
+            for line in output.split('\n'):
+                line = line.strip()
+                if line.startswith('inet '):
+                    # Example: "inet 192.168.1.100/24 brd 192.168.1.255 scope global dynamic eth0"
+                    parts: list = line.split()
+                    inet: str = parts[1]  # '192.168.1.100/24'
+                    # Use ipaddress module to get the network
+                    ip_interface = ipaddress.ip_interface(inet)
+                    network = ip_interface.network
+                    return str(network)
+            self.logger.error(f"No inet information found for interface {interface}.")
+            return None
+        except Exception as e:
+            self.logger.exception(f"Failed to retrieve subnet for interface {interface}.")
+            return None
+
+    def _get_host_ip(self, subnet: str) -> Optional[str]:
+        """
+        Calculates an IP address for the host's macvlan interface within the subnet.
+        """
+        try:
+            network = ipaddress.ip_network(subnet, strict=False)
+            # Exclude network address and broadcast address
+            hosts = list(network.hosts())
+            if len(hosts) < 2:
+                self.logger.error("Not enough IP addresses in the subnet.")
+                return None
+            # Assign the second IP address to the host's macvlan interface
+            host_ip: str = str(hosts[1])
+            return host_ip
+        except Exception as e:
+            self.logger.exception("Failed to calculate host IP for macvlan interface.")
+            return None
 
 
 # Argument Parser Setup
@@ -3176,7 +3610,11 @@ def parse_arguments() -> argparse.Namespace:
     sys_info_parser = subparsers.add_parser(
         'system-info',
         aliases=['si'],
-        help='Display detailed network information about the system.'
+        help='Display detailed network information about the system.',
+        description=(
+            "Gather and display comprehensive network details of the host system, "
+            "including interface configurations, routing tables, and more."
+        )
     )
     sys_info_parser.add_argument(
         '--traceroute', '-t',
@@ -3190,7 +3628,11 @@ def parse_arguments() -> argparse.Namespace:
     diagnose_parser = subparsers.add_parser(
         'diagnose',
         aliases=['dg'],
-        help='Perform automated diagnostics on the network.'
+        help='Perform automated diagnostics on the network.',
+        description=(
+            "Execute a suite of diagnostic tools to assess the health and security of the network. "
+            "Includes scanning for vulnerabilities, checking default credentials, and more."
+        )
     )
     diagnose_parser.add_argument(
         '--virtual', '-V',
@@ -3249,7 +3691,11 @@ def parse_arguments() -> argparse.Namespace:
     traffic_monitor_parser = subparsers.add_parser(
         'traffic-monitor',
         aliases=['tm'],
-        help='Monitor network traffic to detect anomalies using Scapy.'
+        help='Monitor network traffic to detect anomalies using Scapy.',
+        description=(
+            "Continuously monitor network traffic to identify and alert on suspicious activities "
+            "such as DHCP floods, port scans, DNS exfiltration, and more."
+        )
     )
     traffic_monitor_parser.add_argument(
         '--interface', '-i',
@@ -3317,7 +3763,11 @@ def parse_arguments() -> argparse.Namespace:
     wifi_parser = subparsers.add_parser(
         'wifi',
         aliases=['wf'],
-        help='Perform WiFi diagnostics and analyze available networks.'
+        help='Perform WiFi diagnostics and analyze available networks.',
+        description=(
+            "Analyze WiFi networks to assess signal strength, detect rogue access points, and "
+            "perform targeted diagnostics on specified SSIDs."
+        )
     )
     wifi_parser.add_argument(
         '--ssid', '-s',
@@ -3336,6 +3786,33 @@ def parse_arguments() -> argparse.Namespace:
         type=int,
         default=50,
         help='Minimum signal strength threshold (default: 50).'
+    )
+
+    # Subparser for container
+    container_parser = subparsers.add_parser(
+        'container',
+        aliases=['co'],
+        help='Run the script inside of a Docker container.',
+        description=(
+            "Execute the network diagnostic tool within a Docker container, allowing for isolated and "
+            "consistent environments. Customize network settings and mount directories as needed."
+        )
+    )
+    container_parser.add_argument(
+        '-n', '--network',
+        choices=['bridge', 'host', 'macvlan', 'default'],
+        default='host',
+        help='Specify the Docker network mode.'
+    )
+    container_parser.add_argument(
+        '-w', '--work-dir',
+        default='.',
+        help='Specify the working directory to mount into the container.'
+    )
+    container_parser.add_argument(
+        'arguments',
+        nargs=argparse.REMAINDER,
+        help='Arguments to pass to the script inside the container.'
     )
 
     return parser.parse_args()
@@ -3388,6 +3865,8 @@ COMMAND_CLASSES = {
     'tm': TrafficMonitorCommand,
     'wifi': WifiDiagnosticsCommand,
     'wf': WifiDiagnosticsCommand,
+    'container': ContainerCommand,
+    'co': ContainerCommand,
 }
 
 
