@@ -34,7 +34,11 @@
 # -i, --input-file            Specify a file to load discovered devices.
 # -e, --execution             Specify the execution mode (choices: docker, native) (default: docker).
 # -N, --nikto                 Enable Nikto scanning for discovered devices.
-# -G, --golismero             Enable Golismero automated scanning for discovered devices.
+# -G, --golismero             Enable Golismero scanning for discovered devices.
+# -S, --sqlmap                Enable SQLMap scanning for discovered devices.
+# -W, --wapiti                Enable Wapiti scanning for discovered devices.
+# -T, --whatweb               Enable WhatWeb scanning for discovered devices.
+# -F, --wafw00f               Enable WAFW00F scanning for discovered devices.
 # -C, --credentials           Enable default credentials check for discovered devices.
 # -A, --all                   Enable all available diagnostic tools.
 #
@@ -79,8 +83,14 @@
 #   - docker (install via: apt install docker.io)
 #   - Nikto Check (native):
 #     - nikto (install via: apt install nikto)
-#   - Golismero Check (native):
-#     - golismero (install via: pip install golismero)
+#   - SQLMap Check (native):
+#     - sqlmap (install via: apt install sqlmap)
+#   - Wapiti Check (native):
+#     - wapiti (install via: apt install wapiti)
+#   - WhatWeb Check (native):
+#     - whatweb (install via: apt install whatweb)
+#   - WAFW00F Check (native):
+#     - wafw00f (install via: pip install wafw00f)
 #   - Credentials Check:
 #     - BeautifulSoup (install via: pip install beautifulsoup4)
 #
@@ -99,6 +109,7 @@
 # -------------------------------------------------------
 
 import argparse
+import csv
 import logging
 import os
 import sys
@@ -608,7 +619,11 @@ class DockerConfig:
     images: Dict[str, str] = field(default_factory=lambda: {
         'nmap': 'instrumentisto/nmap:7',  # Currently unused
         'nikto': 'alpine/nikto:2.2.0',
-        'golismero': 'jsitech/golismero'
+        'golismero': 'jsitech/golismero',
+        'sqlmap': 'googlesky/sqlmap',
+        'wapiti': 'cyberwatch/wapiti',
+        'whatweb': 'bberastegui/whatweb',
+        'wafw00f': 'osodevops/wafw00f'
     })
 
 
@@ -1071,6 +1086,18 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
             if self.args.all or self.args.golismero:
                 issues.extend(self.scan_with_golismero(url, self.args.execution))
 
+            if self.args.all or self.args.sqlmap:
+                issues.extend(self.scan_with_sqlmap(url, self.args.execution))
+
+            if self.args.all or self.args.wapiti:
+                issues.extend(self.scan_with_wapiti(url, self.args.execution))
+
+            if self.args.all or self.args.whatweb:
+                issues.extend(self.scan_with_whatweb(url, self.args.execution))
+
+            if self.args.all or self.args.wafw00f:
+                issues.extend(self.scan_with_wafw00f(url, self.args.execution))
+
         return issues
 
     def extract_nmap_scripts(self) -> List[DiagnoseIssue]:
@@ -1095,6 +1122,7 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
     def scan_with_nikto(self, target_url: str, execution: ExecutionMode) -> List[DiagnoseIssue]:
         """
         Perform a Nikto scan on the web service and create issues based on the findings.
+        Supports both old and new JSON output formats from Nikto.
         """
         issues: List[DiagnoseIssue] = []
 
@@ -1130,6 +1158,7 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
             elif execution == ExecutionMode.DOCKER:
                 nikto_command = [
                     'docker', 'run', '--rm',
+                    '-u', 'root',  # FIXME: Temporary workaround for Docker permission issue
                     '-v', f"{os.path.abspath(temp_output_path)}:/output.json",
                     docker_image,
                     '-h', target_url,
@@ -1140,7 +1169,7 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
             self.logger.debug(f"Executing command: {' '.join(nikto_command)}")
 
             # Execute the Nikto scan
-            subprocess.run(
+            result = subprocess.run(
                 nikto_command,
                 check=True,
                 capture_output=True,
@@ -1159,24 +1188,47 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
                 self.logger.error(f"Failed to decode Nikto JSON output for {target_url}: {e}")
                 return issues
 
-            # Check if 'vulnerabilities' key exists
-            vulnerabilities = data.get('vulnerabilities', [])
-            if not vulnerabilities:
-                self.logger.info(f"No vulnerabilities found by Nikto on ({target_url}).")
+            # Determine the format of the JSON data and extract vulnerabilities accordingly
+            if isinstance(data, list):
+                # New format: List of host dictionaries
+                for host in data:
+                    vulnerabilities = host.get('vulnerabilities', [])
+                    if not vulnerabilities:
+                        self.logger.info(f"No vulnerabilities found by Nikto on host {host.get('host', target_url)}.")
+                        continue
+
+                    for vuln in vulnerabilities:
+                        description = vuln.get('msg', 'No description provided.').strip()
+                        uri = vuln.get('url', 'N/A').strip()
+                        method = vuln.get('method', 'UNKNOWN').strip()
+
+                        issue_description = f"Nikto: {description} [URI: {uri}, Method: {method}]"
+
+                        # Optionally, you can extract port from host data if needed
+                        port = host.get('port', self.tools.determine_port_from_url(target_url))
+
+                        issues.append(self.create_issue(issue_description, port))
+                        self.logger.info(f"Nikto issue on ({host.get('host', target_url)}): {issue_description}")
+            elif isinstance(data, dict):
+                # Old format: Single dictionary with 'vulnerabilities'
+                vulnerabilities = data.get('vulnerabilities', [])
+                if not vulnerabilities:
+                    self.logger.info(f"No vulnerabilities found by Nikto on ({target_url}).")
+                    return issues
+
+                for vuln in vulnerabilities:
+                    description = vuln.get('msg', 'No description provided.').strip()
+                    uri = vuln.get('url', 'N/A').strip()
+                    method = vuln.get('method', 'UNKNOWN').strip()
+
+                    issue_description = f"Nikto: {description} [URI: {uri}, Method: {method}]"
+
+                    port = self.tools.determine_port_from_url(uri)
+                    issues.append(self.create_issue(issue_description, port))
+                    self.logger.info(f"Nikto issue on ({target_url}): {issue_description}")
+            else:
+                self.logger.error(f"Unexpected JSON structure from Nikto for {target_url}.")
                 return issues
-
-            # Iterate through each vulnerability found by Nikto
-            for vuln in vulnerabilities:
-                description = vuln.get('msg', 'No description provided.').strip()
-                uri = vuln.get('url', 'N/A').strip()
-                method = vuln.get('method', 'UNKNOWN').strip()
-
-                issue_description = f"Nikto: {description} [URI: {uri}, Method: {method}]"
-
-                # Create an issue for each Nikto finding
-                port = self.tools.determine_port_from_url(uri)
-                issues.append(self.create_issue(issue_description, port))
-                self.logger.info(f"Nikto issue on ({target_url}): {issue_description}")
 
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Nikto scan failed on {target_url}: {e.stderr.strip()}")
@@ -1290,6 +1342,445 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
             self.logger.error(f"Failed to parse Golismero JSON output for {target_url}: {e}")
         except Exception as e:
             self.logger.error(f"Unexpected error during Golismero scan on {target_url}: {e}")
+        finally:
+            try:
+                os.remove(temp_output_path)
+                self.logger.debug(f"Removed temporary output file {temp_output_path}.")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove temporary output file {temp_output_path}: {e}")
+
+        return issues
+
+    def scan_with_sqlmap(self, target_url: str, execution: ExecutionMode) -> List[DiagnoseIssue]:
+        """
+        Perform a sqlmap scan on the web service and create issues based on the findings.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        # Check if sqlmap is installed or Docker image is available
+        if execution == ExecutionMode.NATIVE:
+            if not shutil.which('sqlmap'):
+                self.logger.warning("sqlmap is not installed. Skipping sqlmap scan.")
+                return issues
+        elif execution == ExecutionMode.DOCKER:
+            docker_image = self.config.docker.images.get('sqlmap')
+            if not docker_image:
+                self.logger.warning("Docker image for sqlmap not set in configuration. Skipping sqlmap scan.")
+                return issues
+        else:
+            self.logger.warning(f"Unsupported execution mode '{execution}'. Skipping sqlmap scan.")
+            return issues
+
+        self.logger.debug(f"Starting sqlmap scan on {target_url} with execution mode '{execution}'.")
+
+        # Create a temporary file to store the sqlmap CSV output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.csv') as temp_output_file:
+            temp_output_path = temp_output_file.name
+
+        try:
+            # Construct the sqlmap command based on execution mode
+            if execution == ExecutionMode.NATIVE:
+                sqlmap_command = [
+                    'sqlmap',
+                    '-b',
+                    '-u', target_url,
+                    f'--results-file={temp_output_path}',
+                    '--crawl=3',
+                    '--forms',
+                    '--batch'
+                ]
+            elif execution == ExecutionMode.DOCKER:
+                sqlmap_command = [
+                    'docker', 'run', '--rm',
+                    '-v', f"{os.path.abspath(temp_output_path)}:/output.csv",
+                    self.config.docker.images['sqlmap'],
+                    '-b',
+                    '-u', target_url,
+                    '--results-file=/output.csv',
+                    '--crawl=3',
+                    '--forms',
+                    '--batch'
+                ]
+
+            self.logger.debug(f"Executing command: {' '.join(sqlmap_command)}")
+
+            # Execute the sqlmap scan
+            subprocess.run(
+                sqlmap_command,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            self.logger.debug("sqlmap scan completed. Parsing results from output file.")
+
+            # Read the scan results from the temporary CSV file
+            with open(temp_output_path, 'r') as f:
+                csv_reader = csv.DictReader(f)
+                rows = list(csv_reader)
+
+            if not rows:
+                self.logger.info(f"No vulnerabilities found by sqlmap on ({target_url}).")
+                return issues
+
+            # Iterate through each vulnerability found by sqlmap
+            for row in rows:
+                target_url_entry = row.get('Target URL', '').strip()
+                place = row.get('Place', '').strip()
+                parameter = row.get('Parameter', '').strip()
+                techniques = row.get('Technique(s)', '').strip()
+                notes = row.get('Note(s)', '').strip()
+
+                issue_description = (
+                    f"sqlmap: Parameter '{parameter}' vulnerable to techniques [{techniques}] "
+                    f"at {place}. Notes: {notes}"
+                )
+
+                # Determine the port from the target URL
+                port = self.tools.determine_port_from_url(target_url_entry)
+                issues.append(self.create_issue(issue_description, port))
+                self.logger.info(f"sqlmap issue on ({target_url}): {issue_description}")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"sqlmap scan failed on {target_url}: {e.stderr.strip()}")
+        except csv.Error as e:
+            self.logger.error(f"Failed to parse sqlmap CSV output for {target_url}: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during sqlmap scan on {target_url}: {e}")
+        finally:
+            try:
+                os.remove(temp_output_path)
+                self.logger.debug(f"Removed temporary output file {temp_output_path}.")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove temporary output file {temp_output_path}: {e}")
+
+        return issues
+
+    def scan_with_wapiti(self, target_url: str, execution: ExecutionMode) -> List[DiagnoseIssue]:
+        """
+        Perform a Wapiti scan on the web service and create issues based on the findings.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        # Check if Wapiti is installed or Docker image is available
+        if execution == ExecutionMode.NATIVE:
+            if not shutil.which('wapiti'):
+                self.logger.warning("Wapiti is not installed. Skipping Wapiti scan.")
+                return issues
+        elif execution == ExecutionMode.DOCKER:
+            docker_image = self.config.docker.images.get('wapiti')
+            if not docker_image:
+                self.logger.warning("Docker image for Wapiti not set in configuration. Skipping Wapiti scan.")
+                return issues
+        else:
+            self.logger.warning(f"Unsupported execution mode '{execution}'. Skipping Wapiti scan.")
+            return issues
+
+        self.logger.debug(f"Starting Wapiti scan on {target_url} with execution mode '{execution}'.")
+
+        # Create a temporary file to store the Wapiti JSON output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as temp_output_file:
+            temp_output_path = temp_output_file.name
+
+        try:
+            # Construct the Wapiti command based on execution mode
+            if execution == ExecutionMode.NATIVE:
+                wapiti_command = [
+                    'wapiti',
+                    '-u', target_url,
+                    '-f', 'json',
+                    '-o', temp_output_path,
+                    '--scope', 'domain'
+                ]
+            elif execution == ExecutionMode.DOCKER:
+                wapiti_command = [
+                    'docker', 'run', '--rm',
+                    '-v', f"{os.path.abspath(temp_output_path)}:/output.json",
+                    docker_image,
+                    '-u', target_url,
+                    '-f', 'json',
+                    '-o', '/output.json',
+                    '--scope', 'domain'
+                ]
+
+            self.logger.debug(f"Executing command: {' '.join(wapiti_command)}")
+
+            # Execute the Wapiti scan
+            subprocess.run(
+                wapiti_command,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            self.logger.debug("Wapiti scan completed. Parsing results from output file.")
+
+            # Read the scan results from the temporary JSON file
+            with open(temp_output_path, 'r') as f:
+                wapiti_output = f.read()
+
+            # Parse the Wapiti JSON output
+            try:
+                data = json.loads(wapiti_output)
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to decode Wapiti JSON output for {target_url}: {e}")
+                return issues
+
+            vulnerabilities = data.get('vulnerabilities', {})
+            if not vulnerabilities:
+                self.logger.info(f"No vulnerabilities found by Wapiti on ({target_url}).")
+                return issues
+
+            # Iterate through each vulnerability type
+            for vuln_type, vuln_list in vulnerabilities.items():
+                for vuln in vuln_list:
+                    method = vuln.get('method', 'UNKNOWN').strip()
+                    path = vuln.get('path', 'N/A').strip()
+                    info = vuln.get('info', 'No information provided.').strip()
+                    level = vuln.get('level', 'N/A')
+                    parameter = vuln.get('parameter', '').strip()
+
+                    # Construct issue description, truncating if necessary
+                    description = (
+                        f"Wapiti: {vuln_type} - {info} "
+                        f"[Method: {method}, Path: {path}, Parameter: {parameter}, Level: {level}]"
+                    )
+
+                    # Determine the port from the target URL
+                    port = self.tools.determine_port_from_url(target_url)
+
+                    # Create the issue and append to the list
+                    issues.append(self.create_issue(description, port))
+                    self.logger.info(f"Wapiti issue on ({target_url}): {description}")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Wapiti scan failed on {target_url}: {e.stderr.strip()}")
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse Wapiti JSON output for {target_url}: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during Wapiti scan on {target_url}: {e}")
+        finally:
+            try:
+                os.remove(temp_output_path)
+                self.logger.debug(f"Removed temporary output file {temp_output_path}.")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove temporary output file {temp_output_path}: {e}")
+
+        return issues
+
+    def scan_with_whatweb(self, target_url: str, execution: ExecutionMode) -> List[DiagnoseIssue]:
+        """
+        Perform a WhatWeb scan on the web service and create issues based on the findings.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        # Check if WhatWeb is installed or Docker image is available
+        if execution == ExecutionMode.NATIVE:
+            if not shutil.which('whatweb'):
+                self.logger.warning("WhatWeb is not installed. Skipping WhatWeb scan.")
+                return issues
+        elif execution == ExecutionMode.DOCKER:
+            docker_image = self.config.docker.images.get('whatweb')
+            if not docker_image:
+                self.logger.warning("Docker image for WhatWeb not set in configuration. Skipping WhatWeb scan.")
+                return issues
+        else:
+            self.logger.warning(f"Unsupported execution mode '{execution}'. Skipping WhatWeb scan.")
+            return issues
+
+        self.logger.debug(f"Starting WhatWeb scan on {target_url} with execution mode '{execution}'.")
+
+        # Create a temporary file to store the WhatWeb JSON output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as temp_output_file:
+            temp_output_path = temp_output_file.name
+
+        try:
+            # Construct the WhatWeb command based on execution mode
+            if execution == ExecutionMode.NATIVE:
+                whatweb_command = [
+                    'whatweb',
+                    '-a', '3',
+                    f'--log-json={temp_output_path}',
+                    target_url
+                ]
+            elif execution == ExecutionMode.DOCKER:
+                whatweb_command = [
+                    'docker', 'run', '--rm',
+                    '-v', f"{os.path.abspath(temp_output_path)}:/output.json",
+                    self.config.docker.images['whatweb'],
+                    '-a', '3',
+                    '--log-json=/output.json',
+                    target_url
+                ]
+
+            self.logger.debug(f"Executing command: {' '.join(whatweb_command)}")
+
+            # Execute the WhatWeb scan
+            subprocess.run(
+                whatweb_command,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            self.logger.debug("WhatWeb scan completed. Parsing results from output file.")
+
+            # Read the scan results from the temporary JSON file
+            with open(temp_output_path, 'r') as f:
+                whatweb_output = f.read()
+
+            # Parse the WhatWeb JSON output
+            try:
+                data = json.loads(whatweb_output)
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to decode WhatWeb JSON output for {target_url}: {e}")
+                return issues
+
+            if not isinstance(data, list) or not data:
+                self.logger.info(f"No data found in WhatWeb output for ({target_url}).")
+                return issues
+
+            target_data = data[0]  # Assuming single target
+            plugins = target_data.get('plugins', {})
+
+            if not plugins:
+                self.logger.info(f"No plugins detected by WhatWeb on ({target_url}).")
+                return issues
+
+            # Determine the port from the target URL
+            port = self.tools.determine_port_from_url(target_url)
+            # Iterate through each plugin detected by WhatWeb
+            description = ""
+            for plugin_name, plugin_info in plugins.items():
+                descriptions = []
+
+                # Collect available information
+                if 'version' in plugin_info:
+                    versions = ', '.join(plugin_info['version'])
+                    descriptions.append(f"Version: {versions}")
+                if 'string' in plugin_info:
+                    strings = ', '.join(plugin_info['string'])
+                    descriptions.append(f"Strings: {strings}")
+                if 'os' in plugin_info:
+                    oss = ', '.join(plugin_info['os'])
+                    descriptions.append(f"OS: {oss}")
+                if 'module' in plugin_info:
+                    modules = ', '.join(plugin_info['module'])
+                    descriptions.append(f"Modules: {modules}")
+
+                description += f"WhatWeb Plugin: {plugin_name} - " + "; ".join(descriptions) + " | "
+
+            # Create the issue and append to the list
+            description = self.tools.truncate_string(description, 250)
+            issues.append(self.create_issue(description, port))
+            self.logger.info(f"WhatWeb issue on ({target_url}): {description}")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"WhatWeb scan failed on {target_url}: {e.stderr.strip()}")
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse WhatWeb JSON output for {target_url}: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during WhatWeb scan on {target_url}: {e}")
+        finally:
+            try:
+                os.remove(temp_output_path)
+                self.logger.debug(f"Removed temporary output file {temp_output_path}.")
+            except Exception as e:
+                self.logger.warning(f"Failed to remove temporary output file {temp_output_path}: {e}")
+
+        return issues
+
+    def scan_with_wafw00f(self, target_url: str, execution: ExecutionMode) -> List[DiagnoseIssue]:
+        """
+        Perform a Wafw00f scan on the web service and create issues based on the findings.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        # Check if Wafw00f is installed or Docker image is available
+        if execution == ExecutionMode.NATIVE:
+            if not shutil.which('wafw00f'):
+                self.logger.warning("Wafw00f is not installed. Skipping Wafw00f scan.")
+                return issues
+        elif execution == ExecutionMode.DOCKER:
+            docker_image = self.config.docker.images.get('wafw00f')
+            if not docker_image:
+                self.logger.warning("Docker image for Wafw00f not set in configuration. Skipping Wafw00f scan.")
+                return issues
+        else:
+            self.logger.warning(f"Unsupported execution mode '{execution}'. Skipping Wafw00f scan.")
+            return issues
+
+        self.logger.debug(f"Starting Wafw00f scan on {target_url} with execution mode '{execution}'.")
+
+        # Create a temporary file to store the Wafw00f JSON output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as temp_output_file:
+            temp_output_path = temp_output_file.name
+
+        try:
+            # Construct the Wafw00f command based on execution mode
+            if execution == ExecutionMode.NATIVE:
+                wafw00f_command = [
+                    'wafw00f',
+                    target_url,
+                    '-o', temp_output_path
+                ]
+            elif execution == ExecutionMode.DOCKER:
+                wafw00f_command = [
+                    'docker', 'run', '--rm',
+                    '-v', f"{os.path.abspath(temp_output_path)}:/output.json",
+                    docker_image,
+                    target_url,
+                    '-o', '/output.json'
+                ]
+
+            self.logger.debug(f"Executing command: {' '.join(wafw00f_command)}")
+
+            # Execute the Wafw00f scan
+            subprocess.run(
+                wafw00f_command,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            self.logger.debug("Wafw00f scan completed. Parsing results from output file.")
+
+            # Read the scan results from the temporary JSON file
+            with open(temp_output_path, 'r') as f:
+                wafw00f_output = f.read()
+
+            # Parse the Wafw00f JSON output
+            try:
+                data = json.loads(wafw00f_output)
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to decode Wafw00f JSON output for {target_url}: {e}")
+                return issues
+
+            if not isinstance(data, list) or not data:
+                self.logger.info(f"No data found in Wafw00f output for ({target_url}).")
+                return issues
+
+            # Iterate through each entry in the Wafw00f output
+            for entry in data:
+                url = entry.get('url', target_url).strip()
+                detected = entry.get('detected', False)
+                firewall = entry.get('firewall', 'None').strip()
+                manufacturer = entry.get('manufacturer', 'None').strip()
+
+                if not detected:
+                    description = f"No WAF was detected on {url}."
+                else:
+                    description = f"WAF detected: {firewall} by {manufacturer} on {url}."
+
+                # Determine the port from the target URL
+                port = self.tools.determine_port_from_url(url)
+
+                # Create the issue and append to the list
+                issues.append(self.create_issue(description, port))
+                self.logger.info(f"Wafw00f issue on ({target_url}): {description}")
+
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Wafw00f scan failed on {target_url}: {e.stderr.strip()}")
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse Wafw00f JSON output for {target_url}: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during Wafw00f scan on {target_url}: {e}")
         finally:
             try:
                 os.remove(temp_output_path)
@@ -3223,6 +3714,7 @@ class ContainerCommand(BaseCommand):
                 'docker', 'run',
                 '--rm',
                 '-it',
+                '-v', '/tmp:/tmp',  # Required for docker mode in diagnose
                 '-v', mount_script,  # Mount script as read-only
                 '-v', mount_work_dir,  # Mount working directory
                 '-w', work_dir_container,  # Set working directory inside container
@@ -3298,22 +3790,39 @@ class ContainerCommand(BaseCommand):
         """
         dockerfile: str = """
         FROM ubuntu:24.04
+        ENV DEBIAN_FRONTEND=noninteractive
         RUN apt-get update && apt-get install -y \\
             sudo \\
             systemd \\
             dbus \\
+            unzip \\
+            wget \\
+            perl \\
+            libwww-perl \\
+            libcrypt-ssleay-perl \\
+            libsocket6-perl \\
             python3 \\
+            python3-pip \\
             python3-rich \\
             python3-bs4 \\
             python3-requests \\
             python3-psutil \\
             nmap \\
-            nikto \\
+            sqlmap \\
+            wapiti \\
+            whatweb \\
+            wafw00f \\
             iproute2 \\
             docker.io \\
             traceroute \\
             network-manager \\
             && rm -rf /var/lib/apt/lists/*
+        RUN wget https://github.com/sullo/nikto/archive/master.zip -O /tmp/nikto.zip && \\
+            unzip /tmp/nikto.zip -d /opt && \\
+            rm /tmp/nikto.zip && \\
+            chmod +x /opt/nikto-master/program/nikto.pl && \\
+            ln -s /opt/nikto-master/program/nikto.pl /usr/bin/nikto
+        RUN wapiti --update || true
         """
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3669,12 +4178,32 @@ def parse_arguments() -> argparse.Namespace:
     diagnose_parser.add_argument(
         '--nikto', '-N',
         action='store_true',
-        help='Run Nikto web server scanner on discovered devices.'
+        help='Run Nikto scanner on discovered devices.'
     )
     diagnose_parser.add_argument(
         '--golismero', '-G',
         action='store_true',
-        help='Run Golismero automated scanning on discovered devices.'
+        help='Run Golismero scanner on discovered devices.'
+    )
+    diagnose_parser.add_argument(
+        '--sqlmap', '-S',
+        action='store_true',
+        help='Run SQLMap scanner on discovered devices.'
+    )
+    diagnose_parser.add_argument(
+        '--wapiti', '-W',
+        action='store_true',
+        help='Run Wapiti scanner on discovered devices.'
+    )
+    diagnose_parser.add_argument(
+        '--whatweb', '-T',
+        action='store_true',
+        help='Run WhatWeb scanner on discovered devices.'
+    )
+    diagnose_parser.add_argument(
+        '--wafw00f', '-F',
+        action='store_true',
+        help='Run WAFW00F scanner on discovered devices.'
     )
     diagnose_parser.add_argument(
         '--credentials', '-C',
@@ -3878,9 +4407,6 @@ def main() -> None:
     args = parse_arguments()
     logger = setup_logging(verbose=args.verbose, debug=args.debug)
     config = AppConfig()
-
-    if not RICH_AVAILABLE:
-        logger.warning("Rich library not found. Install it using 'pip install rich' for better output formatting. Really recommended.")
 
     # Instantiate and execute the appropriate command
     command_class = COMMAND_CLASSES.get(args.command)
