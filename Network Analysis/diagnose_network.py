@@ -27,8 +27,9 @@
 # -t, --traceroute            Perform a traceroute to a specified address (default: 8.8.8.8, 2001:4860:4860::8888).
 #
 # Diagnostics Command Options:
-# -V, --virtual               Enable virtual interfaces in network scanning.
-# -6, --ipv6                  Enable IPv6 in network scanning.
+# -s, --subnet                Manually specify subnets to scan. Disables automatic subnet detection.
+# -V, --virtual               Enable virtual interfaces in subnet detection.
+# -6, --ipv6                  Enable IPv6 in subnet detection.
 # -d, --discovery             Perform network discovery to find devices only.
 # -o, --output-file           Specify a file to save discovered devices.
 # -i, --input-file            Specify a file to load discovered devices.
@@ -69,7 +70,6 @@
 # Exit code 0 on success, non-zero on failure.
 #
 # Requirements with container:
-# - Python3
 # - Docker (install via: apt install docker.io)
 #
 # Requirements without container:
@@ -79,7 +79,6 @@
 # - Diagnose Command:
 #   - requests (install via: pip install requests)
 #   - nmap (install via: apt install nmap)
-#   - Docker (install via: apt install docker.io)
 #   - Nikto Check (native):
 #     - nikto (install via: apt install nikto)
 #   - SQLMap Check (native):
@@ -99,9 +98,9 @@
 # - WiFi Command:
 #   - nmcli (install via: apt install network-manager)
 #
-# Optional:
-# - rich (install via: pip install rich)
-# - python-dotenv (install via: pip install python-dotenv)
+# - Optional:
+#   - rich (install via: pip install rich)
+#   - python-dotenv (install via: pip install python-dotenv)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
@@ -340,33 +339,6 @@ class HttpSecurityConfig:
     """
     security_headers: Set[str] = field(default_factory=lambda: {
         'Content-Security-Policy',
-        'Strict-Transport-Security',
-        'X-Frame-Options',
-        'X-Content-Type-Options',
-        'Referrer-Policy',
-        'Feature-Policy',
-        'Permissions-Policy',
-    })
-
-
-@dataclass
-class GamingServicesConfig:
-    """
-    Configuration for gaming-specific services per vendor.
-    Maps vendor names to their associated gaming services and ports.
-    """
-    gaming_services: Dict[str, Dict[int, str]] = field(default_factory=lambda: {
-        'sony': {
-            3075: "PlayStation Network",
-            3076: "PlayStation Network",
-        },
-        'microsoft': {
-            3074: "Xbox Live",
-        },
-        'nintendo': {
-            6667: "Nintendo Switch",
-            12400: "Nintendo Switch",
-        },
     })
 
 
@@ -591,7 +563,6 @@ class AppConfig:
     endpoints: EndpointsConfig = field(default_factory=EndpointsConfig)
     device_types: DeviceTypeConfig = field(default_factory=DeviceTypeConfig)
     http_security: HttpSecurityConfig = field(default_factory=HttpSecurityConfig)
-    gaming_services: GamingServicesConfig = field(default_factory=GamingServicesConfig)
     snmp_communities: Set[str] = field(default_factory=lambda: {"public", "private", "admin"})
     docker: DockerConfig = field(default_factory=DockerConfig)
 
@@ -2240,8 +2211,12 @@ class NetworkScanner:
         Scan the active subnets using nmap to discover devices.
         """
         try:
-            # Dynamically determine the active subnets
-            subnets = self.get_active_subnets()
+            if self.args.subnet:
+                subnets = self.args.subnet
+            else:
+                # Dynamically determine the active subnets
+                subnets = self.get_active_subnets()
+
             if not subnets:
                 self.logger.error("No devices found on the network.")
                 return []
@@ -4047,14 +4022,20 @@ def parse_arguments() -> argparse.Namespace:
         )
     )
     diagnose_parser.add_argument(
+        '--subnet', '-s',
+        type=str,
+        nargs='*',
+        help='Manually specify subnets to scan. Disables automatic subnet detection.'
+    )
+    diagnose_parser.add_argument(
         '--virtual', '-V',
         action='store_true',
-        help='Enable virtual interfaces in network scanning.'
+        help='Enable virtual interfaces in subnet detection.'
     )
     diagnose_parser.add_argument(
         '--ipv6', '-6',
         action='store_true',
-        help='Enable IPv6 in network scanning.'
+        help='Enable IPv6 in subnet detection.'
     )
     diagnose_parser.add_argument(
         '--discovery', '-d',
