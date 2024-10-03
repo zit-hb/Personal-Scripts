@@ -39,19 +39,20 @@
 # -W, --wapiti                Enable Wapiti scanning for discovered devices.
 # -T, --whatweb               Enable WhatWeb scanning for discovered devices.
 # -F, --wafw00f               Enable WAFW00F scanning for discovered devices.
+# -H, --hydra                 Enable Hydra scanning for discovered devices.
 # -C, --credentials           Enable default credentials check for discovered devices.
 # -A, --all                   Enable all available diagnostic tools.
 #
 # Traffic Monitor Command Options:
 # -i, --interface             Specify the network interface to monitor (e.g., wlan0, eth0).
-# --dhcp-threshold            Set DHCP flood threshold (default: 100).
-# --port-scan-threshold       Set port scan threshold (default: 50).
-# --dns-exfil-threshold       Set DNS exfiltration threshold (default: 1000).
+# --dhcp-threshold            Set DHCP flood threshold (default: 10).
+# --port-scan-threshold       Set port scan threshold (default: 5).
+# --dns-exfil-threshold       Set DNS exfiltration threshold (default: 100).
 # --bandwidth-threshold       Set bandwidth abuse threshold in bytes per minute (default: 1000000).
-# --icmp-threshold            Set ICMP flood threshold (default: 500).
-# --syn-threshold             Set SYN flood threshold (default: 1000).
-# --http-threshold            Set HTTP abuse threshold (default: 1000).
-# --malformed-threshold       Set malformed packets threshold (default: 50).
+# --icmp-threshold            Set ICMP flood threshold (default: 50).
+# --syn-threshold             Set SYN flood threshold (default: 100).
+# --http-threshold            Set HTTP abuse threshold (default: 100).
+# --malformed-threshold       Set malformed packets threshold (default: 5).
 # --rogue-dhcp-threshold      Set rogue DHCP server threshold (default: 1).
 #
 # WiFi Command Options:
@@ -80,7 +81,7 @@
 # - Diagnose Command:
 #   - requests (install via: pip install requests)
 #   - nmap (install via: apt install nmap)
-#   - docker (install via: apt install docker.io)
+#   - Docker (install via: apt install docker.io)
 #   - Nikto Check (native):
 #     - nikto (install via: apt install nikto)
 #   - SQLMap Check (native):
@@ -91,6 +92,8 @@
 #     - whatweb (install via: apt install whatweb)
 #   - WAFW00F Check (native):
 #     - wafw00f (install via: pip install wafw00f)
+#   - Hydra Check (native):
+#     - hydra (install via: apt install hydra)
 #   - Credentials Check:
 #     - BeautifulSoup (install via: pip install beautifulsoup4)
 #
@@ -127,7 +130,7 @@ import ipaddress
 from urllib.parse import urlparse
 from enum import Enum
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Set, Tuple, Any, TypeVar, Type, Union, get_origin, get_args
+from typing import List, Optional, Dict, Set, Tuple, Any, TypeVar, Type, Union, DefaultDict, Deque, get_origin, get_args
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from dataclasses import asdict, dataclass, field, is_dataclass, fields
@@ -161,7 +164,7 @@ except ImportError:
 
 # Attempt to import scapy for advanced network monitoring
 try:
-    from scapy.all import sniff, ARP, DHCP, IP, TCP, UDP, ICMP, DNS, DNSQR, Ether, Raw
+    from scapy.all import sniff, ARP, DHCP, IP, TCP, UDP, ICMP, DNS, DNSQR, Ether, Raw, Packet
     SCAPY_AVAILABLE = True
 except ImportError:
     SCAPY_AVAILABLE = False
@@ -195,8 +198,27 @@ console = Console() if RICH_AVAILABLE else None
 
 # Constants
 class ExecutionMode(str, Enum):
+    """
+    Enumeration of possible execution modes for DiagnoseCommand.
+    """
     DOCKER = 'docker'
     NATIVE = 'native'
+
+
+class AnomalyType(str, Enum):
+    """
+    Enumeration of possible anomaly types detected by the TrafficMonitorCommand.
+    """
+    ARP_SPOOFING = 'arp_spoofing'
+    DHCP_FLOOD = 'dhcp_flood'
+    PORT_SCAN = 'port_scan'
+    DNS_EXFILTRATION = 'dns_exfiltration'
+    BANDWIDTH_ABUSE = 'bandwidth_abuse'
+    ICMP_FLOOD = 'icmp_flood'
+    SYN_FLOOD = 'syn_flood'
+    MALFORMED_PACKETS = 'malformed_packets'
+    ROGUE_DHCP = 'rogue_dhcp'
+    HTTP_ABUSE = 'http_abuse'
 
 
 # Issue data classes
@@ -623,7 +645,8 @@ class DockerConfig:
         'sqlmap': 'googlesky/sqlmap',
         'wapiti': 'cyberwatch/wapiti',
         'whatweb': 'bberastegui/whatweb',
-        'wafw00f': 'osodevops/wafw00f'
+        'wafw00f': 'osodevops/wafw00f',
+        'hydra': 'rickshang/thc-hydra',
     })
 
 
@@ -1097,6 +1120,9 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
 
             if self.args.all or self.args.wafw00f:
                 issues.extend(self.scan_with_wafw00f(url, self.args.execution))
+
+        if self.args.all or self.args.hydra:
+            issues.extend(self.scan_all_ports_with_hydra(self.args.execution))
 
         return issues
 
@@ -1713,6 +1739,9 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
         with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.json') as temp_output_file:
             temp_output_path = temp_output_file.name
 
+        # wafw00f does not work without slash for custom ports
+        target_url += '/'
+
         try:
             # Construct the Wafw00f command based on execution mode
             if execution == ExecutionMode.NATIVE:
@@ -1787,6 +1816,199 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
                 self.logger.debug(f"Removed temporary output file {temp_output_path}.")
             except Exception as e:
                 self.logger.warning(f"Failed to remove temporary output file {temp_output_path}: {e}")
+
+        return issues
+
+    def scan_all_ports_with_hydra(self, execution: ExecutionMode) -> List[DiagnoseIssue]:
+        """
+        Scan all open ports in self.device with Hydra and create issues based on found valid credentials.
+        """
+        issues: List[DiagnoseIssue] = []
+        target_host = self.device.ip_addresses[0] if self.device.ip_addresses else None
+
+        if not target_host:
+            self.logger.warning("No IP address found for the device. Skipping Hydra scan.")
+            return issues
+
+        for port in self.device.ports:
+            if port.state == 'open' and port.protocol == 'tcp':
+                hydra_issues = self.scan_with_hydra(target_host, port, execution)
+                issues.extend(hydra_issues)
+
+        return issues
+
+    def scan_with_hydra(self, target_host: str, port: DevicePort, execution: ExecutionMode) -> List[DiagnoseIssue]:
+        """
+        Perform a Hydra scan on the specified port and create issues based on found valid credentials.
+        """
+        issues: List[DiagnoseIssue] = []
+
+        # Map service names to Hydra's supported services
+        service_name_map = {
+            'ftp': 'ftp',
+            'ssh': 'ssh',
+            'telnet': 'telnet',
+            'smtp': 'smtp',
+            'http': 'http-get',
+            'https': 'https-get',
+            'pop3': 'pop3',
+            'imap': 'imap',
+            'smb': 'smb',
+            'mssql': 'mssql',
+            'mysql': 'mysql',
+            'postgresql': 'postgres',
+            'rdp': 'rdp',
+            'vnc': 'vnc',
+            # Add more mappings as needed
+        }
+
+        service_name = None
+        if port.service and port.service.name:
+            service_name = port.service.name.lower()
+
+        hydra_service = service_name_map.get(service_name)
+        if not hydra_service:
+            self.logger.debug(f"Hydra does not support service '{service_name}' on port {port.port_id}. Skipping.")
+            return issues
+
+        # Check if Hydra is installed or Docker image is available
+        if execution == ExecutionMode.NATIVE:
+            if not shutil.which('hydra'):
+                self.logger.warning("Hydra is not installed. Skipping Hydra scan.")
+                return issues
+        elif execution == ExecutionMode.DOCKER:
+            docker_image = self.config.docker.images.get('hydra')
+            if not docker_image:
+                self.logger.warning("Docker image for Hydra not set in configuration. Skipping Hydra scan.")
+                return issues
+        else:
+            self.logger.warning(f"Unsupported execution mode '{execution}'. Skipping Hydra scan.")
+            return issues
+
+        self.logger.debug(f"Starting Hydra scan on {target_host}:{port.port_id} with service '{hydra_service}' in execution mode '{execution}'.")
+
+        # Determine vendor for credentials
+        vendor = None
+        if port.service and port.service.product:
+            vendor = port.service.product
+        elif self.device.vendor:
+            vendor = self.device.vendor
+        else:
+            vendor = 'generic'  # Use generic if vendor not found
+
+        # Get credentials from configuration
+        credentials = self.config.credentials.get_vendor_credentials(vendor)
+
+        if not credentials:
+            self.logger.warning("No credentials found in configuration. Skipping Hydra scan.")
+            return issues
+
+        # Extract usernames and passwords
+        usernames = set()
+        passwords = set()
+
+        for cred in credentials:
+            usernames.add(cred['username'])
+            passwords.add(cred['password'])
+
+        # Write usernames and passwords to temporary files
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as user_file:
+            for username in usernames:
+                user_file.write(username + '\n')
+            userlist_path = user_file.name
+
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as pass_file:
+            for password in passwords:
+                pass_file.write(password + '\n')
+            passlist_path = pass_file.name
+
+        # Create a temporary file to store Hydra output
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_output_file:
+            temp_output_path = temp_output_file.name
+
+        # Keep track of temporary files to delete them later
+        temp_files = [userlist_path, passlist_path, temp_output_path]
+
+        try:
+            # Construct the Hydra command based on execution mode
+            if execution == ExecutionMode.NATIVE:
+                hydra_command = [
+                    'hydra',
+                    '-L', userlist_path,
+                    '-P', passlist_path,
+                    '-o', temp_output_path,
+                    '-f',  # Exit after first found login/password pair per host
+                    '-s', str(port.port_id),
+                    target_host,
+                    hydra_service
+                ]
+            elif execution == ExecutionMode.DOCKER:
+                # Map wordlists and output file into the Docker container
+                hydra_command = [
+                    'docker', 'run', '--rm',
+                    '-v', f"{os.path.abspath(userlist_path)}:/userlist.txt:ro",
+                    '-v', f"{os.path.abspath(passlist_path)}:/passlist.txt:ro",
+                    '-v', f"{os.path.abspath(temp_output_path)}:/output.txt",
+                    docker_image,
+                    '-L', '/userlist.txt',
+                    '-P', '/passlist.txt',
+                    '-o', '/output.txt',
+                    '-f',
+                    '-s', str(port.port_id),
+                    target_host,
+                    hydra_service
+                ]
+
+            if 'http' in hydra_service:
+                hydra_command.extend(['-m', '/'])
+
+            self.logger.debug(f"Executing command: {' '.join(hydra_command)}")
+
+            # Execute the Hydra scan
+            subprocess.run(
+                hydra_command,
+                check=False,  # Hydra returns non-zero exit code even on successful login
+                capture_output=True,
+                text=True
+            )
+            self.logger.debug("Hydra scan completed. Parsing results from output file.")
+
+            # Read the Hydra output file to find valid credentials
+            with open(temp_output_path, 'r') as f:
+                hydra_output = f.readlines()
+
+            if not hydra_output:
+                self.logger.info(f"No valid credentials found by Hydra on ({target_host}:{port.port_id}).")
+                return issues
+
+            # Parse the Hydra output to extract valid credentials
+            for line in hydra_output:
+                line = line.strip()
+                if "login:" in line and "password:" in line:
+                    # Extract username and password
+                    match = re.search(r'login:\s*(\S+)\s*password:\s*(\S+)', line)
+                    if match:
+                        login = match.group(1)
+                        password = match.group(2)
+                        description = (
+                            f"Hydra found valid credentials for {hydra_service} on {target_host}:{port.port_id} - "
+                            f"Username: '{login}', Password: '{password}'"
+                        )
+                        description = self.tools.truncate_string(description, max_length=1000)
+                        issues.append(self.create_issue(description, port.port_id))
+                        self.logger.info(f"Hydra issue on ({target_host}:{port.port_id}): {description}")
+        except subprocess.CalledProcessError as e:
+            self.logger.error(f"Hydra scan failed on {target_host}:{port.port_id}: {e.stderr.strip()}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during Hydra scan on {target_host}:{port.port_id}: {e}")
+        finally:
+            # Remove temporary files
+            for temp_file in temp_files:
+                try:
+                    os.remove(temp_file)
+                    self.logger.debug(f"Removed temporary file {temp_file}.")
+                except Exception as e:
+                    self.logger.warning(f"Failed to remove temporary file {temp_file}: {e}")
 
         return issues
 
@@ -2875,48 +3097,55 @@ class TrafficMonitorCommand(BaseCommand):
         super().__init__(args, logger, config)
 
         # Initialize packet queue and processing thread
-        self.packet_queue = queue.Queue()
-        self.processing_thread = threading.Thread(target=self.process_packets, daemon=True)
+        self.packet_queue: queue.Queue = queue.Queue()
+        self.processing_thread: threading.Thread = threading.Thread(target=self.process_packets, daemon=True)
         self.processing_thread.start()
 
         # Extract configurable thresholds from args or use defaults
-        self.enable_arp_spoof = True  # Can be made configurable if needed
-        self.enable_dhcp_flood = True
-        self.enable_port_scan = True
-        self.enable_dns_exfiltration = True
-        self.enable_bandwidth_abuse = True
-        self.enable_icmp_flood = True
-        self.enable_syn_flood = True
-        self.enable_malformed_packets = True
-        self.enable_rogue_dhcp = True
-        self.enable_http_abuse = True
+        self.enable_arp_spoof: bool = True  # Can be made configurable if needed
+        self.enable_dhcp_flood: bool = True
+        self.enable_port_scan: bool = True
+        self.enable_dns_exfiltration: bool = True
+        self.enable_bandwidth_abuse: bool = True
+        self.enable_icmp_flood: bool = True
+        self.enable_syn_flood: bool = True
+        self.enable_malformed_packets: bool = True
+        self.enable_rogue_dhcp: bool = True
+        self.enable_http_abuse: bool = True
 
-        # Data structures for tracking anomalies using deque for efficient time window management
-        self.arp_table = {}
-        self.dhcp_requests = defaultdict(lambda: deque())
-        self.port_scan_attempts = defaultdict(lambda: set())
-        self.dns_queries = defaultdict(int)
-        self.bandwidth_usage = defaultdict(int)
-        self.icmp_requests = defaultdict(lambda: deque())
-        self.syn_requests = defaultdict(lambda: deque())
-        self.rogue_dhcp_servers = {}
-        self.http_requests = defaultdict(int)
-        self.malformed_packets = defaultdict(int)
+        # Data structures for tracking anomalies
+        self.arp_table: Dict[str, str] = {}
+        self.dhcp_requests: DefaultDict[str, Deque[datetime]] = defaultdict(deque)
+        self.port_scan_attempts: DefaultDict[str, Set[int]] = defaultdict(set)
+        self.dns_queries: DefaultDict[str, Deque[datetime]] = defaultdict(deque)
+        self.bandwidth_usage: DefaultDict[str, Deque[tuple]] = defaultdict(deque)  # Stores (timestamp, packet_size)
+        self.icmp_requests: DefaultDict[str, Deque[datetime]] = defaultdict(deque)
+        self.syn_requests: DefaultDict[str, Deque[datetime]] = defaultdict(deque)
+        self.rogue_dhcp_servers: Dict[str, datetime] = {}
+        self.http_requests: DefaultDict[str, Deque[datetime]] = defaultdict(deque)
+        self.malformed_packets: DefaultDict[str, Deque[datetime]] = defaultdict(deque)
 
         # Configuration for thresholds
-        self.dhcp_threshold = args.dhcp_threshold
-        self.port_scan_threshold = args.port_scan_threshold
-        self.dns_exfil_threshold = args.dns_exfil_threshold
-        self.bandwidth_threshold = args.bandwidth_threshold
-        self.icmp_threshold = args.icmp_threshold
-        self.syn_threshold = args.syn_threshold
-        self.http_threshold = args.http_threshold
-        self.malformed_threshold = args.malformed_threshold
-        self.rogue_dhcp_threshold = args.rogue_dhcp_threshold
+        self.dhcp_threshold: int = args.dhcp_threshold
+        self.port_scan_threshold: int = args.port_scan_threshold
+        self.dns_exfil_threshold: int = args.dns_exfil_threshold
+        self.bandwidth_threshold: int = args.bandwidth_threshold
+        self.icmp_threshold: int = args.icmp_threshold
+        self.syn_threshold: int = args.syn_threshold
+        self.http_threshold: int = args.http_threshold
+        self.malformed_threshold: int = args.malformed_threshold
+        self.rogue_dhcp_threshold: int = args.rogue_dhcp_threshold
 
         # Time windows
-        self.one_minute = timedelta(minutes=1)
-        self.one_hour = timedelta(hours=1)
+        self.one_minute: timedelta = timedelta(minutes=1)
+        self.one_hour: timedelta = timedelta(hours=1)
+
+        # Rate limiting for anomaly reporting
+        self.last_reported: DefaultDict[str, Dict[AnomalyType, datetime]] = defaultdict(dict)
+        self.rate_limit_interval: timedelta = timedelta(minutes=5)
+
+        self.logger = logger
+        self.args = args
 
     def execute(self) -> None:
         """
@@ -2926,7 +3155,7 @@ class TrafficMonitorCommand(BaseCommand):
             self.logger.error("Scapy is not installed. Install it using 'pip install scapy'.")
             sys.exit(1)
 
-        interface = self.args.interface
+        interface: Optional[str] = self.args.interface
         if not interface:
             self.logger.error("Network interface not specified. Use --interface to specify one.")
             sys.exit(1)
@@ -2945,12 +3174,12 @@ class TrafficMonitorCommand(BaseCommand):
             self.logger.error(f"Error during traffic monitoring: {e}")
             sys.exit(1)
 
-    def process_packets(self):
+    def process_packets(self) -> None:
         """
         Continuously process packets from the queue.
         """
         while True:
-            packet = self.packet_queue.get()
+            packet: Packet = self.packet_queue.get()
             try:
                 self.process_packet(packet)
             except Exception as e:
@@ -2958,11 +3187,11 @@ class TrafficMonitorCommand(BaseCommand):
             finally:
                 self.packet_queue.task_done()
 
-    def process_packet(self, packet):
+    def process_packet(self, packet: Packet) -> None:
         """
         Process each captured packet to detect various anomalies.
         """
-        current_time = datetime.now()
+        current_time: datetime = datetime.now()
 
         if self.enable_arp_spoof and packet.haslayer(ARP):
             self.detect_arp_spoofing(packet)
@@ -2994,27 +3223,26 @@ class TrafficMonitorCommand(BaseCommand):
         if self.enable_http_abuse and packet.haslayer(TCP) and packet.haslayer(Raw):
             self.detect_http_abuse(packet, current_time)
 
-    def detect_arp_spoofing(self, packet):
+    def detect_arp_spoofing(self, packet: Packet) -> None:
         """
         Detect ARP spoofing by monitoring ARP replies.
         """
         arp = packet.getlayer(ARP)
         if arp.op == 2:  # is-at (response)
-            sender_ip = arp.psrc
-            sender_mac = arp.hwsrc
+            sender_ip: str = arp.psrc
+            sender_mac: str = arp.hwsrc
             if sender_ip in self.arp_table:
                 if self.arp_table[sender_ip] != sender_mac:
-                    alert = (f"ARP Spoofing detected! IP {sender_ip} is-at {sender_mac} "
-                             f"(was {self.arp_table[sender_ip]})")
-                    self.report_anomaly(alert)
+                    alert: str = (f"ARP Spoofing detected! IP {sender_ip} is-at {sender_mac} "
+                                  f"(was {self.arp_table[sender_ip]})")
+                    self.report_anomaly(alert, client_id=sender_ip, anomaly_type=AnomalyType.ARP_SPOOFING)
             self.arp_table[sender_ip] = sender_mac
 
-    def detect_dhcp_flood(self, packet, current_time):
+    def detect_dhcp_flood(self, packet: Packet, current_time: datetime) -> None:
         """
         Detect DHCP flood attacks by monitoring excessive DHCP requests.
         """
-        dhcp = packet.getlayer(DHCP)
-        client_mac = packet.getlayer(Ether).src
+        client_mac: str = packet.getlayer(Ether).src
 
         # Record the timestamp of the DHCP request
         self.dhcp_requests[client_mac].append(current_time)
@@ -3024,72 +3252,78 @@ class TrafficMonitorCommand(BaseCommand):
             self.dhcp_requests[client_mac].popleft()
 
         if len(self.dhcp_requests[client_mac]) > self.dhcp_threshold:
-            alert = (f"DHCP Flood detected from {client_mac}: "
-                     f"{len(self.dhcp_requests[client_mac])} requests in the last minute.")
-            self.report_anomaly(alert)
+            alert: str = (f"DHCP Flood detected from {client_mac}: "
+                          f"{len(self.dhcp_requests[client_mac])} requests in the last minute.")
+            self.report_anomaly(alert, client_id=client_mac, anomaly_type=AnomalyType.DHCP_FLOOD)
             self.dhcp_requests[client_mac].clear()
 
-    def detect_port_scan(self, packet):
+    def detect_port_scan(self, packet: Packet) -> None:
         """
         Detect port scanning by monitoring connections to multiple ports from the same IP.
         """
         ip_layer = packet.getlayer(IP)
         tcp_layer = packet.getlayer(TCP)
-        src_ip = ip_layer.src
-        dst_port = tcp_layer.dport
+        src_ip: str = ip_layer.src
+        dst_port: int = tcp_layer.dport
 
         self.port_scan_attempts[src_ip].add(dst_port)
 
         if len(self.port_scan_attempts[src_ip]) > self.port_scan_threshold:
-            alert = (f"Port Scan detected from {src_ip}: "
-                     f"Accessed {len(self.port_scan_attempts[src_ip])} unique ports.")
-            self.report_anomaly(alert)
+            alert: str = (f"Port Scan detected from {src_ip}: "
+                          f"Accessed {len(self.port_scan_attempts[src_ip])} unique ports.")
+            self.report_anomaly(alert, client_id=src_ip, anomaly_type=AnomalyType.PORT_SCAN)
             # Reset after alert to prevent repeated alerts
             self.port_scan_attempts[src_ip].clear()
 
-    def detect_dns_exfiltration(self, packet, current_time):
+    def detect_dns_exfiltration(self, packet: Packet, current_time: datetime) -> None:
         """
         Detect DNS exfiltration by monitoring excessive DNS queries.
         """
-        dns_layer = packet.getlayer(DNS)
         ip_layer = packet.getlayer(IP)
-        src_ip = ip_layer.src
+        src_ip: str = ip_layer.src
 
-        # Record the DNS query
-        self.dns_queries[src_ip] += 1
+        # Record the timestamp of the DNS query
+        self.dns_queries[src_ip].append(current_time)
 
-        # Remove counts older than 1 hour
-        # For precise time window, consider using deque with timestamps
-        # Here, resetting count periodically as a simplification
-        if self.dns_queries[src_ip] > self.dns_exfil_threshold:
-            alert = (f"DNS Exfiltration detected from {src_ip}: "
-                     f"{self.dns_queries[src_ip]} DNS queries.")
-            self.report_anomaly(alert)
+        # Remove queries older than 1 minute
+        while self.dns_queries[src_ip] and self.dns_queries[src_ip][0] < current_time - self.one_minute:
+            self.dns_queries[src_ip].popleft()
+
+        if len(self.dns_queries[src_ip]) > self.dns_exfil_threshold:
+            alert: str = (f"DNS Exfiltration detected from {src_ip}: "
+                          f"{len(self.dns_queries[src_ip])} DNS queries in the last minute.")
+            self.report_anomaly(alert, client_id=src_ip, anomaly_type=AnomalyType.DNS_EXFILTRATION)
             # Reset after alert
-            self.dns_queries[src_ip] = 0
+            self.dns_queries[src_ip].clear()
 
-    def detect_bandwidth_abuse(self, packet, current_time):
+    def detect_bandwidth_abuse(self, packet: Packet, current_time: datetime) -> None:
         """
         Detect bandwidth abuse by monitoring data usage per client.
         """
         ip_layer = packet.getlayer(IP)
-        src_ip = ip_layer.src
-        packet_size = len(packet)
+        src_ip: str = ip_layer.src
+        packet_size: int = len(packet)
 
-        self.bandwidth_usage[src_ip] += packet_size
+        # Record the packet size with timestamp
+        self.bandwidth_usage[src_ip].append((current_time, packet_size))
 
-        if self.bandwidth_usage[src_ip] > self.bandwidth_threshold:
-            alert = (f"Bandwidth Abuse detected from {src_ip}: "
-                     f"{self.bandwidth_usage[src_ip]} bytes in the last minute.")
-            self.report_anomaly(alert)
+        # Remove packet sizes older than 1 minute
+        while self.bandwidth_usage[src_ip] and self.bandwidth_usage[src_ip][0][0] < current_time - self.one_minute:
+            self.bandwidth_usage[src_ip].popleft()
+
+        total_usage: int = sum(size for _, size in self.bandwidth_usage[src_ip])
+        if total_usage > self.bandwidth_threshold:
+            alert: str = (f"Bandwidth Abuse detected from {src_ip}: "
+                          f"{total_usage} bytes in the last minute.")
+            self.report_anomaly(alert, client_id=src_ip, anomaly_type=AnomalyType.BANDWIDTH_ABUSE)
             # Reset after alert
-            self.bandwidth_usage[src_ip] = 0
+            self.bandwidth_usage[src_ip].clear()
 
-    def detect_icmp_flood(self, packet, current_time):
+    def detect_icmp_flood(self, packet: Packet, current_time: datetime) -> None:
         """
         Detect ICMP flood attacks by monitoring excessive ICMP requests.
         """
-        src_ip = packet.getlayer(IP).src
+        src_ip: str = packet.getlayer(IP).src
 
         # Record the timestamp of the ICMP request
         self.icmp_requests[src_ip].append(current_time)
@@ -3099,17 +3333,19 @@ class TrafficMonitorCommand(BaseCommand):
             self.icmp_requests[src_ip].popleft()
 
         if len(self.icmp_requests[src_ip]) > self.icmp_threshold:
-            alert = (f"ICMP Flood detected from {src_ip}: "
-                     f"{len(self.icmp_requests[src_ip])} ICMP packets in the last minute.")
-            self.report_anomaly(alert)
+            alert: str = (f"ICMP Flood detected from {src_ip}: "
+                          f"{len(self.icmp_requests[src_ip])} ICMP packets in the last minute.")
+            self.report_anomaly(alert, client_id=src_ip, anomaly_type=AnomalyType.ICMP_FLOOD)
+            # Reset after alert
+            self.icmp_requests[src_ip].clear()
 
-    def detect_syn_flood(self, packet, current_time):
+    def detect_syn_flood(self, packet: Packet, current_time: datetime) -> None:
         """
         Detect SYN flood attacks by monitoring excessive TCP SYN packets.
         """
         tcp_layer = packet.getlayer(TCP)
         if tcp_layer.flags & 0x02:  # SYN flag
-            src_ip = packet.getlayer(IP).src
+            src_ip: str = packet.getlayer(IP).src
 
             # Record the timestamp of the SYN packet
             self.syn_requests[src_ip].append(current_time)
@@ -3119,20 +3355,19 @@ class TrafficMonitorCommand(BaseCommand):
                 self.syn_requests[src_ip].popleft()
 
             if len(self.syn_requests[src_ip]) > self.syn_threshold:
-                alert = (f"SYN Flood detected from {src_ip}: "
-                         f"{len(self.syn_requests[src_ip])} SYN packets in the last minute.")
-                self.report_anomaly(alert)
+                alert: str = (f"SYN Flood detected from {src_ip}: "
+                              f"{len(self.syn_requests[src_ip])} SYN packets in the last minute.")
+                self.report_anomaly(alert, client_id=src_ip, anomaly_type=AnomalyType.SYN_FLOOD)
                 # Reset after alert
                 self.syn_requests[src_ip].clear()
 
-    def detect_malformed_packets(self, packet, current_time):
+    def detect_malformed_packets(self, packet: Packet, current_time: datetime) -> None:
         """
         Detect malformed packets that do not conform to protocol standards.
         """
         try:
             # Attempt to access packet layers to validate
             if packet.haslayer(IP):
-                ip_layer = packet.getlayer(IP)
                 if packet.haslayer(TCP):
                     tcp_layer = packet.getlayer(TCP)
                     _ = tcp_layer.flags  # Access a TCP field
@@ -3140,23 +3375,28 @@ class TrafficMonitorCommand(BaseCommand):
                     udp_layer = packet.getlayer(UDP)
                     _ = udp_layer.sport  # Access a UDP field
         except Exception:
-            src_ip = packet.getlayer(IP).src if packet.haslayer(IP) else "Unknown"
-            self.malformed_packets[src_ip] += 1
-            if self.malformed_packets[src_ip] > self.malformed_threshold:
-                alert = (f"Malformed packets detected from {src_ip}: "
-                         f"{self.malformed_packets[src_ip]} malformed packets.")
-                self.report_anomaly(alert)
-                # Reset after alert
-                self.malformed_packets[src_ip] = 0
+            src_ip: str = packet.getlayer(IP).src if packet.haslayer(IP) else "Unknown"
+            self.malformed_packets[src_ip].append(current_time)
 
-    def detect_rogue_dhcp(self, packet, current_time):
+            # Remove entries older than 1 minute
+            while self.malformed_packets[src_ip] and self.malformed_packets[src_ip][0] < current_time - self.one_minute:
+                self.malformed_packets[src_ip].popleft()
+
+            if len(self.malformed_packets[src_ip]) > self.malformed_threshold:
+                alert: str = (f"Malformed packets detected from {src_ip}: "
+                              f"{len(self.malformed_packets[src_ip])} malformed packets in the last minute.")
+                self.report_anomaly(alert, client_id=src_ip, anomaly_type=AnomalyType.MALFORMED_PACKETS)
+                # Reset after alert
+                self.malformed_packets[src_ip].clear()
+
+    def detect_rogue_dhcp(self, packet: Packet, current_time: datetime) -> None:
         """
         Detect rogue DHCP servers by monitoring DHCP OFFER messages.
         """
         dhcp = packet.getlayer(DHCP)
         if dhcp.options and any(option[0] == 'message-type' and option[1] == 2 for option in dhcp.options):
             # DHCP Offer
-            server_ip = packet.getlayer(IP).src
+            server_ip: str = packet.getlayer(IP).src
             self.rogue_dhcp_servers[server_ip] = current_time
 
             # Remove entries older than 1 hour
@@ -3165,34 +3405,46 @@ class TrafficMonitorCommand(BaseCommand):
                 del self.rogue_dhcp_servers[ip]
 
             if len(self.rogue_dhcp_servers) > self.rogue_dhcp_threshold:
-                alert = f"Rogue DHCP Server detected: {server_ip}"
-                self.report_anomaly(alert)
+                alert: str = f"Rogue DHCP Server detected: {server_ip}"
+                self.report_anomaly(alert, client_id=server_ip, anomaly_type=AnomalyType.ROGUE_DHCP)
                 # Reset after alert
                 self.rogue_dhcp_servers.clear()
 
-    def detect_http_abuse(self, packet, current_time):
+    def detect_http_abuse(self, packet: Packet, current_time: datetime) -> None:
         """
         Detect excessive HTTP requests that may indicate scraping or DoS.
         """
-        src_ip = packet.getlayer(IP).src
-        self.http_requests[src_ip] += 1
+        src_ip: str = packet.getlayer(IP).src
+        self.http_requests[src_ip].append(current_time)
 
-        # Reset periodically; precise time window handling can be added
-        if self.http_requests[src_ip] > self.http_threshold:
-            alert = (f"Excessive HTTP requests detected from {src_ip}: "
-                     f"{self.http_requests[src_ip]} requests in the last minute.")
-            self.report_anomaly(alert)
+        # Remove requests older than 1 minute
+        while self.http_requests[src_ip] and self.http_requests[src_ip][0] < current_time - self.one_minute:
+            self.http_requests[src_ip].popleft()
+
+        if len(self.http_requests[src_ip]) > self.http_threshold:
+            alert: str = (f"Excessive HTTP requests detected from {src_ip}: "
+                          f"{len(self.http_requests[src_ip])} requests in the last minute.")
+            self.report_anomaly(alert, client_id=src_ip, anomaly_type=AnomalyType.HTTP_ABUSE)
             # Reset after alert
-            self.http_requests[src_ip] = 0
+            self.http_requests[src_ip].clear()
 
-    def report_anomaly(self, message):
+    def report_anomaly(self, message: str, client_id: str, anomaly_type: AnomalyType) -> None:
         """
         Report detected anomalies based on the verbosity level.
         """
-        if RICH_AVAILABLE:
-            console.print(message, style="bold red")
+        current_time: datetime = datetime.now()
+        last_time: Optional[datetime] = self.last_reported[client_id].get(anomaly_type)
+        if last_time and current_time - last_time < self.rate_limit_interval:
+            # Skip logging to prevent spamming
+            return
         else:
-            print(message)
+            # Update last reported time
+            self.last_reported[client_id][anomaly_type] = current_time
+            # Log the message
+            if RICH_AVAILABLE:
+                console.print(message, style="bold red")
+            else:
+                print(message)
 
 
 # System Information Command
@@ -3812,6 +4064,7 @@ class ContainerCommand(BaseCommand):
             wapiti \\
             whatweb \\
             wafw00f \\
+            hydra \\
             iproute2 \\
             docker.io \\
             traceroute \\
@@ -4206,6 +4459,11 @@ def parse_arguments() -> argparse.Namespace:
         help='Run WAFW00F scanner on discovered devices.'
     )
     diagnose_parser.add_argument(
+        '--hydra', '-H',
+        action='store_true',
+        help='Run Hydra scanner on discovered devices.'
+    )
+    diagnose_parser.add_argument(
         '--credentials', '-C',
         action='store_true',
         help='Check for default credentials on discovered devices.'
@@ -4236,56 +4494,56 @@ def parse_arguments() -> argparse.Namespace:
     traffic_monitor_parser.add_argument(
         '--dhcp-threshold',
         type=int,
-        default=100,
-        help='Set DHCP flood threshold (default: 100).'
+        default=10,
+        help='Set DHCP flood threshold.'
     )
     traffic_monitor_parser.add_argument(
         '--port-scan-threshold',
         type=int,
-        default=50,
-        help='Set port scan threshold (default: 50).'
+        default=5,
+        help='Set port scan threshold.'
     )
     traffic_monitor_parser.add_argument(
         '--dns-exfil-threshold',
         type=int,
-        default=1000,
-        help='Set DNS exfiltration threshold (default: 1000).'
+        default=100,
+        help='Set DNS exfiltration threshold.'
     )
     traffic_monitor_parser.add_argument(
         '--bandwidth-threshold',
         type=int,
         default=1000000,
-        help='Set bandwidth abuse threshold in bytes per minute (default: 1000000).'
+        help='Set bandwidth abuse threshold in bytes per minute.'
     )
     traffic_monitor_parser.add_argument(
         '--icmp-threshold',
         type=int,
-        default=500,
-        help='Set ICMP flood threshold (default: 500).'
+        default=50,
+        help='Set ICMP flood threshold.'
     )
     traffic_monitor_parser.add_argument(
         '--syn-threshold',
         type=int,
-        default=1000,
-        help='Set SYN flood threshold (default: 1000).'
+        default=100,
+        help='Set SYN flood threshold.'
     )
     traffic_monitor_parser.add_argument(
         '--http-threshold',
         type=int,
-        default=1000,
-        help='Set HTTP abuse threshold (default: 1000).'
+        default=100,
+        help='Set HTTP abuse threshold.'
     )
     traffic_monitor_parser.add_argument(
         '--malformed-threshold',
         type=int,
-        default=50,
-        help='Set malformed packets threshold (default: 50).'
+        default=5,
+        help='Set malformed packets threshold.'
     )
     traffic_monitor_parser.add_argument(
         '--rogue-dhcp-threshold',
         type=int,
         default=1,
-        help='Set rogue DHCP server threshold (default: 1).'
+        help='Set rogue DHCP server threshold.'
     )
 
     # Subparser for wifi diagnostics
