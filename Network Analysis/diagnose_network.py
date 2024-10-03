@@ -71,7 +71,6 @@
 # Requirements with container:
 # - Python3
 # - Docker (install via: apt install docker.io)
-# - psutil (optional, for macvlan) (install via: apt install python3-psutil)
 #
 # Requirements without container:
 # - System Info Command:
@@ -164,6 +163,7 @@ try:
     from scapy.all import sniff, ARP, DHCP, IP, TCP, UDP, ICMP, DNS, DNSQR, Ether, Raw, Packet
     SCAPY_AVAILABLE = True
 except ImportError:
+    Packet = None
     SCAPY_AVAILABLE = False
 
 # Attempt to import requests for HTTP requests
@@ -172,14 +172,6 @@ try:
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
-
-# Attempt to import psutil for system information
-try:
-    import psutil
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    psutil = None
-    PSUTIL_AVAILABLE = False
 
 # Initialize Rich console if available
 console = Console() if RICH_AVAILABLE else None
@@ -210,7 +202,17 @@ class AnomalyType(str, Enum):
     HTTP_ABUSE = 'http_abuse'
 
 
-# Issue data classes
+class ContainerNetworkMode(str, Enum):
+    """
+    Enumeration of possible Docker network modes for ContainerCommand.
+    """
+    BRIDGE = 'bridge'
+    HOST = 'host'
+    MACVLAN = 'macvlan'
+    DEFAULT = 'default'
+
+
+# Issue Data Classes
 @dataclass
 class DiagnoseIssue:
     device_type: str
@@ -228,7 +230,7 @@ class WifiIssue:
     description: str
 
 
-# Configuration data classes
+# Configuration Data Classes
 @dataclass
 class CredentialsConfig:
     """
@@ -236,64 +238,34 @@ class CredentialsConfig:
     """
     vendor_credentials: Dict[str, List[Dict[str, str]]] = field(default_factory=lambda: {
         "cisco": [
-            {"username": "admin", "password": "admin"},
             {"username": "cisco", "password": "cisco"},
-            {"username": "support", "password": "support"},
-        ],
-        "dlink": [
-            {"username": "admin", "password": "admin"},
-            {"username": "admin", "password": "password"},
-            {"username": "user", "password": "user"},
         ],
         "netgear": [
-            {"username": "admin", "password": "password"},
             {"username": "admin", "password": "netgear"},
-            {"username": "admin", "password": "1234"},
         ],
-        "tplink": [
-            {"username": "admin", "password": "admin"},
-            {"username": "user", "password": "user"},
-            {"username": "admin", "password": "password"},
+        "telco": [
+            {"username": "telco", "password": "telco"},
         ],
         "huawei": [
-            {"username": "admin", "password": "admin"},
-            {"username": "root", "password": "root"},
             {"username": "huawei", "password": "huawei"},
         ],
-        "asus": [
-            {"username": "admin", "password": "admin"},
-            {"username": "admin", "password": "asus"},
-        ],
-        "linksys": [
-            {"username": "admin", "password": "admin"},
-            {"username": "admin", "password": "linksys"},
-        ],
-        "zyxel": [
-            {"username": "admin", "password": "1234"},
-            {"username": "admin", "password": "admin"},
-        ],
-        "mikrotik": [
-            {"username": "admin", "password": ""},
-            {"username": "admin", "password": "admin"},
-        ],
-        "belkin": [
-            {"username": "admin", "password": "password"},
-            {"username": "admin", "password": "admin"},
-        ],
-        # Add more vendors as needed
     })
     generic_credentials: List[Dict[str, str]] = field(default_factory=lambda: [
+        {"username": "admin", "password": ""},
+        {"username": "admin", "password": "1234"},
         {"username": "admin", "password": "admin"},
+        {"username": "admin", "password": "Admin"},
+        {"username": "admin", "password": "admin2"},
+        {"username": "admin", "password": "admin123"},
+        {"username": "admin", "password": "default"},
+        {"username": "admin", "password": "letmein"},
         {"username": "admin", "password": "password"},
+        {"username": "admin", "password": "password123"},
+        {"username": "admin", "password": "Password123!"},
         {"username": "root", "password": "root"},
         {"username": "user", "password": "user"},
         {"username": "guest", "password": "guest"},
-        {"username": "admin", "password": "1234"},
-        {"username": "admin", "password": "password123"},
-        {"username": "admin", "password": "default"},
-        {"username": "admin", "password": "letmein"},
-        {"username": "admin", "password": "admin123"},
-        # Add more generic credentials as needed
+        {"username": "support", "password": "support"},
     ])
 
     def get_vendor_credentials(self, vendor: str) -> List[Dict[str, str]]:
@@ -331,6 +303,8 @@ class EndpointsConfig:
         "/backup",
         "/diag.html",
         "/status",
+        "/status.html",
+        "/status.cgi",
         "/advanced",
         "/system",
         "/tools",
@@ -338,48 +312,12 @@ class EndpointsConfig:
         "/download",
         "/logs",
         "/debug",
+        "/admin",
+        "/.git",
     })
     vendor_additional_sensitive_endpoints: Dict[str, Set[str]] = field(default_factory=lambda: {
-        'fritz!box': {
-            "/admin/config.php",
-            "/diag_wps.html",
-        },
-        'asus': {
-            "/admin/config.php",
-        },
         'netgear': {
-            "/cgi-bin/fwupdate",
-            "/status/wps",
-        },
-        'tp-link': set(),
-        'd-link': {
-            "/status.html",
-        },
-        'linksys': {
-            "/status.html",
-        },
-        'belkin': {
-            "/cgi-bin/admin/config",
-            "/status.cgi",
-        },
-        'synology': {
-            "/webman/index.cgi",
-            "/status.cgi",
-        },
-        'ubiquiti': {
-            "/cgi-bin/status.cgi",
-        },
-        'mikrotik': {
-            "/login",
-        },
-        'zyxel': {
-            "/cgi-bin/admin/config",
-        },
-        'huawei': {
-            "/cgi-bin/hwcfg.cgi",
-        },
-        'apple': {
-            "/airport/admin",
+            "/setup.cgi",
         },
     })
 
@@ -407,7 +345,7 @@ class HttpSecurityConfig:
         'X-Content-Type-Options',
         'Referrer-Policy',
         'Feature-Policy',
-        'Permissions-Policy'
+        'Permissions-Policy',
     })
 
 
@@ -420,20 +358,19 @@ class GamingServicesConfig:
     gaming_services: Dict[str, Dict[int, str]] = field(default_factory=lambda: {
         'sony': {
             3075: "PlayStation Network",
-            3076: "PlayStation Network"
+            3076: "PlayStation Network",
         },
         'microsoft': {
             3074: "Xbox Live",
-            # Add more ports and services as needed
         },
         'nintendo': {
             6667: "Nintendo Switch",
-            12400: "Nintendo Switch"
+            12400: "Nintendo Switch",
         },
-        # Add additional vendors and their gaming services here
     })
 
 
+# NMap Device Data Classes
 @dataclass
 class DeviceAddress:
     address: str
@@ -507,6 +444,9 @@ class DeviceUptime:
 
 @dataclass
 class Device:
+    """
+    Represents a network device from an nmap scan with various attributes.
+    """
     ip_addresses: List[str] = field(default_factory=list)
     mac_address: Optional[str] = None
     vendor: Optional[str] = None
@@ -521,6 +461,7 @@ class Device:
     smoothed_rtt: Optional[int] = None
     timeout: Optional[int] = None
     os_info: Optional[DeviceOs] = None
+    issues: List[DiagnoseIssue] = field(default_factory=list)
 
 
 @dataclass
@@ -564,7 +505,7 @@ class DeviceType:
         elif self.name == "Game":
             return (vendor_match or os_match) and ports_match
         elif self.name == "Computer":
-            return os_match or bool(device_ports)
+            return vendor_match or os_match or bool(device_ports)
 
         # Default condition: require both vendor and ports to match
         return vendor_match and ports_match
@@ -591,7 +532,7 @@ class DeviceTypeConfig:
         ),
         DeviceType(
             name="Printer",
-            vendors={'hp', 'canon', 'epson', 'brother', 'lexmark', 'samsung', 'xerox', 'lightspeed'},
+            vendors={'hp', 'canon', 'epson', 'brother', 'lexmark', 'samsung', 'xerox', 'lightspeed', 'star micronics'},
             ports={'9100/tcp', '515/tcp', '631/tcp'},
             priority=3
         ),
@@ -615,6 +556,7 @@ class DeviceTypeConfig:
         ),
         DeviceType(
             name="Computer",
+            vendors={'intel', 'apple', 'microsoft', 'dell'},
             ports={'22/tcp', '139/tcp', '445/tcp', '3389/tcp', '5900/tcp'},
             os_keywords={'windows', 'macos', 'linux'},
             priority=7
@@ -803,7 +745,7 @@ class DeviceClassifier:
         return matched_device_type
 
 
-# Base class for all commands
+# Base Class for all Commands
 class BaseCommand(ABC):
     def __init__(self, args: argparse.Namespace, logger: logging.Logger, config: AppConfig):
         """
@@ -840,7 +782,7 @@ class BaseCommand(ABC):
             print()
 
 
-# Base class for all diagnostics
+# Base Class for all Diagnostics
 class BaseDiagnostics(ABC):
     """
     Abstract base class for device diagnostics.
@@ -886,7 +828,7 @@ class BaseDiagnostics(ABC):
         )
 
 
-# General Device Diagnostics Class
+# Shared Tools
 class SharedDiagnosticsTools:
     def __init__(self, device: Device, logger: logging.Logger):
         """
@@ -1848,7 +1790,6 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
             'postgresql': 'postgres',
             'rdp': 'rdp',
             'vnc': 'vnc',
-            # Add more mappings as needed
         }
 
         service_name = None
@@ -2066,20 +2007,20 @@ class HttpSecurityDiagnostics(BaseDiagnostics):
         Generic method to check admin interfaces over the specified protocol.
         """
         issues = []
+        port = self.tools.determine_port_from_url(url)
         try:
             self.logger.debug(f"Checking admin interfaces on {url} for vendor '{vendor}'.")
             admin_endpoints = self.config.endpoints.get_vendor_config(vendor)['sensitive_endpoints']
             for endpoint in admin_endpoints:
+                endpoint_url = url + endpoint
                 try:
-                    response = self.tools.make_http_request(url, hostname, verify=False)
+                    response = self.tools.make_http_request(endpoint_url, hostname, verify=False)
                     if response is None:
                         continue
                     if 200 <= response.status_code < 300:
                         # Admin interface is accessible
-                        port = self.tools.determine_port_from_url(url)
-                        issues.append(self.create_issue(f"Admin interface {url}{endpoint} is accessible", port))
-                        self.logger.info(f"Admin interface {url}{endpoint} is accessible.")
-                        break  # Assume one admin interface is sufficient
+                        issues.append(self.create_issue(f"Admin interface {endpoint_url} is accessible (status code: {response.status_code})", port))
+                        self.logger.info(f"Admin interface {endpoint_url} is accessible (status code: {response.status_code}).")
                 except requests.RequestException:
                     continue  # Try the next endpoint
         except Exception as e:
@@ -2194,7 +2135,7 @@ class SnmpSecurityDiagnostics(BaseDiagnostics):
         return False
 
 
-# Device-Type Specific Diagnostics Classes
+# Device-Type Specific Diagnostics
 class RouterDiagnostics(BaseDiagnostics):
     """
     Perform diagnostics specific to routers.
@@ -2592,7 +2533,6 @@ class NetworkScanner:
 
 
 # Diagnostics Command
-# Specific Diagnostics Classes
 class DiagnosticsCommand(BaseCommand):
     """
     Perform automated network diagnostics.
@@ -2612,16 +2552,16 @@ class DiagnosticsCommand(BaseCommand):
             scanner = NetworkScanner(self.args, self.logger, self.config)
             classified_devices = scanner.execute()
 
-        # Save devices to a JSON file if output is requested
-        if self.args.output_file:
-            self.save_devices_to_file(classified_devices, self.args.output_file)
-
         # Display discovered devices
         self.display_devices(classified_devices)
 
         # Perform diagnostics based on device type unless discovery is enabled
         if not self.args.discovery:
             self.perform_diagnostics(classified_devices)
+
+        # Save devices to a JSON file if output is requested
+        if self.args.output_file:
+            self.save_devices_to_file(classified_devices, self.args.output_file)
 
     def perform_diagnostics(self, classified_devices: Dict[str, List[Device]]):
         """
@@ -2638,6 +2578,7 @@ class DiagnosticsCommand(BaseCommand):
                     for issue in issues:
                         if issue not in issues_found:
                             issues_found.append(issue)
+                device.issues = issues_found
 
         # Prepare rows by extracting values from each issue
         rows = [
@@ -2715,9 +2656,9 @@ class DiagnosticsCommand(BaseCommand):
         if not is_dataclass(cls):
             return data  # Base case: not a dataclass
 
-        fieldtypes = {f.name: f.type for f in fields(cls)}
+        field_types = {f.name: f.type for f in fields(cls)}
         init_kwargs = {}
-        for field_name, field_type in fieldtypes.items():
+        for field_name, field_type in field_types.items():
             if field_name not in data:
                 continue  # Missing field; use default
 
@@ -3699,8 +3640,8 @@ class ContainerCommand(BaseCommand):
                 run_cmd.extend(['-e', 'DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket'])
 
             # Handle network mode
-            network_mode: str = self.args.network
-            if network_mode == 'macvlan':
+            network_mode: ContainerNetworkMode = self.args.network
+            if network_mode == ContainerNetworkMode.MACVLAN:
                 network_name = 'diagnose_network_macvlan'
                 parent_iface, subnet, gateway = self._detect_network_parameters()
                 if not parent_iface or not subnet or not gateway:
@@ -3717,15 +3658,15 @@ class ContainerCommand(BaseCommand):
                     raise RuntimeError("Macvlan interface setup failed.")
                 run_cmd.extend(['--network', network_name])
                 self.logger.info(f"Attached container to macvlan network: {network_name}")
-            elif network_mode == 'host':
+            elif network_mode == ContainerNetworkMode.HOST:
                 run_cmd.extend(['--network', 'host'])
                 self.logger.info("Using host network mode.")
-            elif network_mode == 'default':
+            elif network_mode == ContainerNetworkMode.BRIDGE:
+                run_cmd.extend(['--network', 'bridge'])
+                self.logger.info(f"Using bridge network mode")
+            else:
                 self.logger.info("Using default network mode.")
                 # Do not add any --network parameter
-            else:
-                run_cmd.extend(['--network', network_mode])
-                self.logger.info(f"Using network mode: {network_mode}")
 
             # Specify the image and command to run inside the container
             run_cmd.extend([
@@ -3768,7 +3709,6 @@ class ContainerCommand(BaseCommand):
             python3-pip \\
             python3-rich \\
             python3-requests \\
-            python3-psutil \\
             nmap \\
             sqlmap \\
             wapiti \\
@@ -4291,13 +4231,14 @@ def parse_arguments() -> argparse.Namespace:
         )
     )
     container_parser.add_argument(
-        '-n', '--network',
-        choices=['bridge', 'host', 'macvlan', 'default'],
-        default='host',
+        '--network', '-n',
+        type=ContainerNetworkMode,
+        choices=[mode.value for mode in ContainerNetworkMode],
+        default=ContainerNetworkMode.HOST,
         help='Specify the Docker network mode.'
     )
     container_parser.add_argument(
-        '-w', '--work-dir',
+        '--work-dir', '-w',
         default='.',
         help='Specify the working directory to mount into the container.'
     )
