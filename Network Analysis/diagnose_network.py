@@ -15,7 +15,7 @@
 # Commands:
 # - system-info (si)          Display detailed network information about the system.
 # - diagnose (dg)             Perform automated diagnostics on the network.
-# - traffic-monitor (tm)      Monitor network traffic to detect anomalies using Scapy.
+# - traffic-monitor (tm)      Monitor network traffic to detect anomalies and bad actors.
 # - wifi (wf)                 Perform WiFi diagnostics and analyze available networks.
 # - container (co)            Run the script inside of a Docker container.
 #
@@ -89,7 +89,7 @@
 #   - WhatWeb Check (native):
 #     - whatweb (install via: apt install whatweb)
 #   - WAFW00F Check (native):
-#     - wafw00f (install via: pip install wafw00f)
+#     - wafw00f (install via: apt install wafw00f)
 #   - Hydra Check (native):
 #     - hydra (install via: apt install hydra)
 #
@@ -4123,7 +4123,7 @@ def parse_arguments() -> argparse.Namespace:
     traffic_monitor_parser = subparsers.add_parser(
         'traffic-monitor',
         aliases=['tm'],
-        help='Monitor network traffic to detect anomalies using Scapy.',
+        help='Monitor network traffic to detect anomalies and bad actors.',
         description=(
             "Continuously monitor network traffic to identify and alert on suspicious activities "
             "such as DHCP floods, port scans, DNS exfiltration, and more."
