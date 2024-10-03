@@ -40,7 +40,6 @@
 # -T, --whatweb               Enable WhatWeb scanning for discovered devices.
 # -F, --wafw00f               Enable WAFW00F scanning for discovered devices.
 # -H, --hydra                 Enable Hydra scanning for discovered devices.
-# -C, --credentials           Enable default credentials check for discovered devices.
 # -A, --all                   Enable all available diagnostic tools.
 #
 # Traffic Monitor Command Options:
@@ -94,8 +93,6 @@
 #     - wafw00f (install via: pip install wafw00f)
 #   - Hydra Check (native):
 #     - hydra (install via: apt install hydra)
-#   - Credentials Check:
-#     - BeautifulSoup (install via: pip install beautifulsoup4)
 #
 # - Traffic Monitor Command:
 #   - scapy (install via: pip install scapy)
@@ -175,14 +172,6 @@ try:
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
-
-# Attempt to import BeautifulSoup for HTML parsing
-try:
-    from bs4 import BeautifulSoup
-    BEAUTIFULSOUP_AVAILABLE = True
-except ImportError:
-    BeautifulSoup = None
-    BEAUTIFULSOUP_AVAILABLE = False
 
 # Attempt to import psutil for system information
 try:
@@ -2098,283 +2087,6 @@ class HttpSecurityDiagnostics(BaseDiagnostics):
         return issues
 
 
-class HttpAuthenticationDiagnostics(BaseDiagnostics):
-    def diagnose(self) -> Optional[List[DiagnoseIssue]]:
-        issues: List[DiagnoseIssue] = []
-
-        if self.args.all or self.args.credentials:
-            urls: List[str] = self.tools.get_device_urls()
-            hostname = self.tools.get_device_hostname()
-            for url in urls:
-                issues.extend(self.check_default_credentials(url, hostname))
-
-        return issues
-
-    def check_default_credentials(self, url: str, hostname: Optional[str]) -> List[DiagnoseIssue]:
-        """
-        Check for default credentials on the device based on the vendor.
-        """
-        issues: List[DiagnoseIssue] = []
-
-        if not BEAUTIFULSOUP_AVAILABLE:
-            self.logger.error("BeautifulSoup is not installed. Install it using 'pip install beautifulsoup4'.")
-            return issues
-
-        try:
-            self.logger.debug(f"Initiating default credentials check on {url}.")
-
-            # Retrieve the list of default credentials for the specified vendor
-            vendor: str = self.device.vendor or ''
-            credentials = self.config.credentials.get_vendor_credentials(vendor)
-            self.logger.debug(f"Retrieved {len(credentials)} default credentials for vendor '{vendor}' to check on {url}.")
-
-            # Determine the authentication method required by the device's admin interface
-            auth_method = self._identify_authentication_method(url, hostname)
-            if not auth_method:
-                self.logger.info(f"No authentication required for {url}. Skipping default credentials check.")
-                return issues  # No authentication needed; no default credentials issue
-
-            self.logger.debug(f"Authentication method for {url}: {auth_method}")
-
-            # Iterate through each set of default credentials and attempt authentication
-            for cred in credentials:
-                username = cred.get('username')
-                password = cred.get('password')
-                if not username or not password:
-                    self.logger.warning(f"Invalid credential entry: {cred}. Skipping.")
-                    continue  # Skip invalid credential entries
-
-                self.logger.debug(f"Attempting to authenticate on {url} with username='{username}' and password='{password}'.")
-
-                if self._attempt_authentication(url, hostname, username, password, auth_method):
-                    issue_description = f"Default credentials used: {username}/{password}"
-                    port = self.tools.determine_port_from_url(url)
-                    issues.append(self.create_issue(issue_description, port))
-                    self.logger.info(f"Default credentials successfully used on {url}: {username}/{password}")
-                    break  # Stop after first successful authentication
-        except Exception as e:
-            self.logger.info(f"Unexpected error while checking default credentials on {url}: {e}")
-        return issues
-
-    def _identify_authentication_method(self, url: str, hostname: Optional[str]) -> Optional[str]:
-        """
-        Identify the authentication method required by the device's admin interface.
-        """
-        try:
-            self.logger.debug(f"Sending unauthenticated request to {url} to determine authentication method.")
-
-            response = self.tools.make_http_request(url, hostname, verify=False)
-            if response is None:
-                self.logger.debug(f"No response received from {url}. Assuming no authentication required.")
-                return None
-
-            if response.status_code == 401:
-                self.logger.debug(f"Received 401 Unauthorized from {url}. Assuming HTTP Basic Authentication.")
-                return 'basic'
-            elif response.status_code == 200:
-                # Analyze the response content to detect a login form
-                soup = BeautifulSoup(response.text, 'html.parser')
-                form = soup.find('form')
-                if form:
-                    password_inputs = form.find_all('input', {'type': 'password'})
-                    if password_inputs:
-                        self.logger.debug(f"Login form detected on {url}. Assuming Form-Based Authentication.")
-                        return 'form'
-                self.logger.debug(f"No authentication required as no login form detected on {url}.")
-                return None
-            else:
-                self.logger.debug(f"Received unexpected status code {response.status_code} from {url}. Assuming no authentication.")
-                return None
-        except Exception as e:
-            self.logger.info(f"Unexpected error while determining authentication method for {url}: {e}")
-        return None
-
-    def _attempt_authentication(self, url: str, hostname: Optional[str], username: str, password: str, auth_method: str) -> bool:
-        """
-        Attempt to authenticate to the device's admin interface using the specified authentication method.
-        """
-        try:
-            if auth_method == 'basic':
-                return self._attempt_basic_authentication(url, hostname, username, password)
-            elif auth_method == 'form':
-                return self._attempt_form_based_authentication(url, hostname, username, password)
-            else:
-                self.logger.error(f"Unsupported authentication method '{auth_method}' for {url}.")
-        except Exception as e:
-            self.logger.info(f"Unexpected error during authentication to {url} with username='{username}': {e}")
-        return False
-
-    def _attempt_basic_authentication(self, url: str, hostname: Optional[str], username: str, password: str) -> bool:
-        """
-        Attempt HTTP Basic Authentication.
-        """
-        headers = {'Host': hostname if hostname else "N/A"}
-        self.logger.debug(f"Initiating HTTP Basic Authentication to {url} with username='{username}'.")
-
-        try:
-            response = self.tools.make_http_request(
-                url=url,
-                hostname=hostname,
-                auth=(username, password),
-                headers=headers,
-                verify=False
-            )
-
-            if response is None:
-                self.logger.debug(f"No response received during HTTP Basic Authentication for {username}/{password} on {url}.")
-                return False
-
-            if response.status_code in [200, 302]:
-                self.logger.debug(f"HTTP Basic Authentication succeeded for {username}/{password} on {url} with status code {response.status_code}.")
-                return True
-            else:
-                self.logger.debug(f"HTTP Basic Authentication failed for {username}/{password} on {url} with status code {response.status_code}.")
-        except Exception as e:
-            self.logger.debug(f"HTTP Basic Authentication request to {url} with {username}/{password} failed: {e}")
-        return False
-
-    def _attempt_form_based_authentication(self, url: str, hostname: Optional[str], username: str, password: str) -> bool:
-        """
-        Attempt Form-Based Authentication by submitting credentials through the login form.
-        """
-        headers = {'Host': hostname if hostname else "N/A"}
-        self.logger.debug(f"Fetching login form from {url} for form-based authentication.")
-
-        try:
-            # Fetch the login page to retrieve the form details
-            response = self.tools.make_http_request(
-                url=url,
-                hostname=hostname,
-                headers=headers,
-                verify=False
-            )
-
-            if response is None or response.status_code != 200:
-                self.logger.debug(f"Failed to retrieve login page from {url}. Status code: {response.status_code if response else 'No Response'}")
-                return False
-
-            soup = BeautifulSoup(response.text, 'html.parser')
-            form = self._extract_login_form(soup)
-            if not form:
-                self.logger.debug(f"No suitable login form found on {url}.")
-                return False
-
-            form_details = self._parse_login_form(form, url)
-            if not form_details:
-                self.logger.debug(f"Failed to parse login form on {url}.")
-                return False
-
-            form_action, form_method, form_data = form_details
-
-            # Populate form data with credentials
-            form_data = self._populate_form_data(form_data, username, password)
-
-            self.logger.debug(f"Submitting form to {form_action} with data: {form_data}")
-
-            # Submit the form with the populated data
-            if form_method.lower() == 'post':
-                post_response = self.tools.make_http_request(
-                    url=form_action,
-                    hostname=hostname,
-                    method='POST',
-                    data=form_data,
-                    headers=headers,
-                    verify=False
-                )
-            else:
-                # For GET method forms
-                post_response = self.tools.make_http_request(
-                    url=form_action,
-                    hostname=hostname,
-                    method='GET',
-                    params=form_data,
-                    headers=headers,
-                    verify=False
-                )
-
-            # Determine if authentication was successful based on response
-            if post_response and post_response.status_code in [200, 302]:
-                self.logger.debug(f"Form-Based Authentication succeeded for {username}/{password} on {form_action} with status code {post_response.status_code}.")
-                return True
-            else:
-                self.logger.debug(f"Form-Based Authentication failed for {username}/{password} on {form_action} with status code {post_response.status_code if post_response else 'No Response'}.")
-        except Exception as e:
-            self.logger.debug(f"Form-Based Authentication request to {url} with {username}/{password} failed: {e}")
-        return False
-
-    def _extract_login_form(self, soup: BeautifulSoup) -> Optional[BeautifulSoup]:
-        """
-        Extract the login form from the parsed HTML soup.
-        """
-        # Attempt to find form elements that likely represent a login form
-        forms = soup.find_all('form')
-        for form in forms:
-            # Check for input fields that indicate a login form
-            input_types = [input_tag.get('type', '').lower() for input_tag in form.find_all('input')]
-            if 'password' in input_types:
-                return form
-        return None
-
-    def _parse_login_form(self, form: BeautifulSoup, base_url: str) -> Optional[Tuple[str, str, Dict[str, str]]]:
-        """
-        Parse the login form to extract action URL, method, and input fields.
-        """
-        try:
-            # Extract form action (target URL)
-            action = form.get('action')
-            if not action:
-                action_url = base_url  # Default to current URL if action is not specified
-            elif not action.startswith('http'):
-                # Handle relative URLs
-                if action.startswith('/'):
-                    parsed_url = urlparse(base_url)
-                    action_url = f"{parsed_url.scheme}://{parsed_url.netloc}{action}"
-                else:
-                    # Relative path without leading slash
-                    action_url = f"{base_url}/{action}"
-            else:
-                action_url = action
-
-            # Extract form method (GET or POST)
-            method = form.get('method', 'post').lower()
-
-            # Extract all input fields within the form
-            inputs = form.find_all('input')
-            form_data = {}
-            for input_tag in inputs:
-                input_name = input_tag.get('name')
-                input_type = input_tag.get('type', '').lower()
-                input_value = input_tag.get('value', '')
-
-                if not input_name:
-                    continue  # Skip inputs without a name attribute
-
-                if input_type == 'password':
-                    form_data[input_name] = ''  # Placeholder for password
-                elif input_type in ['text', 'email', 'username']:
-                    form_data[input_name] = ''  # Placeholder for username
-                elif input_type in ['hidden', 'submit']:
-                    form_data[input_name] = input_value
-                else:
-                    form_data[input_name] = input_value  # Default handling
-
-            return action_url, method, form_data
-        except Exception as e:
-            self.logger.info(f"Error parsing login form: {e}")
-        return None
-
-    def _populate_form_data(self, form_data: Dict[str, str], username: str, password: str) -> Dict[str, str]:
-        """
-        Populate the form data with the provided username and password.
-        """
-        for key, value in form_data.items():
-            if 'user' in key.lower():
-                form_data[key] = username
-            elif 'pass' in key.lower():
-                form_data[key] = password
-        return form_data
-
-
 class SnmpSecurityDiagnostics(BaseDiagnostics):
     def diagnose(self) -> Optional[List[DiagnoseIssue]]:
         issues: List[DiagnoseIssue] = []
@@ -2953,7 +2665,6 @@ class DiagnosticsCommand(BaseCommand):
         """
         diagnostics: List[BaseDiagnostics] = [
             ExternalResourcesDiagnostics(device_type, device, self.logger, self.args, self.config),
-            HttpAuthenticationDiagnostics(device_type, device, self.logger, self.args, self.config),
             HttpSecurityDiagnostics(device_type, device, self.logger, self.args, self.config),
             SnmpSecurityDiagnostics(device_type, device, self.logger, self.args, self.config),
         ]
@@ -4056,7 +3767,6 @@ class ContainerCommand(BaseCommand):
             python3 \\
             python3-pip \\
             python3-rich \\
-            python3-bs4 \\
             python3-requests \\
             python3-psutil \\
             nmap \\
@@ -4462,11 +4172,6 @@ def parse_arguments() -> argparse.Namespace:
         '--hydra', '-H',
         action='store_true',
         help='Run Hydra scanner on discovered devices.'
-    )
-    diagnose_parser.add_argument(
-        '--credentials', '-C',
-        action='store_true',
-        help='Check for default credentials on discovered devices.'
     )
     diagnose_parser.add_argument(
         '--all', '-A',
