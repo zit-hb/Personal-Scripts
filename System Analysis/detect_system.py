@@ -6,7 +6,7 @@
 # Description:
 # This script detects the underlying operating system and identifies if it is running within a virtualized environment.
 # It provides detailed information about the OS, including distribution and version for Linux systems, and identifies
-# the type of virtualization (e.g., Docker, VirtualBox, VMware) if present, along with version details where possible.
+# the type of virtualization (e.g., Docker, VirtualBox, VMWare) if present, along with version details where possible.
 #
 # Usage:
 # ./detect_system.py [options]
@@ -27,1498 +27,1045 @@
 # -------------------------------------------------------
 
 import argparse
-import json
 import logging
-import os
-import platform
 import subprocess
 import sys
-import glob
+import json
+import platform
+import os
+import ctypes
+import typing
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Any
+from enum import Enum
+from dataclasses import dataclass, field
 
-try:
-    import winreg
-except ImportError:
-    winreg = None  # Handle non-Windows environments gracefully
+# Constants for file paths and registry keys
+LINUX_OS_RELEASE_PATH = '/etc/os-release'
+PROC_SCSI_SCSI = '/proc/scsi/scsi'
 
 
-# Base class for Operating Systems
-class OSBase(ABC):
-    def __init__(self, paranoid: bool = False) -> None:
-        self.paranoid = paranoid
+class OperatingSystemType(Enum):
+    """Enum representing supported operating system types."""
+    WINDOWS = 'Windows'
+    LINUX = 'Linux'
+    MACOS = 'MacOS'
+    FREEBSD = 'FreeBSD'
+    UNKNOWN = 'Unknown'
+
+
+class VirtualMachineType(Enum):
+    """Enum representing supported virtual machine types."""
+    VMWARE = 'VMware'
+    VIRTUALBOX = 'VirtualBox'
+    HYPERV = 'Hyper-V'
+    KVM = 'KVM'
+    XEN = 'Xen'
+    UNKNOWN = 'Unknown'
+
+
+class SandboxType(Enum):
+    """Enum representing supported sandbox types."""
+    DOCKER = 'Docker'
+    KUBERNETES = 'Kubernetes'
+    UNKNOWN = 'Unknown'
+
+
+@dataclass
+class OperatingSystemInfo:
+    """Data class for storing operating system information."""
+    type: OperatingSystemType = OperatingSystemType.UNKNOWN
+    version: str = ''
+    architecture: str = ''
+    additional_info: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class VirtualMachineInfo:
+    """Data class for storing virtual machine information."""
+    type: VirtualMachineType = VirtualMachineType.UNKNOWN
+    version: str = ''
+    additional_info: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SandboxInfo:
+    """Data class for storing sandbox environment information."""
+    type: SandboxType = SandboxType.UNKNOWN
+    version: str = ''
+    additional_info: Dict[str, Any] = field(default_factory=dict)
+
+
+class BaseDetector(ABC):
+    """Abstract base class for detectors."""
 
     @abstractmethod
-    def matches(self) -> bool:
-        """Determine if this class should handle the current OS."""
-        pass
-
-    @abstractmethod
-    def get_os_info(self) -> Dict[str, Any]:
-        """Gather OS-specific information."""
-        pass
-
-
-# Windows OS Class
-class OSWindows(OSBase):
-    def matches(self) -> bool:
-        if self.paranoid:
-            return self._paranoid_matches()
-        else:
-            return self._trusting_matches()
-
-    def _trusting_matches(self) -> bool:
-        current_os = platform.system()
-        logging.debug(f"OSWindows._trusting_matches() called. Current OS: {current_os}")
-        return current_os == "Windows"
-
-    def _paranoid_matches(self) -> bool:
-        """
-        Perform paranoid checks to verify the OS is genuine Windows.
-        This includes verifying critical system files/directories and checking registry keys.
-        """
-        logging.debug("OSWindows._paranoid_matches() called. Performing paranoid OS verification.")
-
-        # Verify essential Windows directories and files
-        essential_paths = [
-            r"C:\Windows\System32",
-            r"C:\Windows\win.ini",
-            r"C:\Windows\System32\cmd.exe",
-            r"C:\Windows\System32\kernel32.dll",
-            r"C:\Windows\System32\drivers\etc\hosts"
-        ]
-
-        for path in essential_paths:
-            if not os.path.exists(path):
-                logging.debug(f"Paranoid match failed: Essential path '{path}' does not exist.")
-                return False
-            else:
-                logging.debug(f"Paranoid check passed: '{path}' exists.")
-
-        # Verify critical registry keys
-        registry_checks = {
-            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion": [
-                "ProductName",
-                "ReleaseId",
-                "CurrentBuild",
-                "CurrentBuildNumber",
-                "EditionID"
-            ]
-        }
-
-        try:
-            for reg_path, values in registry_checks.items():
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
-                    for value_name in values:
-                        try:
-                            value, regtype = winreg.QueryValueEx(key, value_name)
-                            if not value:
-                                logging.debug(f"Paranoid match failed: Registry value '{value_name}' is empty.")
-                                return False
-                            logging.debug(f"Paranoid check passed: Registry '{value_name}' = '{value}'.")
-                        except FileNotFoundError:
-                            logging.debug(f"Paranoid match failed: Registry value '{value_name}' not found.")
-                            return False
-        except Exception as e:
-            logging.error(f"Error accessing registry for paranoid OS verification: {e}")
-            return False
-
-        # Verify critical system services are running
-        required_services = [
-            "Service Control Manager",  # services.exe
-            "wuauserv",                 # Windows Update
-            "MpsSvc"                    # Windows Firewall
-        ]
-
-        for service in required_services:
-            if not self._is_service_running(service):
-                logging.debug(f"Paranoid match failed: Required service '{service}' is not running.")
-                return False
-            else:
-                logging.debug(f"Paranoid check passed: Service '{service}' is running.")
-
-        logging.debug("Paranoid match succeeded: All paranoid checks passed.")
-        return True
-
-    def _is_service_running(self, service_name: str) -> bool:
-        """
-        Checks if a given Windows service is running.
-        """
-        try:
-            # Use 'sc query' to check service status
-            result = subprocess.run(['sc', 'query', service_name],
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    text=True,
-                                    timeout=5)
-            if result.returncode != 0:
-                logging.debug(f"Service '{service_name}' query failed: {result.stderr.strip()}")
-                return False
-
-            # Parse the output to check if the service is running
-            for line in result.stdout.splitlines():
-                if "STATE" in line:
-                    if "RUNNING" in line:
-                        logging.debug(f"Service '{service_name}' is running.")
-                        return True
-                    else:
-                        logging.debug(f"Service '{service_name}' is not running. State: {line.strip()}")
-                        return False
-            logging.debug(f"Service '{service_name}' state not found in query output.")
-            return False
-        except subprocess.TimeoutExpired:
-            logging.error(f"Timeout expired while checking service '{service_name}'.")
-            return False
-        except Exception as e:
-            logging.error(f"Error checking service '{service_name}': {e}")
-            return False
-
-    def get_os_info(self) -> Dict[str, Any]:
-        logging.debug("Gathering Windows OS information.")
-        if self.paranoid:
-            return self._paranoid_get_os_info()
-        else:
-            os_info = {
-                "OS": "Windows",
-                "Version": platform.version(),
-                "Release": platform.release(),
-                "Architecture": platform.machine(),
-                "Processor": platform.processor(),
-            }
-            return os_info
-
-    def _paranoid_get_os_info(self) -> Dict[str, Any]:
-        """
-        Gather OS information without relying on platform APIs.
-        Reads directly from system files and registry.
-        """
-        logging.debug("OSWindows._paranoid_get_os_info() called. Gathering OS info in paranoid mode.")
-
-        os_info = {
-            "OS": "Windows",
-            "Version": "Unknown",
-            "Release": "Unknown",
-            "Architecture": "Unknown",
-            "Processor": "Unknown",
-        }
-
-        # Retrieve OS Version and Release from registry
-        try:
-            reg_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
-                os_info["ProductName"], _ = winreg.QueryValueEx(key, "ProductName")
-                os_info["Release"] = winreg.QueryValueEx(key, "ReleaseId")[0]
-                os_info["CurrentBuild"] = winreg.QueryValueEx(key, "CurrentBuild")[0]
-                os_info["EditionID"], _ = winreg.QueryValueEx(key, "EditionID")
-                logging.debug(f"Retrieved registry info: ProductName='{os_info['ProductName']}', ReleaseId='{os_info['Release']}', CurrentBuild='{os_info['CurrentBuild']}', EditionID='{os_info['EditionID']}'")
-        except Exception as e:
-            logging.error(f"Error retrieving OS version from registry: {e}")
-
-        # Retrieve Architecture from system directories
-        try:
-            system_dir = r"C:\Windows\System32"
-            if os.path.exists(system_dir):
-                arch = platform.machine()
-                os_info["Architecture"] = arch
-                logging.debug(f"Retrieved architecture: {arch}")
-            else:
-                logging.debug(f"System directory '{system_dir}' does not exist.")
-        except Exception as e:
-            logging.error(f"Error retrieving architecture: {e}")
-
-        # Retrieve Processor information
-        try:
-            # Using environment variables as a fallback
-            processor = os.environ.get('PROCESSOR_IDENTIFIER', 'Unknown')
-            os_info["Processor"] = processor
-            logging.debug(f"Retrieved processor info: {processor}")
-        except Exception as e:
-            logging.error(f"Error retrieving processor information: {e}")
-
-        return os_info
-
-
-# macOS Class
-class OSMacOS(OSBase):
-    def matches(self) -> bool:
-        if self.paranoid:
-            return self._paranoid_matches()
-        else:
-            return self._trusting_matches()
-
-    def _trusting_matches(self) -> bool:
-        current_os = platform.system()
-        logging.debug(f"OSMacOS._trusting_matches() called. Current OS: {current_os}")
-        return current_os == "Darwin"
-
-    def _paranoid_matches(self) -> bool:
-        # In paranoid mode, check for specific macOS files
-        specific_files = [
-            '/System/Library/CoreServices/SystemVersion.plist',
-            '/Applications',
-            '/System/Library/Frameworks'
-        ]
-        for file in specific_files:
-            if not os.path.exists(file):
-                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
-                return False
-        logging.debug("Paranoid match succeeded: All specific macOS files found.")
-        return True
-
-    def get_os_info(self) -> Dict[str, Any]:
-        logging.debug("Gathering macOS OS information.")
-        if self.paranoid:
-            return self._paranoid_get_os_info()
-        else:
-            mac_ver = platform.mac_ver()[0]
-            os_info = {
-                "OS": "macOS",
-                "Version": mac_ver if mac_ver else "Unknown",
-                "Release": platform.release(),
-                "Architecture": platform.machine(),
-                "Processor": platform.processor(),
-            }
-            return os_info
-
-    def _paranoid_get_os_info(self) -> Dict[str, Any]:
-        # In paranoid mode, gather OS info without relying on platform
-        os_info = {
-            "OS": "macOS",
-            "Version": "Unknown",
-            "Release": "Unknown",
-            "Architecture": "Unknown",
-            "Processor": "Unknown",
-        }
-        # Attempt to read SystemVersion.plist
-        try:
-            plist_path = '/System/Library/CoreServices/SystemVersion.plist'
-            if os.path.exists(plist_path):
-                import plistlib
-                with open(plist_path, 'rb') as f:
-                    plist = plistlib.load(f)
-                    os_info["Version"] = plist.get('ProductVersion', 'Unknown')
-                    os_info["Release"] = plist.get('ProductBuildVersion', 'Unknown')
-        except Exception as e:
-            logging.error(f"Error retrieving macOS version in paranoid mode: {e}")
-        return os_info
-
-
-# Linux OS Class
-class OSLinux(OSBase):
-    def matches(self) -> bool:
-        if self.paranoid:
-            return self._paranoid_matches()
-        else:
-            return self._trusting_matches()
-
-    def _trusting_matches(self) -> bool:
-        current_os = platform.system()
-        logging.debug(f"OSLinux._trusting_matches() called. Current OS: {current_os}")
-        return current_os == "Linux"
-
-    def _paranoid_matches(self) -> bool:
-        # In paranoid mode, check for specific Linux files
-        specific_files = [
-            '/etc/os-release',
-            '/bin/bash',
-            '/usr/bin/python3'
-        ]
-        for file in specific_files:
-            if not os.path.exists(file):
-                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
-                return False
-        logging.debug("Paranoid match succeeded: All specific Linux files found.")
-        return True
-
-    def get_os_info(self) -> Dict[str, Any]:
-        logging.debug("Gathering Linux OS information.")
-        if self.paranoid:
-            return self._paranoid_get_os_info()
-        else:
-            os_name, os_version, os_codename = self._parse_os_release()
-            os_info = {
-                "OS": "Linux",
-                "Distribution": os_name,
-                "Version": os_version,
-                "Codename": os_codename,
-                "Architecture": platform.machine(),
-                "Processor": platform.processor(),
-            }
-            return os_info
-
-    def _paranoid_get_os_info(self) -> Dict[str, Any]:
-        # In paranoid mode, gather OS info without relying on platform
-        os_info = {
-            "OS": "Linux",
-            "Distribution": "Unknown",
-            "Version": "Unknown",
-            "Codename": "Unknown",
-            "Architecture": "Unknown",
-            "Processor": "Unknown",
-        }
-        # Parse /etc/os-release manually
-        os_release_path = "/etc/os-release"
-        try:
-            with open(os_release_path, 'r') as f:
-                for line in f:
-                    if line.startswith("NAME="):
-                        os_info["Distribution"] = line.strip().split('=')[1].strip('"')
-                    elif line.startswith("VERSION_ID="):
-                        os_info["Version"] = line.strip().split('=')[1].strip('"')
-                    elif line.startswith("VERSION_CODENAME="):
-                        os_info["Codename"] = line.strip().split('=')[1].strip('"')
-        except FileNotFoundError:
-            logging.warning(f"'{os_release_path}' not found. Distribution information may be limited.")
-        except Exception as e:
-            logging.error(f"Error reading '{os_release_path}': {e}")
-
-        # Attempt to get architecture from /proc/cpuinfo
-        try:
-            with open('/proc/cpuinfo', 'r') as f:
-                for line in f:
-                    if line.startswith("Architecture") or line.startswith("model name"):
-                        os_info["Architecture"] = platform.machine()
-                        break
-        except Exception as e:
-            logging.error(f"Error reading '/proc/cpuinfo': {e}")
-
-        return os_info
-
-    def _parse_os_release(self) -> Tuple[str, str, str]:
-        """
-        Parses the /etc/os-release file to get distribution information.
-        """
-        os_release_path = "/etc/os-release"
-        os_name = "Unknown"
-        os_version = "Unknown"
-        os_codename = "Unknown"
-
-        try:
-            with open(os_release_path, 'r') as f:
-                for line in f:
-                    if line.startswith("NAME="):
-                        os_name = line.strip().split('=')[1].strip('"')
-                    elif line.startswith("VERSION_ID="):
-                        os_version = line.strip().split('=')[1].strip('"')
-                    elif line.startswith("VERSION_CODENAME="):
-                        os_codename = line.strip().split('=')[1].strip('"')
-        except FileNotFoundError:
-            logging.warning(f"'{os_release_path}' not found. Distribution information may be limited.")
-        except Exception as e:
-            logging.error(f"Error reading '{os_release_path}': {e}")
-
-        return os_name, os_version, os_codename
-
-
-# FreeBSD OS Class
-class OSFreeBSD(OSBase):
-    def matches(self) -> bool:
-        if self.paranoid:
-            return self._paranoid_matches()
-        else:
-            return self._trusting_matches()
-
-    def _trusting_matches(self) -> bool:
-        current_os = platform.system()
-        logging.debug(f"OSFreeBSD._trusting_matches() called. Current OS: {current_os}")
-        return current_os == "FreeBSD"
-
-    def _paranoid_matches(self) -> bool:
-        # In paranoid mode, check for specific FreeBSD files
-        specific_files = [
-            '/etc/freebsd-version',
-            '/bin/freebsd',
-            '/sbin/init'
-        ]
-        for file in specific_files:
-            if not os.path.exists(file):
-                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
-                return False
-        logging.debug("Paranoid match succeeded: All specific FreeBSD files found.")
-        return True
-
-    def get_os_info(self) -> Dict[str, Any]:
-        logging.debug("Gathering FreeBSD OS information.")
-        if self.paranoid:
-            return self._paranoid_get_os_info()
-        else:
-            os_info = {
-                "OS": "FreeBSD",
-                "Version": self._get_freebsd_version(),
-                "Release": platform.release(),
-                "Architecture": platform.machine(),
-                "Processor": platform.processor(),
-            }
-            return os_info
-
-    def _paranoid_get_os_info(self) -> Dict[str, Any]:
-        # In paranoid mode, gather OS info without relying on platform
-        os_info = {
-            "OS": "FreeBSD",
-            "Version": "Unknown",
-            "Release": "Unknown",
-            "Architecture": "Unknown",
-            "Processor": "Unknown",
-        }
-        # Attempt to read /etc/freebsd-version
-        version_path = '/etc/freebsd-version'
-        try:
-            if os.path.exists(version_path):
-                with open(version_path, 'r') as f:
-                    os_info["Version"] = f.read().strip()
-        except Exception as e:
-            logging.error(f"Error retrieving FreeBSD version in paranoid mode: {e}")
-        # Attempt to read uname information
-        try:
-            release = subprocess.check_output(['uname', '-r'], text=True).strip()
-            os_info["Release"] = release
-        except Exception as e:
-            logging.error(f"Error retrieving FreeBSD release in paranoid mode: {e}")
-        return os_info
-
-    def _get_freebsd_version(self) -> str:
-        try:
-            version = subprocess.check_output(['freebsd-version'], text=True).strip()
-        except Exception as e:
-            logging.error(f"Error retrieving FreeBSD version: {e}")
-            version = "Unknown"
-        return version
-
-
-# OpenBSD OS Class
-class OSOpenBSD(OSBase):
-    def matches(self) -> bool:
-        if self.paranoid:
-            return self._paranoid_matches()
-        else:
-            return self._trusting_matches()
-
-    def _trusting_matches(self) -> bool:
-        current_os = platform.system()
-        logging.debug(f"OSOpenBSD._trusting_matches() called. Current OS: {current_os}")
-        return current_os == "OpenBSD"
-
-    def _paranoid_matches(self) -> bool:
-        # In paranoid mode, check for specific OpenBSD files
-        specific_files = [
-            '/etc/openbsd-version',
-            '/bin/ksh',
-            '/sbin/init'
-        ]
-        for file in specific_files:
-            if not os.path.exists(file):
-                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
-                return False
-        logging.debug("Paranoid match succeeded: All specific OpenBSD files found.")
-        return True
-
-    def get_os_info(self) -> Dict[str, Any]:
-        logging.debug("Gathering OpenBSD OS information.")
-        if self.paranoid:
-            return self._paranoid_get_os_info()
-        else:
-            try:
-                version = subprocess.check_output(['uname', '-r'], text=True).strip()
-            except Exception as e:
-                logging.error(f"Error retrieving OpenBSD version: {e}")
-                version = "Unknown"
-            os_info = {
-                "OS": "OpenBSD",
-                "Version": version,
-                "Release": platform.release(),
-                "Architecture": platform.machine(),
-                "Processor": platform.processor(),
-            }
-            return os_info
-
-    def _paranoid_get_os_info(self) -> Dict[str, Any]:
-        # In paranoid mode, gather OS info without relying on platform
-        os_info = {
-            "OS": "OpenBSD",
-            "Version": "Unknown",
-            "Release": "Unknown",
-            "Architecture": "Unknown",
-            "Processor": "Unknown",
-        }
-        # Attempt to read /etc/openbsd-version
-        version_path = '/etc/openbsd-version'
-        try:
-            if os.path.exists(version_path):
-                with open(version_path, 'r') as f:
-                    os_info["Version"] = f.read().strip()
-        except Exception as e:
-            logging.error(f"Error retrieving OpenBSD version in paranoid mode: {e}")
-        # Attempt to read uname information
-        try:
-            release = subprocess.check_output(['uname', '-r'], text=True).strip()
-            os_info["Release"] = release
-        except Exception as e:
-            logging.error(f"Error retrieving OpenBSD release in paranoid mode: {e}")
-        return os_info
-
-
-# NetBSD OS Class
-class OSNetBSD(OSBase):
-    def matches(self) -> bool:
-        if self.paranoid:
-            return self._paranoid_matches()
-        else:
-            return self._trusting_matches()
-
-    def _trusting_matches(self) -> bool:
-        current_os = platform.system()
-        logging.debug(f"OSNetBSD._trusting_matches() called. Current OS: {current_os}")
-        return current_os == "NetBSD"
-
-    def _paranoid_matches(self) -> bool:
-        # In paranoid mode, check for specific NetBSD files
-        specific_files = [
-            '/etc/NetBSD-version',
-            '/bin/sh',
-            '/sbin/init'
-        ]
-        for file in specific_files:
-            if not os.path.exists(file):
-                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
-                return False
-        logging.debug("Paranoid match succeeded: All specific NetBSD files found.")
-        return True
-
-    def get_os_info(self) -> Dict[str, Any]:
-        logging.debug("Gathering NetBSD OS information.")
-        if self.paranoid:
-            return self._paranoid_get_os_info()
-        else:
-            try:
-                version = subprocess.check_output(['uname', '-r'], text=True).strip()
-            except Exception as e:
-                logging.error(f"Error retrieving NetBSD version: {e}")
-                version = "Unknown"
-            os_info = {
-                "OS": "NetBSD",
-                "Version": version,
-                "Release": platform.release(),
-                "Architecture": platform.machine(),
-                "Processor": platform.processor(),
-            }
-            return os_info
-
-    def _paranoid_get_os_info(self) -> Dict[str, Any]:
-        # In paranoid mode, gather OS info without relying on platform
-        os_info = {
-            "OS": "NetBSD",
-            "Version": "Unknown",
-            "Release": "Unknown",
-            "Architecture": "Unknown",
-            "Processor": "Unknown",
-        }
-        # Attempt to read /etc/NetBSD-version
-        version_path = '/etc/NetBSD-version'
-        try:
-            if os.path.exists(version_path):
-                with open(version_path, 'r') as f:
-                    os_info["Version"] = f.read().strip()
-        except Exception as e:
-            logging.error(f"Error retrieving NetBSD version in paranoid mode: {e}")
-        # Attempt to read uname information
-        try:
-            release = subprocess.check_output(['uname', '-r'], text=True).strip()
-            os_info["Release"] = release
-        except Exception as e:
-            logging.error(f"Error retrieving NetBSD release in paranoid mode: {e}")
-        return os_info
-
-
-# Solaris OS Class
-class OSSolaris(OSBase):
-    def matches(self) -> bool:
-        if self.paranoid:
-            return self._paranoid_matches()
-        else:
-            return self._trusting_matches()
-
-    def _trusting_matches(self) -> bool:
-        current_os = platform.system()
-        logging.debug(f"OSSolaris._trusting_matches() called. Current OS: {current_os}")
-        return current_os in ["SunOS", "Solaris"]
-
-    def _paranoid_matches(self) -> bool:
-        # In paranoid mode, check for specific Solaris files
-        specific_files = [
-            '/etc/release',
-            '/usr/bin/zonename',
-            '/sbin/init'
-        ]
-        for file in specific_files:
-            if not os.path.exists(file):
-                logging.debug(f"Paranoid match failed: '{file}' does not exist.")
-                return False
-        logging.debug("Paranoid match succeeded: All specific Solaris files found.")
-        return True
-
-    def get_os_info(self) -> Dict[str, Any]:
-        logging.debug("Gathering Solaris OS information.")
-        if self.paranoid:
-            return self._paranoid_get_os_info()
-        else:
-            try:
-                version = subprocess.check_output(['uname', '-r'], text=True).strip()
-            except Exception as e:
-                logging.error(f"Error retrieving Solaris version: {e}")
-                version = "Unknown"
-            os_info = {
-                "OS": "Solaris",
-                "Version": version,
-                "Release": platform.release(),
-                "Architecture": platform.machine(),
-                "Processor": platform.processor(),
-            }
-            return os_info
-
-    def _paranoid_get_os_info(self) -> Dict[str, Any]:
-        # In paranoid mode, gather OS info without relying on platform
-        os_info = {
-            "OS": "Solaris",
-            "Version": "Unknown",
-            "Release": "Unknown",
-            "Architecture": "Unknown",
-            "Processor": "Unknown",
-        }
-        # Attempt to read /etc/release
-        release_path = '/etc/release'
-        try:
-            if os.path.exists(release_path):
-                with open(release_path, 'r') as f:
-                    os_info["Version"] = f.read().strip().replace('\n', ' ')
-        except Exception as e:
-            logging.error(f"Error retrieving Solaris version in paranoid mode: {e}")
-        # Attempt to read uname information
-        try:
-            release = subprocess.check_output(['uname', '-r'], text=True).strip()
-            os_info["Release"] = release
-        except Exception as e:
-            logging.error(f"Error retrieving Solaris release in paranoid mode: {e}")
-        return os_info
-
-
-# Generic OS Class for Unsupported Systems
-class OSGeneric(OSBase):
-    def matches(self) -> bool:
-        if self.paranoid:
-            return self._paranoid_matches()
-        else:
-            return self._trusting_matches()
-
-    def _trusting_matches(self) -> bool:
-        # GenericOS matches if no other OS classes do
-        logging.debug("OSGeneric._trusting_matches() called. Always returns True as fallback.")
-        return True
-
-    def _paranoid_matches(self) -> bool:
-        # In paranoid mode, perform minimal checks
-        # For example, check for the existence of /bin/sh and /etc/passwd
-        specific_files = [
-            '/bin/sh',
-            '/etc/passwd'
-        ]
-        for file in specific_files:
-            if not os.path.exists(file):
-                logging.debug(f"OSGeneric paranoid match failed: '{file}' does not exist.")
-                return False
-        logging.debug("OSGeneric paranoid match succeeded: Required generic files found.")
-        return True
-
-    def get_os_info(self) -> Dict[str, Any]:
-        logging.debug("Gathering generic OS information.")
-        if self.paranoid:
-            return self._paranoid_get_os_info()
-        else:
-            os_info = {
-                "OS": platform.system(),
-                "Version": platform.version(),
-                "Release": platform.release(),
-                "Architecture": platform.machine(),
-                "Processor": platform.processor(),
-            }
-            return os_info
-
-    def _paranoid_get_os_info(self) -> Dict[str, Any]:
-        # In paranoid mode, gather generic OS info without relying on platform
-        os_info = {
-            "OS": "Unknown",
-            "Version": "Unknown",
-            "Release": "Unknown",
-            "Architecture": "Unknown",
-            "Processor": "Unknown",
-        }
-        # Attempt to read /etc/os-release if exists
-        os_release_path = "/etc/os-release"
-        try:
-            if os.path.exists(os_release_path):
-                with open(os_release_path, 'r') as f:
-                    for line in f:
-                        if line.startswith("NAME="):
-                            os_info["OS"] = line.strip().split('=')[1].strip('"')
-                        elif line.startswith("VERSION_ID="):
-                            os_info["Version"] = line.strip().split('=')[1].strip('"')
-                        elif line.startswith("VERSION_CODENAME="):
-                            os_info["Release"] = line.strip().split('=')[1].strip('"')
-        except Exception as e:
-            logging.error(f"Error reading '{os_release_path}' in paranoid mode: {e}")
-        return os_info
-
-
-# Virtualization Base Class
-class VMBase(ABC):
-    @abstractmethod
-    def matches(self) -> bool:
-        """Determine if this class should handle the current virtualization environment."""
-        pass
-
-    @abstractmethod
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        """Gather virtualization-specific information."""
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[Any]:
         pass
 
 
-# Docker Detection Class
-class VMDocker(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMDocker.matches() called.")
-        docker_env = False
-        if os.path.exists('/.dockerenv') or os.path.exists('/run/.containerenv'):
-            logging.debug("Detected presence of Docker environment files.")
-            docker_env = True
-        else:
-            # Attempt to detect Docker via cgroup
-            try:
-                with open('/proc/1/cgroup', 'rt') as f:
-                    for line in f:
-                        if 'docker' in line or 'kubepods' in line or 'containerd' in line:
-                            logging.debug("Detected Docker indicators in cgroup.")
-                            docker_env = True
-                            break
-            except Exception as e:
-                logging.error(f"Error reading '/proc/1/cgroup': {e}")
-
-        return docker_env
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering Docker environment information.")
-        version = self._get_docker_version()
-        return {"Environment": "Docker", "Version": version}
-
-    def _get_docker_version(self) -> str:
-        """
-        Attempts to retrieve the Docker version using the Docker CLI.
-        """
-        try:
-            result = subprocess.run(['docker', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                # Example output: "Docker version 20.10.7, build f0df350"
-                version_info = result.stdout.strip()
-                logging.debug(f"Docker version output: {version_info}")
-                return version_info
-            else:
-                logging.warning(f"Docker CLI returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("Docker CLI not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("Docker version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving Docker version: {e}")
-        return "Unknown"
-
-
-# LXC/LXD Detection Class
-class VMLXC(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMLXC.matches() called.")
-        lxc_env = False
-        try:
-            with open('/proc/1/cgroup', 'rt') as f:
-                for line in f:
-                    if 'lxc' in line or 'lxd' in line:
-                        logging.debug("Detected LXC/LXD indicators in cgroup.")
-                        lxc_env = True
-                        break
-        except Exception as e:
-            logging.error(f"Error reading '/proc/1/cgroup': {e}")
-
-        # Check for LXC-specific files
-        if not lxc_env:
-            if os.path.exists('/var/lib/lxc/') or os.path.exists('/etc/lxc/'):
-                logging.debug("Detected presence of LXC/LXD configuration directories.")
-                lxc_env = True
-
-        return lxc_env
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering LXC/LXD environment information.")
-        version = self._get_lxc_version()
-        return {"Environment": "LXC/LXD", "Version": version}
-
-    def _get_lxc_version(self) -> str:
-        """
-        Attempts to retrieve the LXC version using the LXC CLI.
-        """
-        try:
-            result = subprocess.run(['lxc', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                version_info = result.stdout.strip()
-                logging.debug(f"LXC version output: {version_info}")
-                return version_info
-            else:
-                logging.warning(f"LXC CLI returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("LXC CLI not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("LXC version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving LXC version: {e}")
-        return "Unknown"
-
-
-# systemd-nspawn Detection Class
-class VMSYSTEMDNSPAWN(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMSYSTEMDNSPAWN.matches() called.")
-        systemd_spawn = False
-        try:
-            with open('/proc/1/cgroup', 'rt') as f:
-                for line in f:
-                    if 'systemd-nspawn' in line:
-                        logging.debug("Detected systemd-nspawn indicators in cgroup.")
-                        systemd_spawn = True
-                        break
-        except Exception as e:
-            logging.error(f"Error reading '/proc/1/cgroup': {e}")
-        return systemd_spawn
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering systemd-nspawn environment information.")
-        version = self._get_systemd_nspawn_version()
-        return {"Environment": "systemd-nspawn", "Version": version}
-
-    def _get_systemd_nspawn_version(self) -> str:
-        """
-        Attempts to retrieve the systemd-nspawn version.
-        """
-        try:
-            result = subprocess.run(['systemd-nspawn', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                version_info = result.stdout.strip()
-                logging.debug(f"systemd-nspawn version output: {version_info}")
-                return version_info
-            else:
-                logging.warning(f"systemd-nspawn returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("systemd-nspawn not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("systemd-nspawn version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving systemd-nspawn version: {e}")
-        return "Unknown"
-
-
-# Chroot Detection Class
-class VMChroot(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMChroot.matches() called.")
-        # Detecting chroot is non-trivial; one heuristic is checking if /proc/1 is not the same as the current process
-        try:
-            with open('/proc/1/comm', 'rt') as f:
-                init_process = f.read().strip()
-            current_comm = subprocess.check_output(['ps', '-p', '1', '-o', 'comm='], text=True).strip()
-            if init_process != current_comm:
-                logging.debug("Chroot environment detected based on init process mismatch.")
-                return True
-        except Exception as e:
-            logging.error(f"Error detecting chroot environment: {e}")
-        return False
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering Chroot environment information.")
-        return {"Environment": "Chroot"}
-
-
-# Podman Detection Class
-class VMPodman(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMPodman.matches() called.")
-        podman_env = False
-        if os.path.exists('/run/.containerenv') or os.path.exists('/.containerenv'):
-            logging.debug("Detected presence of Podman environment files.")
-            podman_env = True
-        else:
-            # Attempt to detect Podman via cgroup
-            try:
-                with open('/proc/1/cgroup', 'rt') as f:
-                    for line in f:
-                        if 'podman' in line:
-                            logging.debug("Detected Podman indicators in cgroup.")
-                            podman_env = True
-                            break
-            except Exception as e:
-                logging.error(f"Error reading '/proc/1/cgroup': {e}")
-
-        return podman_env
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering Podman environment information.")
-        version = self._get_podman_version()
-        return {"Environment": "Podman", "Version": version}
-
-    def _get_podman_version(self) -> str:
-        """
-        Attempts to retrieve the Podman version using the Podman CLI.
-        """
-        try:
-            result = subprocess.run(['podman', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                # Example output: "podman version 3.3.1"
-                version_info = result.stdout.strip()
-                logging.debug(f"Podman version output: {version_info}")
-                return version_info
-            else:
-                logging.warning(f"Podman CLI returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("Podman CLI not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("Podman version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving Podman version: {e}")
-        return "Unknown"
-
-
-# VirtualBox Detection Class
-class VMVirtualBox(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMVirtualBox.matches() called.")
-        product_name_path = '/sys/class/dmi/id/product_name'
-        try:
-            if os.path.exists(product_name_path):
-                with open(product_name_path, 'r') as f:
-                    product_name = f.read().strip().lower()
-                    logging.debug(f"Product Name: {product_name}")
-                    if "virtualbox" in product_name:
-                        logging.debug("VirtualBox environment detected via product name.")
-                        return True
-        except Exception as e:
-            logging.error(f"Error reading '{product_name_path}': {e}")
-        return False
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering VirtualBox environment information.")
-        version = self._get_virtualbox_version()
-        return {"Environment": "VirtualBox", "Version": version}
-
-    def _get_virtualbox_version(self) -> str:
-        """
-        Attempts to retrieve the VirtualBox Guest Additions version.
-        """
-        version = "Unknown"
-        possible_paths = [
-            '/opt/VBoxGuestAdditions-*/lib/VBoxGuestAdditions.version',
-            '/var/log/vboxadd-install.log'
-        ]
-
-        # Attempt to read version from known files
-        for path in possible_paths:
-            expanded_paths = glob.glob(path)
-            for p in expanded_paths:
-                try:
-                    with open(p, 'r') as f:
-                        content = f.read().strip()
-                        logging.debug(f"VirtualBox version found in '{p}': {content}")
-                        return content
-                except Exception as e:
-                    logging.debug(f"Failed to read VirtualBox version from '{p}': {e}")
-
-        # Fallback: Attempt to use VBoxControl if available
-        try:
-            result = subprocess.run(['VBoxControl', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                version = result.stdout.strip()
-                logging.debug(f"VBoxControl version output: {version}")
-                return version
-            else:
-                logging.warning(f"VBoxControl returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("VBoxControl not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("VBoxControl version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving VirtualBox version: {e}")
-
-        return version
-
-
-# VMware Detection Class
-class VMMware(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMMware.matches() called.")
-        product_name_path = '/sys/class/dmi/id/product_name'
-        try:
-            if os.path.exists(product_name_path):
-                with open(product_name_path, 'r') as f:
-                    product_name = f.read().strip().lower()
-                    logging.debug(f"Product Name: {product_name}")
-                    if "vmware" in product_name or "qemu" in product_name:
-                        logging.debug("VMware environment detected via product name.")
-                        return True
-        except Exception as e:
-            logging.error(f"Error reading '{product_name_path}': {e}")
-        return False
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering VMware environment information.")
-        version = self._get_vmware_version()
-        return {"Environment": "VMware", "Version": version}
-
-    def _get_vmware_version(self) -> str:
-        """
-        Attempts to retrieve the VMware Tools version.
-        """
-        version = "Unknown"
-        # Attempt to use vmware-toolbox-cmd if available
-        try:
-            result = subprocess.run(['vmware-toolbox-cmd', '-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                version_info = result.stdout.strip()
-                logging.debug(f"VMware Tools version output: {version_info}")
-                return version_info
-            else:
-                logging.warning(f"vmware-toolbox-cmd returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("vmware-toolbox-cmd not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("VMware version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving VMware version: {e}")
-
-        # Fallback: Check for VMware Tools package
-        try:
-            if os.path.exists('/usr/bin/vmware-toolbox-cmd'):
-                # Potentially parse binary for version, but not straightforward
-                pass  # Not implemented
-        except Exception as e:
-            logging.debug(f"Error accessing VMware Tools binary: {e}")
-
-        return version
-
-
-# KVM Detection Class
-class VMKVM(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMKVM.matches() called.")
-        # Check for KVM in CPU flags
-        try:
-            with open('/proc/cpuinfo', 'r') as f:
-                cpuinfo = f.read().lower()
-                if 'kvm' in cpuinfo:
-                    logging.debug("KVM environment detected via CPU flags.")
-                    return True
-        except Exception as e:
-            logging.error(f"Error reading '/proc/cpuinfo': {e}")
-        return False
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering KVM environment information.")
-        version = self._get_kvm_version()
-        return {"Environment": "KVM", "Version": version}
-
-    def _get_kvm_version(self) -> str:
-        """
-        Attempts to retrieve the KVM module version.
-        """
-        version = "Unknown"
-        kvm_version_path = '/sys/module/kvm/version'
-        try:
-            if os.path.exists(kvm_version_path):
-                with open(kvm_version_path, 'r') as f:
-                    version = f.read().strip()
-                    logging.debug(f"KVM version: {version}")
-                    return version
-        except Exception as e:
-            logging.error(f"Error reading '{kvm_version_path}': {e}")
-
-        # Fallback: Attempt to use modinfo
-        try:
-            result = subprocess.run(['modinfo', 'kvm'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                for line in result.stdout.splitlines():
-                    if line.startswith("version:"):
-                        version = line.split(':', 1)[1].strip()
-                        logging.debug(f"modinfo kvm version: {version}")
-                        return version
-            else:
-                logging.warning(f"modinfo kvm returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("modinfo command not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("modinfo kvm command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving KVM version: {e}")
-
-        return version
-
-
-# Xen Detection Class
-class VMXen(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMXen.matches() called.")
-        xen_env = False
-        # Check for Xen hypervisor in CPU flags
-        try:
-            with open('/proc/cpuinfo', 'r') as f:
-                cpuinfo = f.read().lower()
-                if 'xen' in cpuinfo:
-                    logging.debug("Xen environment detected via CPU flags.")
-                    xen_env = True
-        except Exception as e:
-            logging.error(f"Error reading '/proc/cpuinfo': {e}")
-
-        # Check for Xen-specific files
-        if not xen_env and os.path.exists('/proc/xen'):
-            logging.debug("Xen environment detected via '/proc/xen'.")
-            xen_env = True
-
-        return xen_env
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering Xen environment information.")
-        version = self._get_xen_version()
-        return {"Environment": "Xen", "Version": version}
-
-    def _get_xen_version(self) -> str:
-        """
-        Attempts to retrieve the Xen hypervisor version.
-        """
-        version = "Unknown"
-        try:
-            result = subprocess.run(['xen', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                version_info = result.stdout.strip()
-                logging.debug(f"Xen version output: {version_info}")
-                return version_info
-            else:
-                logging.warning(f"Xen CLI returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("Xen CLI not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("Xen version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving Xen version: {e}")
-        return version
-
-
-# Hyper-V Detection Class
-class VMHyperV(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMHyperV.matches() called.")
-        hyperv_env = False
-        # Check for Hyper-V specific CPU flags
-        try:
-            with open('/proc/cpuinfo', 'r') as f:
-                cpuinfo = f.read().lower()
-                if 'hyperv' in cpuinfo:
-                    logging.debug("Hyper-V environment detected via CPU flags.")
-                    hyperv_env = True
-        except Exception as e:
-            logging.error(f"Error reading '/proc/cpuinfo': {e}")
-
-        # Check for Hyper-V specific files
-        if not hyperv_env and os.path.exists('/sys/devices/virtual/dmi/id/product_name'):
-            try:
-                with open('/sys/devices/virtual/dmi/id/product_name', 'r') as f:
-                    product_name = f.read().strip().lower()
-                    if "microsoft" in product_name or "virtual machine" in product_name:
-                        logging.debug("Hyper-V environment detected via product name.")
-                        hyperv_env = True
-            except Exception as e:
-                logging.error(f"Error reading product name: {e}")
-
-        return hyperv_env
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering Hyper-V environment information.")
-        version = self._get_hyperv_version()
-        return {"Environment": "Hyper-V", "Version": version}
-
-    def _get_hyperv_version(self) -> str:
-        """
-        Attempts to retrieve the Hyper-V version.
-        """
-        version = "Unknown"
-        # Hyper-V does not have a standard CLI tool for version retrieval on Linux
-        # Attempt to parse system logs or use specific tools if available
-        try:
-            result = subprocess.run(['dmesg'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                for line in result.stdout.splitlines():
-                    if 'Hyper-V' in line:
-                        version_info = line.strip()
-                        logging.debug(f"Hyper-V detected in dmesg: {version_info}")
-                        return version_info
-            else:
-                logging.warning(f"dmesg returned non-zero exit code: {result.stderr.strip()}")
-        except Exception as e:
-            logging.error(f"Error retrieving Hyper-V version from dmesg: {e}")
-        return version
-
-
-# Parallels Detection Class
-class VMParallels(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMParallels.matches() called.")
-        parallels_env = False
-        # Check for Parallels Tools specific files
-        if os.path.exists('/usr/lib/parallels-tools'):
-            logging.debug("Parallels environment detected via '/usr/lib/parallels-tools'.")
-            parallels_env = True
-
-        # Check product name
-        try:
-            product_name_path = '/sys/class/dmi/id/product_name'
-            if os.path.exists(product_name_path):
-                with open(product_name_path, 'r') as f:
-                    product_name = f.read().strip().lower()
-                    if "parallels" in product_name:
-                        logging.debug("Parallels environment detected via product name.")
-                        parallels_env = True
-        except Exception as e:
-            logging.error(f"Error reading '{product_name_path}': {e}")
-
-        return parallels_env
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering Parallels environment information.")
-        version = self._get_parallels_version()
-        return {"Environment": "Parallels", "Version": version}
-
-    def _get_parallels_version(self) -> str:
-        """
-        Attempts to retrieve the Parallels Tools version.
-        """
-        version = "Unknown"
-        try:
-            result = subprocess.run(['prlsrvctl', 'version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                version_info = result.stdout.strip()
-                logging.debug(f"Parallels Tools version output: {version_info}")
-                return version_info
-            else:
-                logging.warning(f"prlsrvctl returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("prlsrvctl not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("prlsrvctl version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving Parallels version: {e}")
-        return version
-
-
-# QEMU Detection Class
-class VMQEMU(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMQEMU.matches() called.")
-        qemu_env = False
-        # Check for QEMU specific CPU flags
-        try:
-            with open('/proc/cpuinfo', 'r') as f:
-                cpuinfo = f.read().lower()
-                if 'qemu' in cpuinfo or 'tcg' in cpuinfo:
-                    logging.debug("QEMU environment detected via CPU flags.")
-                    qemu_env = True
-        except Exception as e:
-            logging.error(f"Error reading '/proc/cpuinfo': {e}")
-
-        # Check for QEMU-specific files or processes
-        if not qemu_env:
-            try:
-                result = subprocess.run(['pgrep', '-f', 'qemu'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-                if result.stdout.strip():
-                    logging.debug("QEMU environment detected via running processes.")
-                    qemu_env = True
-            except Exception as e:
-                logging.error(f"Error detecting QEMU processes: {e}")
-
-        return qemu_env
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering QEMU environment information.")
-        version = self._get_qemu_version()
-        return {"Environment": "QEMU", "Version": version}
-
-    def _get_qemu_version(self) -> str:
-        """
-        Attempts to retrieve the QEMU version.
-        """
-        version = "Unknown"
-        try:
-            result = subprocess.run(['qemu-system-x86_64', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                version_info = result.stdout.strip()
-                logging.debug(f"QEMU version output: {version_info}")
-                return version_info
-            else:
-                logging.warning(f"QEMU CLI returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("QEMU CLI not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("QEMU version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving QEMU version: {e}")
-        return version
-
-
-# Singularity Detection Class
-class VMSingularity(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMSingularity.matches() called.")
-        singularity_env = False
-        # Check for Singularity environment variables
-        if 'SINGULARITY_NAME' in os.environ:
-            logging.debug("Singularity environment detected via environment variables.")
-            singularity_env = True
-
-        # Check for Singularity specific files
-        if not singularity_env and os.path.exists('/.singularity.d'):
-            logging.debug("Singularity environment detected via '/.singularity.d' directory.")
-            singularity_env = True
-
-        return singularity_env
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering Singularity environment information.")
-        version = self._get_singularity_version()
-        return {"Environment": "Singularity", "Version": version}
-
-    def _get_singularity_version(self) -> str:
-        """
-        Attempts to retrieve the Singularity version.
-        """
-        version = "Unknown"
-        try:
-            result = subprocess.run(['singularity', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-            if result.returncode == 0:
-                version_info = result.stdout.strip()
-                logging.debug(f"Singularity version output: {version_info}")
-                return version_info
-            else:
-                logging.warning(f"Singularity CLI returned non-zero exit code: {result.stderr.strip()}")
-        except FileNotFoundError:
-            logging.warning("Singularity CLI not found.")
-        except subprocess.TimeoutExpired:
-            logging.warning("Singularity version command timed out.")
-        except Exception as e:
-            logging.error(f"Error retrieving Singularity version: {e}")
-        return version
-
-
-# Bare Metal Detection Class
-class VMBareMetal(VMBase):
-    def matches(self) -> bool:
-        logging.debug("VMBareMetal.matches() called.")
-        # Bare Metal is assumed if no other VM matches
-        return False  # Always returns False; handled separately
-
-    def get_info(self) -> Optional[Dict[str, Any]]:
-        logging.debug("Gathering Bare Metal environment information.")
-        return {"Environment": "Bare Metal"}
-
-
-# System Detector Class
-class SystemDetector:
-    def __init__(self, perform_all_checks: bool = False, paranoid: bool = False) -> None:
-        self.perform_all_checks = perform_all_checks
-        self.paranoid = paranoid
-        self.os_detectors = self._initialize_os_detectors()
-        self.vm_detectors = self._initialize_vm_detectors()
-
-    def _initialize_os_detectors(self) -> List[OSBase]:
-        logging.debug("Initializing OS detectors.")
-        return [
-            OSWindows(paranoid=self.paranoid),
-            OSMacOS(paranoid=self.paranoid),
-            OSLinux(paranoid=self.paranoid),
-            OSFreeBSD(paranoid=self.paranoid),
-            OSOpenBSD(paranoid=self.paranoid),
-            OSNetBSD(paranoid=self.paranoid),
-            OSSolaris(paranoid=self.paranoid),
-            OSGeneric(paranoid=self.paranoid),  # GenericOS as fallback
-        ]
-
-    def _initialize_vm_detectors(self) -> List[VMBase]:
-        logging.debug("Initializing virtualization detectors.")
-        return [
-            VMDocker(),
-            VMLXC(),
-            VMSYSTEMDNSPAWN(),
-            VMChroot(),
-            VMPodman(),
-            VMVirtualBox(),
-            VMMware(),
-            VMKVM(),
-            VMXen(),
-            VMHyperV(),
-            VMParallels(),
-            VMQEMU(),
-            VMSingularity(),
-            # VMBareMetal() is handled separately
-        ]
-
-    def detect_system(self) -> Dict[str, Any]:
-        logging.debug("Starting system detection.")
-        os_info = self._detect_os()
-
-        # Determine if virtualization checks should be performed
-        perform_vm_checks = self.perform_all_checks or isinstance(
-            self._get_active_os_detector(), OSLinux
+class LinuxOperatingSystemDetector(BaseDetector):
+    """Detector for Linux operating systems."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[OperatingSystemInfo]:
+        """Detects if the operating system is Linux and identifies its distribution."""
+        if not self._is_running(paranoid):
+            return None
+
+        additional_info = {
+            'Distribution': self._get_distribution()
+        }
+
+        if not paranoid:
+            return OperatingSystemInfo(
+                type=OperatingSystemType.LINUX,
+                architecture=platform.machine(),
+                version=platform.release(),
+                additional_info=additional_info
+            )
+
+        return OperatingSystemInfo(
+            type=OperatingSystemType.LINUX,
+            architecture=self._get_architecture(),
+            version=self._get_version(),
+            additional_info=additional_info
         )
 
-        if perform_vm_checks:
-            vm_info = self._detect_virtualization()
-            os_info["Virtualization"] = vm_info
-        else:
-            logging.info("Skipping virtualization checks based on OS type.")
-            os_info["Virtualization"] = "Not Checked"
+    def _is_running(self, paranoid: bool = False) -> bool:
+        """Detects if the system is running Linux."""
+        if not paranoid:
+            return platform.system().lower() == OperatingSystemType.LINUX.value.lower()
 
-        logging.debug("System detection completed.")
-        return os_info
+        # Paranoid detection: Check for Linux-specific files
+        linux_indicators = [
+            "/proc/version",
+            "/etc/os-release",
+            "/bin/bash",
+            "/usr/bin/ls",
+            "/usr/bin/grep",
+            "/usr/bin/awk",
+        ]
 
-    def _detect_os(self) -> Dict[str, Any]:
-        for detector in self.os_detectors:
-            if detector.matches():
-                logging.debug(f"OS detector matched: {detector.__class__.__name__}")
-                return detector.get_os_info()
-        logging.warning("No OS detector matched. Using generic information.")
-        return {"OS": "Unknown"}
+        missing_files = [f for f in linux_indicators if not os.path.exists(f)]
+        if missing_files:
+            logging.debug(f"Paranoid detection failed. Missing files: {missing_files}")
+            return False
 
-    def _get_active_os_detector(self) -> Optional[OSBase]:
-        for detector in self.os_detectors:
-            if detector.matches():
-                return detector
+        return True
+
+    def _get_architecture(self) -> str:
+        """Gets the machine architecture by executing specific commands."""
+        try:
+            arch = subprocess.check_output(["uname", "-m"], text=True).strip()
+            logging.debug(f"Architecture from uname: {arch}")
+            return arch
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error executing uname for architecture: {e}")
+        except FileNotFoundError:
+            logging.error("uname command not found.")
+        return "Unknown"
+
+    def _get_version(self) -> str:
+        """Gets the kernel version by executing specific commands."""
+        try:
+            version = subprocess.check_output(["uname", "-r"], text=True).strip()
+            logging.debug(f"Version from uname: {version}")
+            return version
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error executing uname for version: {e}")
+        except FileNotFoundError:
+            logging.error("uname command not found.")
+        return "Unknown"
+
+    def _get_distribution(self) -> Optional[str]:
+        """Gets the Linux distribution by reading /etc/os-release."""
+        try:
+            with open(LINUX_OS_RELEASE_PATH, "r") as f:
+                os_release = self._parse_os_release(f)
+                distribution = os_release.get("NAME") + " " + os_release.get("VERSION")
+                logging.debug(f"Distribution details from {LINUX_OS_RELEASE_PATH}: {distribution}")
+                return distribution
+        except Exception as e:
+            logging.error(f"Error reading {LINUX_OS_RELEASE_PATH} for distribution: {e}")
         return None
 
-    def _detect_virtualization(self) -> Dict[str, Any]:
-        logging.debug("Detecting virtualization environment.")
-        for detector in self.vm_detectors:
-            if detector.matches():
-                info = detector.get_info()
-                if info:
-                    logging.debug(f"Virtualization detected: {info}")
-                    return info
-        # If no virtualization detected, assume Bare Metal
-        logging.info("No virtualization environment detected. Assuming Bare Metal.")
-        return {"Environment": "Bare Metal"}
+    def _parse_os_release(self, file) -> Dict[str, str]:
+        """Parses the /etc/os-release file into a dictionary."""
+        os_release = {}
+        for line in file:
+            if "=" in line:
+                key, value = line.strip().split("=", 1)
+                if value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+                os_release[key.upper()] = value
+        logging.debug(f"Parsed {LINUX_OS_RELEASE_PATH}: {os_release}")
+        return os_release
+
+    def _parse_os_release_field(self, field: str) -> Optional[str]:
+        """Parses a specific field from /etc/os-release."""
+        try:
+            with open(LINUX_OS_RELEASE_PATH, "r") as f:
+                for line in f:
+                    if line.startswith(f"{field}="):
+                        _, value = line.strip().split("=", 1)
+                        if value.startswith('"') and value.endswith('"'):
+                            value = value[1:-1]
+                        logging.debug(f"Field {field} from {LINUX_OS_RELEASE_PATH}: {value}")
+                        return value
+        except Exception as e:
+            logging.error(f"Error parsing {field} from {LINUX_OS_RELEASE_PATH}: {e}")
+        return None
+
+
+class WindowsOperatingSystemDetector(BaseDetector):
+    """Detector for Windows operating systems."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[OperatingSystemInfo]:
+        """Detects if the operating system is Windows."""
+        if not self._is_running(paranoid):
+            return None
+
+        if not paranoid:
+            return OperatingSystemInfo(
+                type=OperatingSystemType.WINDOWS,
+                architecture=platform.machine(),
+                version=self._get_version_from_platform()
+            )
+
+        return OperatingSystemInfo(
+            type=OperatingSystemType.WINDOWS,
+            architecture=self._get_architecture(),
+            version=self._get_version(),
+        )
+
+    def _is_running(self, paranoid: bool = False) -> bool:
+        """Detects if the system is running Windows."""
+        if not paranoid:
+            return platform.system().lower() == OperatingSystemType.WINDOWS.value.lower()
+
+        # Paranoid detection: Check for Windows-specific files
+        system_root = os.environ.get("SystemRoot", "C:\\Windows")
+        windows_indicators = [
+            os.path.join(system_root, "System32", "kernel32.dll"),
+            os.path.join(system_root, "System32", "cmd.exe"),
+            os.path.join(system_root, "System32", "notepad.exe"),
+            os.path.join(system_root, "explorer.exe"),
+            os.path.join(system_root, "System32", "drivers", "etc", "hosts"),
+        ]
+
+        missing_files = [f for f in windows_indicators if not os.path.exists(f)]
+        if missing_files:
+            logging.debug(f"Paranoid detection failed. Missing files: {missing_files}")
+            return False
+
+        return True
+
+    def _get_architecture(self) -> str:
+        """Gets the machine architecture by executing specific commands."""
+        try:
+            arch_output = subprocess.check_output(
+                ["wmic", "os", "get", "OSArchitecture"],
+                text=True,
+                stderr=subprocess.DEVNULL
+            ).strip().split('\n')
+            if len(arch_output) < 2:
+                logging.debug("wmic output is insufficient to determine OS architecture.")
+                return "Unknown"
+            architecture = arch_output[1].strip()
+            logging.debug(f"Architecture from wmic: {architecture}")
+            return architecture
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error executing wmic for architecture: {e}")
+        except FileNotFoundError:
+            logging.error("wmic command not found.")
+        return "Unknown"
+
+    def _get_version(self) -> str:
+        """Gets the OS version by executing specific commands."""
+        try:
+            version_output = subprocess.check_output(
+                ["wmic", "os", "get", "Version"],
+                text=True,
+                stderr=subprocess.DEVNULL
+            ).strip().split('\n')
+            if len(version_output) < 2:
+                logging.debug("wmic output is insufficient to determine OS version.")
+                return "Unknown"
+            version = version_output[1].strip()
+            logging.debug(f"OS version from wmic: {version}")
+            return version
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error executing wmic for version: {e}")
+        except FileNotFoundError:
+            logging.error("wmic command not found.")
+        return "Unknown"
+
+    def _get_version_from_platform(self) -> str:
+        """Gets the OS version using the platform module."""
+        try:
+            version = platform.version()
+            logging.debug(f"OS version from platform: {version}")
+            return version
+        except Exception as e:
+            logging.error(f"Error getting version from platform: {e}")
+        return "Unknown"
+
+
+class MacOSOperatingSystemDetector(BaseDetector):
+    """Detector for macOS operating systems."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[OperatingSystemInfo]:
+        """Detects if the operating system is macOS."""
+        if not self._is_running(paranoid):
+            return None
+
+        if not paranoid:
+            return OperatingSystemInfo(
+                type=OperatingSystemType.MACOS,
+                architecture=platform.machine(),
+                version=platform.mac_ver()[0]
+            )
+
+        return OperatingSystemInfo(
+            type=OperatingSystemType.MACOS,
+            architecture=self._get_architecture(),
+            version=self._get_version(),
+        )
+
+    def _is_running(self, paranoid: bool = False) -> bool:
+        """Detects if the system is running MacOS."""
+        if not paranoid:
+            return platform.system().lower() == OperatingSystemType.MACOS.value.lower()
+
+        # Paranoid detection: Check for macOS-specific files
+        macos_indicators = [
+            "/System/Library/CoreServices/SystemVersion.plist",
+            "/usr/bin/sw_vers",
+            "/Applications",
+            "/System",
+            "/usr/bin/osascript",
+        ]
+
+        missing_files = [f for f in macos_indicators if not os.path.exists(f)]
+        if missing_files:
+            logging.debug(f"Paranoid detection failed. Missing files: {missing_files}")
+            return False
+
+        return True
+
+    def _get_architecture(self) -> str:
+        """Gets the machine architecture by reading specific system files or executing commands."""
+        try:
+            arch = subprocess.check_output(["sysctl", "-n", "hw.machine"], text=True).strip()
+            logging.debug(f"Architecture from sysctl: {arch}")
+            return arch
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error executing sysctl for architecture: {e}")
+        except FileNotFoundError:
+            logging.error("sysctl command not found.")
+        return "Unknown"
+
+    def _get_version(self) -> str:
+        """Gets the OS version by executing sw_vers."""
+        try:
+            version = subprocess.check_output(["sw_vers", "-productVersion"], text=True).strip()
+            logging.debug(f"OS version from sw_vers: {version}")
+            return version
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error executing sw_vers for version: {e}")
+        except FileNotFoundError:
+            logging.error("sw_vers command not found.")
+        return "Unknown"
+
+
+class FreeBSDOperatingSystemDetector(BaseDetector):
+    """Detector for FreeBSD operating systems."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[OperatingSystemInfo]:
+        """Detects if the operating system is FreeBSD."""
+        if not self._is_running(paranoid):
+            return None
+
+        if not paranoid:
+            return OperatingSystemInfo(
+                type=OperatingSystemType.FREEBSD,
+                architecture=platform.machine(),
+                version=platform.release()
+            )
+
+        return OperatingSystemInfo(
+            type=OperatingSystemType.FREEBSD,
+            architecture=self._get_architecture(),
+            version=self._get_version(),
+        )
+
+    def _is_running(self, paranoid: bool = False) -> bool:
+        """Detects if the system is running FreeBSD."""
+        if not paranoid:
+            return platform.system().lower() == OperatingSystemType.FREEBSD.value.lower()
+
+        # Paranoid detection: Check for the existence of FreeBSD-specific files
+        freebsd_indicators = [
+            "/etc/freebsd_version",
+            "/usr/bin/sysctl",
+            "/sbin/init",
+            "/bin/sh",
+            "/var/db/ports",  # Ports Collection directory
+        ]
+
+        missing_files = [f for f in freebsd_indicators if not os.path.exists(f)]
+        if missing_files:
+            logging.debug(f"Paranoid detection failed. Missing files: {missing_files}")
+            return False
+
+        return True
+
+    def _get_architecture(self) -> str:
+        """Gets the machine architecture by reading specific system files or executing commands."""
+        try:
+            arch = subprocess.check_output(["sysctl", "-n", "hw.machine"], text=True).strip()
+            logging.debug(f"Architecture from sysctl: {arch}")
+            return arch
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Error executing sysctl for architecture: {e}")
+        except FileNotFoundError:
+            logging.error("sysctl command not found.")
+        return "Unknown"
+
+    def _get_version(self) -> str:
+        """Gets the OS version by reading /etc/freebsd_version."""
+        try:
+            with open("/etc/freebsd_version", "r") as f:
+                version_info = f.read().strip()
+                logging.debug(f"OS version from /etc/freebsd_version: {version_info}")
+                return version_info
+        except Exception as e:
+            logging.error(f"Error reading /etc/freebsd_version for version: {e}")
+        return "Unknown"
+
+
+class VMWareVirtualMachineDetector(BaseDetector):
+    """Detector for VMWare virtual machines."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+        """Detects if the system is running on VMWare."""
+        if os_info is None:
+            return None
+
+        if os_info.type == OperatingSystemType.LINUX:
+            detected = self._detect_linux(paranoid)
+        elif os_info.type == OperatingSystemType.WINDOWS:
+            detected = self._detect_windows(paranoid)
+        else:
+            return None
+
+        if detected:
+            return VirtualMachineInfo(
+                type=VirtualMachineType.VMWARE,
+            )
+        return None
+
+    def _detect_linux(self, paranoid: bool) -> bool:
+        """Detects VMWare on Linux systems."""
+        try:
+            with open('/sys/class/dmi/id/product_name', 'r', encoding='utf-8') as f:
+                if 'vmware' in f.read().lower():
+                    return True
+        except Exception as e:
+            logging.debug(f"Error reading product_name: {e}")
+
+        try:
+            with open('/sys/class/dmi/id/sys_vendor', 'r', encoding='utf-8') as f:
+                if 'vmware' in f.read().lower():
+                    return True
+        except Exception as e:
+            logging.debug(f"Error reading sys_vendor: {e}")
+
+        if paranoid:
+            try:
+                with open(PROC_SCSI_SCSI, 'r', encoding='utf-8') as f:
+                    if 'vmware' in f.read().lower():
+                        return True
+            except Exception as e:
+                logging.debug(f"Error reading {PROC_SCSI_SCSI}: {e}")
+        return False
+
+    def _detect_windows(self, paranoid: bool) -> bool:
+        """Detects VMWare on Windows systems."""
+        if os.name.lower() != 'nt':
+            return False
+        try:
+            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+            buffer_size = kernel32.GetSystemFirmwareTable(0x52534D42, 0, None, 0)
+            if buffer_size == 0:
+                return False
+            buffer = ctypes.create_string_buffer(buffer_size)
+            if kernel32.GetSystemFirmwareTable(0x52534D42, 0, buffer, buffer_size) == 0:
+                return False
+            if b'vmware' in buffer.raw.lower():
+                return True
+        except Exception as e:
+            logging.debug(f"Error detecting VMWare on Windows: {e}")
+
+        if paranoid:
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Services\Disk\Enum') as key:
+                    device0, _ = winreg.QueryValueEx(key, '0')
+                    if 'vmware' in device0.lower():
+                        return True
+            except Exception as e:
+                logging.debug(f"Error reading Windows registry for VMWare detection: {e}")
+        return False
+
+
+class VirtualBoxVirtualMachineDetector(BaseDetector):
+    """Detector for VirtualBox virtual machines."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+        """Detects if the system is running on VirtualBox."""
+        if os_info is None:
+            return None
+
+        if os_info.type == OperatingSystemType.LINUX:
+            detected = self._detect_linux(paranoid)
+        elif os_info.type == OperatingSystemType.WINDOWS:
+            detected = self._detect_windows(paranoid)
+        elif os_info.type == OperatingSystemType.MACOS:
+            detected = self._detect_macos(paranoid)
+        else:
+            return None
+
+        if detected:
+            return VirtualMachineInfo(
+                type=VirtualMachineType.VIRTUALBOX,
+            )
+        return None
+
+    def _detect_linux(self, paranoid: bool) -> bool:
+        """Detects VirtualBox on Linux systems."""
+        try:
+            with open('/sys/class/dmi/id/product_name', 'r', encoding='utf-8') as f:
+                if 'virtualbox' in f.read().lower():
+                    return True
+        except Exception as e:
+            logging.debug(f"Error reading product_name: {e}")
+
+        if paranoid:
+            try:
+                with open('/proc/modules', 'r', encoding='utf-8') as f:
+                    if 'vboxguest' in f.read().lower():
+                        return True
+            except Exception as e:
+                logging.debug(f"Error reading /proc/modules: {e}")
+        return False
+
+    def _detect_windows(self, paranoid: bool) -> bool:
+        """Detects VirtualBox on Windows systems."""
+        if os.name.lower() != 'nt':
+            return False
+        try:
+            import wmi
+            c = wmi.WMI()
+            for system in c.Win32_ComputerSystem():
+                if 'virtualbox' in system.Manufacturer.lower() or 'virtualbox' in system.Model.lower():
+                    return True
+        except ImportError:
+            logging.error("wmi module not available.")
+        except Exception as e:
+            logging.debug(f"Error detecting VirtualBox on Windows: {e}")
+        return False
+
+    def _detect_macos(self, paranoid: bool) -> bool:
+        """Detects VirtualBox on macOS systems."""
+        try:
+            import subprocess
+            output = subprocess.check_output(['system_profiler', 'SPHardwareDataType'], encoding='utf-8')
+            if 'virtualbox' in output.lower():
+                return True
+        except Exception as e:
+            logging.debug(f"Error running system_profiler: {e}")
+        return False
+
+
+class HyperVVirtualMachineDetector(BaseDetector):
+    """Detector for Microsoft Hyper-V virtual machines."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+        """Detects if the system is running on Hyper-V."""
+        if os_info is None:
+            return None
+
+        if os_info.type == OperatingSystemType.WINDOWS:
+            detected = self._detect_windows(paranoid)
+        else:
+            return None
+
+        if detected:
+            return VirtualMachineInfo(
+                type=VirtualMachineType.HYPERV,
+            )
+        return None
+
+    def _detect_windows(self, paranoid: bool) -> bool:
+        """Detects Hyper-V on Windows systems."""
+        try:
+            class SYSTEM_INFO(ctypes.Structure):
+                _fields_ = [("wProcessorArchitecture", ctypes.c_uint16),
+                            ("wReserved", ctypes.c_uint16),
+                            ("dwPageSize", ctypes.c_uint32),
+                            ("lpMinimumApplicationAddress", ctypes.c_void_p),
+                            ("lpMaximumApplicationAddress", ctypes.c_void_p),
+                            ("dwActiveProcessorMask", ctypes.c_void_p),
+                            ("dwNumberOfProcessors", ctypes.c_uint32),
+                            ("dwProcessorType", ctypes.c_uint32),
+                            ("dwAllocationGranularity", ctypes.c_uint32),
+                            ("wProcessorLevel", ctypes.c_uint16),
+                            ("wProcessorRevision", ctypes.c_uint16)]
+
+            sys_info = SYSTEM_INFO()
+            ctypes.windll.kernel32.GetNativeSystemInfo(ctypes.byref(sys_info))
+            if sys_info.wProcessorArchitecture == 9:  # PROCESSOR_ARCHITECTURE_AMD64
+                return True
+        except Exception as e:
+            logging.debug(f"Error detecting Hyper-V on Windows: {e}")
+        return False
+
+
+class KVMVirtualMachineDetector(BaseDetector):
+    """Detector for KVM virtual machines."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+        """Detects if the system is running on KVM."""
+        if os_info is None:
+            return None
+
+        if os_info.type == OperatingSystemType.LINUX:
+            detected = self._detect_linux(paranoid)
+        else:
+            return None
+
+        if detected:
+            return VirtualMachineInfo(
+                type=VirtualMachineType.KVM,
+            )
+        return None
+
+    def _detect_linux(self, paranoid: bool) -> bool:
+        """Detects KVM on Linux systems."""
+        try:
+            with open('/sys/class/dmi/id/product_name', 'r', encoding='utf-8') as f:
+                if 'kvm' in f.read().lower():
+                    return True
+        except Exception as e:
+            logging.debug(f"Error reading product_name: {e}")
+
+        if paranoid:
+            try:
+                with open('/proc/cpuinfo', 'r', encoding='utf-8') as f:
+                    if 'qemu' in f.read().lower():
+                        return True
+            except Exception as e:
+                logging.debug(f"Error reading /proc/cpuinfo: {e}")
+        return False
+
+
+class XenVirtualMachineDetector(BaseDetector):
+    """Detector for Xen virtual machines."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+        """Detects if the system is running on Xen."""
+        if os_info is None:
+            return None
+
+        if os_info.type == OperatingSystemType.LINUX:
+            detected = self._detect_linux(paranoid)
+        else:
+            return None
+
+        if detected:
+            return VirtualMachineInfo(
+                type=VirtualMachineType.XEN,
+            )
+        return None
+
+    def _detect_linux(self, paranoid: bool) -> bool:
+        """Detects Xen on Linux systems."""
+        try:
+            with open('/sys/hypervisor/type', 'r', encoding='utf-8') as f:
+                if 'xen' in f.read().lower():
+                    return True
+        except Exception as e:
+            logging.debug(f"Error reading /sys/hypervisor/type: {e}")
+
+        if paranoid:
+            try:
+                with open('/proc/xen/capabilities', 'r', encoding='utf-8') as f:
+                    if 'control_d' in f.read().lower():
+                        return True
+            except Exception as e:
+                logging.debug(f"Error reading /proc/xen/capabilities: {e}")
+        return False
+
+
+class DockerSandboxDetector(BaseDetector):
+    """Detector for Docker sandbox environments."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[SandboxInfo]:
+        """Detects if the system is running inside a Docker container."""
+        if os_info is None:
+            return None
+
+        if os_info.type == OperatingSystemType.LINUX:
+            detected = self._detect_linux(paranoid)
+        else:
+            return None
+
+        if detected:
+            return SandboxInfo(
+                type=SandboxType.DOCKER,
+            )
+        return None
+
+    def _detect_linux(self, paranoid: bool) -> bool:
+        """Detects Docker environment."""
+        if os.path.exists('/.dockerenv'):
+            return True
+        try:
+            with open('/proc/1/cgroup', 'r', encoding='utf-8') as f:
+                content = f.read()
+                if 'docker' in content.lower():
+                    return True
+        except Exception as e:
+            logging.debug(f"Error reading /proc/1/cgroup: {e}")
+
+        if paranoid:
+            try:
+                with open('/proc/self/cgroup', 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    if 'docker' in content.lower():
+                        return True
+            except Exception as e:
+                logging.debug(f"Error reading /proc/self/cgroup: {e}")
+            if os.environ.get('container', '') == 'docker':
+                return True
+        return False
+
+
+class KubernetesSandboxDetector(BaseDetector):
+    """Detector for Kubernetes sandbox environments."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[SandboxInfo]:
+        """Detects if the system is running inside a Kubernetes container."""
+        if os_info is None:
+            return None
+
+        if os_info.type == OperatingSystemType.LINUX:
+            detected = self._detect_linux(paranoid)
+        else:
+            return None
+
+        if detected:
+            return SandboxInfo(
+                type=SandboxType.KUBERNETES,
+            )
+        return None
+
+    def _detect_linux(self, paranoid: bool) -> bool:
+        """Detects Kubernetes environment."""
+        try:
+            with open('/proc/1/cgroup', 'r', encoding='utf-8') as f:
+                content = f.read()
+                if 'kubepods' in content.lower():
+                    return True
+        except Exception as e:
+            logging.debug(f"Error reading /proc/1/cgroup: {e}")
+
+        if paranoid:
+            if os.environ.get('KUBERNETES_SERVICE_HOST'):
+                return True
+        return False
+
+
+class GenericSandboxDetector(BaseDetector):
+    """Generic detector for sandbox environments."""
+
+    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[SandboxInfo]:
+        """Attempts to detect if the system is running inside any sandbox environment."""
+        if os_info is None:
+            return None
+
+        if os_info.type == OperatingSystemType.LINUX:
+            detected = self._detect_linux(paranoid)
+        elif os_info.type == OperatingSystemType.WINDOWS:
+            detected = self._detect_windows(paranoid)
+        elif os_info.type == OperatingSystemType.MACOS:
+            detected = self._detect_macos(paranoid)
+        else:
+            return None
+
+        if detected:
+            return SandboxInfo(
+                type=SandboxType.UNKNOWN,
+            )
+        return None
+
+    def _detect_linux(self, paranoid: bool) -> bool:
+        """Generic sandbox detection on Linux systems."""
+        try:
+            # Check if we are in a chroot by comparing device and inode numbers
+            root_stat = os.stat("/")
+            parent_stat = os.stat("/..")
+            if root_stat.st_ino != parent_stat.st_ino or root_stat.st_dev != parent_stat.st_dev:
+                return True
+        except Exception as e:
+            logging.debug(f"Error checking chroot: {e}")
+
+        try:
+            # Check for restricted mount namespaces
+            with open("/proc/1/mountinfo", "r", encoding="utf-8") as f:
+                if len(f.readlines()) == 0:
+                    return True
+        except Exception as e:
+            logging.debug(f"Error reading /proc/1/mountinfo: {e}")
+
+        if paranoid:
+            try:
+                # Check for unprivileged user namespaces
+                with open("/proc/self/status", "r", encoding="utf-8") as f:
+                    content = f.read()
+                    if "CapEff:\t00000000" in content:
+                        return True
+            except Exception as e:
+                logging.debug(f"Error reading /proc/self/status: {e}")
+
+        return False
+
+    def _detect_windows(self, paranoid: bool) -> bool:
+        """Generic sandbox detection on Windows systems."""
+        try:
+            # Check for common sandbox artifacts
+            import os
+
+            sandbox_files = [
+                "C:\\Sandbox",
+                "C:\\shadow",
+                "C:\\virtual",
+                "C:\\hwcv.exe",
+                "C:\\crowdstrike",
+            ]
+            for path in sandbox_files:
+                if os.path.exists(path):
+                    return True
+
+            # Check for sandbox environment variables
+            sandbox_env_vars = ["SANDBOX", "VIRTUAL_ENV"]
+            for var in sandbox_env_vars:
+                if var in os.environ:
+                    return True
+
+            if paranoid:
+                # Check for low integrity level
+                class SID_AND_ATTRIBUTES(ctypes.Structure):
+                    _fields_ = [
+                        ("Sid", ctypes.POINTER(ctypes.c_void_p)),
+                        ("Attributes", ctypes.c_uint32)
+                    ]
+
+                class TOKEN_MANDATORY_LABEL(ctypes.Structure):
+                    _fields_ = [("Label", SID_AND_ATTRIBUTES)]
+
+                hToken = ctypes.wintypes.HANDLE()
+                TOKEN_QUERY = 0x0008
+                TokenIntegrityLevel = 25
+                if ctypes.windll.advapi32.OpenProcessToken(
+                        ctypes.windll.kernel32.GetCurrentProcess(),
+                        TOKEN_QUERY,
+                        ctypes.byref(hToken),
+                ):
+                    info = TOKEN_MANDATORY_LABEL()
+                    ret_len = ctypes.wintypes.DWORD()
+                    ctypes.windll.advapi32.GetTokenInformation(
+                        hToken,
+                        TokenIntegrityLevel,
+                        ctypes.byref(info),
+                        ctypes.sizeof(info),
+                        ctypes.byref(ret_len),
+                    )
+                    sub_auth = ctypes.cast(
+                        info.Label[0], ctypes.POINTER(ctypes.wintypes.DWORD)
+                    )[2]
+                    LOW_INTEGRITY = 0x1000
+                    if sub_auth == LOW_INTEGRITY:
+                        return True
+        except Exception as e:
+            logging.debug(f"Error detecting sandbox on Windows: {e}")
+        return False
+
+    def _detect_macos(self, paranoid: bool) -> bool:
+        """Generic sandbox detection on macOS systems."""
+        try:
+            # Check for sandbox environment variables
+            if "APP_SANDBOX_CONTAINER_ID" in os.environ:
+                return True
+
+            # Check for sandboxed file system paths
+            if os.path.exists("/System/Volumes/Data"):
+                return True
+
+            if paranoid:
+                # Check for DYLD_INSERT_LIBRARIES
+                if "DYLD_INSERT_LIBRARIES" in os.environ:
+                    return True
+        except Exception as e:
+            logging.debug(f"Error detecting sandbox on macOS: {e}")
+        return False
+
+
+class DetectorManager:
+    """Manager for registering and executing detectors."""
+
+    def __init__(self):
+        self.detectors: List[BaseDetector] = []
+
+    def register_detector(self, detector: BaseDetector):
+        """Registers a detector."""
+        self.detectors.append(detector)
+
+    def detect_all(self, os_info: Optional[OperatingSystemInfo], paranoid: bool) -> List[Any]:
+        """Runs all registered detectors."""
+        results = []
+        for detector in self.detectors:
+            result = detector.detect(os_info, paranoid)
+            if result:
+                results.append(result)
+        return results
+
+
+class EnvironmentDetector:
+    """Main class for detecting the environment."""
+
+    def __init__(self, perform_all_checks: bool = False, paranoid: bool = False):
+        self.perform_all_checks = perform_all_checks
+        self.paranoid = paranoid
+        self.os_info: Optional[OperatingSystemInfo] = None
+        self.vm_info: Optional[VirtualMachineInfo] = None
+        self.sandbox_info: Optional[SandboxInfo] = None
+        self.detector_manager = DetectorManager()
+        self._register_detectors()
+        self.os_detectors: List[BaseDetector] = []
+        self.other_detectors: List[BaseDetector] = []
+        self._group_detectors_by_return_type()
+
+    def _register_detectors(self):
+        """Registers all available detectors."""
+        # Operating System Detectors
+        self.detector_manager.register_detector(WindowsOperatingSystemDetector())
+        self.detector_manager.register_detector(LinuxOperatingSystemDetector())
+        self.detector_manager.register_detector(MacOSOperatingSystemDetector())
+        self.detector_manager.register_detector(FreeBSDOperatingSystemDetector())
+
+        # Virtual Machine Detectors
+        self.detector_manager.register_detector(VMWareVirtualMachineDetector())
+        self.detector_manager.register_detector(VirtualBoxVirtualMachineDetector())
+        self.detector_manager.register_detector(HyperVVirtualMachineDetector())
+        self.detector_manager.register_detector(KVMVirtualMachineDetector())
+        self.detector_manager.register_detector(XenVirtualMachineDetector())
+
+        # Sandbox Detectors
+        self.detector_manager.register_detector(DockerSandboxDetector())
+        self.detector_manager.register_detector(KubernetesSandboxDetector())
+        self.detector_manager.register_detector(GenericSandboxDetector())
+
+    def _group_detectors_by_return_type(self):
+        """Groups detectors based on the return type of their detect method."""
+        for detector in self.detector_manager.detectors:
+            # Get the type hints of the detect method
+            try:
+                type_hints = typing.get_type_hints(detector.detect)
+            except Exception as e:
+                logging.warning(f"Failed to get type hints for {detector.__class__.__name__}: {e}")
+                continue
+
+            return_type = type_hints.get('return', None)
+            if return_type is None:
+                logging.warning(f"Detector {detector.__class__.__name__} has no return type annotation.")
+                continue
+
+            # Handle Optional[...] which is Union[..., NoneType]
+            origin = typing.get_origin(return_type)
+            args = typing.get_args(return_type)
+
+            if origin is typing.Union and type(None) in args:
+                # Extract the first argument that is not NoneType
+                non_none_args = [arg for arg in args if arg is not type(None)]
+                if len(non_none_args) == 1:
+                    return_type_inner = non_none_args[0]
+                else:
+                    # More than one non-NoneType argument, ambiguous
+                    return_type_inner = return_type
+            else:
+                return_type_inner = return_type
+
+            # Ensure return_type_inner is a class before using issubclass
+            if isinstance(return_type_inner, type):
+                if issubclass(return_type_inner, OperatingSystemInfo):
+                    self.os_detectors.append(detector)
+                elif issubclass(return_type_inner, VirtualMachineInfo):
+                    self.other_detectors.append(detector)
+                elif issubclass(return_type_inner, SandboxInfo):
+                    self.other_detectors.append(detector)
+                else:
+                    logging.warning(f"Detector {detector.__class__.__name__} has unknown return type {return_type_inner}.")
+                    self.other_detectors.append(detector)
+            else:
+                logging.warning(f"Detector {detector.__class__.__name__} has non-class return type {return_type_inner}.")
+                self.other_detectors.append(detector)
+
+    def detect(self):
+        """Performs the detection process."""
+        # First, detect OS using all OS detectors
+        for detector in self.os_detectors:
+            try:
+                os_info = detector.detect(paranoid=self.paranoid)
+            except Exception as e:
+                logging.error(f"Error during OS detection with {detector.__class__.__name__}: {e}")
+                continue
+
+            if os_info:
+                self.os_info = os_info
+                logging.info(f"Detected OS: {os_info.type.value}")
+                break
+
+        if self.os_info:
+            # Detect VM and Sandbox using other detectors
+            for detector in self.other_detectors:
+                try:
+                    result = detector.detect(self.os_info, paranoid=self.paranoid)
+                except Exception as e:
+                    logging.error(f"Error during detection with {detector.__class__.__name__}: {e}")
+                    continue
+
+                if isinstance(result, VirtualMachineInfo):
+                    if self.vm_info is None or self.vm_info.type == VirtualMachineType.UNKNOWN:
+                        self.vm_info = result
+                        logging.info(f"Detected Virtual Machine: {result.type.value}")
+                        if not self.perform_all_checks:
+                            break
+                elif isinstance(result, SandboxInfo):
+                    if self.sandbox_info is None or self.sandbox_info.type == SandboxType.UNKNOWN:
+                        self.sandbox_info = result
+                        logging.info(f"Detected Sandbox: {result.type.value}")
+                        if not self.perform_all_checks:
+                            break
+
+        # If perform_all_checks is False, stop after first detection
+        if not self.perform_all_checks:
+            return
 
 
 def parse_arguments() -> argparse.Namespace:
-    """
-    Parses command-line arguments.
-    """
+    """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Detect the operating system and virtualization environment.",
         formatter_class=argparse.RawTextHelpFormatter
@@ -1555,9 +1102,7 @@ def parse_arguments() -> argparse.Namespace:
 
 
 def setup_logging(verbose: bool = False, debug: bool = False) -> None:
-    """
-    Sets up the logging configuration.
-    """
+    """Sets up the logging configuration."""
     if debug:
         level = logging.DEBUG
     elif verbose:
@@ -1573,9 +1118,7 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
 
 
 def save_output(data: Dict[str, Any], filepath: str) -> bool:
-    """
-    Saves the detection results to a JSON file.
-    """
+    """Saves the detection results to a JSON file."""
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4)
@@ -1587,38 +1130,76 @@ def save_output(data: Dict[str, Any], filepath: str) -> bool:
 
 
 def display_results(data: Dict[str, Any]) -> None:
-    """
-    Displays the detection results in a formatted manner.
-    """
+    """Displays the detection results in a formatted manner."""
     for key, value in data.items():
+        if not value:
+            continue
+
+        print(f"{key}:")
         if isinstance(value, dict):
-            print(f"{key}:")
             for sub_key, sub_value in value.items():
-                print(f"  {sub_key}: {sub_value}")
+                if not sub_value:
+                    continue
+
+                if isinstance(sub_value, dict):
+                    print(f"  {sub_key}:")
+                    for k, v in sub_value.items():
+                        print(f"    {k}: {v}")
+                else:
+                    print(f"  {sub_key}: {sub_value}")
         else:
-            print(f"{key}: {value}")
+            print(f"  {value}")
+        print()
 
 
-def main() -> None:
-    """
-    Main function to orchestrate the system detection.
-    """
+def collect_results(detector: EnvironmentDetector) -> Dict[str, Any]:
+    """Collects detection results into a dictionary."""
+    system_info: Dict[str, Any] = {
+        'Operating System': {},
+        'Virtual Machine': {},
+        'Sandbox': {}
+    }
+
+    if detector.os_info:
+        system_info['Operating System']['Type'] = detector.os_info.type.value
+        system_info['Operating System']['Version'] = detector.os_info.version
+        system_info['Operating System']['Architecture'] = detector.os_info.architecture
+        system_info['Operating System']['Additional Info'] = detector.os_info.additional_info
+
+    if detector.vm_info:
+        system_info['Virtual Machine']['Type'] = detector.vm_info.type.value
+        system_info['Virtual Machine']['Version'] = detector.vm_info.version
+        system_info['Virtual Machine']['Additional Info'] = detector.vm_info.additional_info
+
+    if detector.sandbox_info:
+        system_info['Sandbox']['Type'] = detector.sandbox_info.type.value
+        system_info['Sandbox']['Version'] = detector.sandbox_info.version
+        system_info['Sandbox']['Additional Info'] = detector.sandbox_info.additional_info
+
+    return system_info
+
+
+def run_detection(args: argparse.Namespace) -> EnvironmentDetector:
+    """Runs the detection process."""
+    detector = EnvironmentDetector(perform_all_checks=args.all, paranoid=args.paranoid)
+    detector.detect()
+    return detector
+
+
+def main():
+    """Main function to orchestrate the system detection."""
     args = parse_arguments()
     setup_logging(
         verbose=args.verbose,
         debug=args.debug
     )
-
-    detector = SystemDetector(perform_all_checks=args.all, paranoid=args.paranoid)
-    system_info = detector.detect_system()
-
+    detector = run_detection(args)
+    system_info = collect_results(detector)
     display_results(system_info)
-
     if args.output:
         if not save_output(system_info, args.output):
             logging.error("Failed to save detection results.")
             sys.exit(1)
-
     logging.info("System detection completed successfully.")
     sys.exit(0)
 
