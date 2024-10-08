@@ -14,34 +14,45 @@
 # stitching the upscaled tiles back together.
 #
 # Optionally, a "hallucination" feature can be enabled to modify the upscaled tiles.
-# This involves selecting an object within a tile using Detectron2, creating a mask,
-# and then using SDXL Inpainting to slightly alter the object and add more details.
+# This involves selecting a region within a tile using superpixel segmentation,
+# creating a mask, and then using SDXL Inpainting to slightly alter the region and add more details.
+# The number of times object detection and inpainting are performed per tile can be controlled
+# using the "hallucination-steps" option.
 #
 # Usage:
 # ./upscale_image.py [options]
 #
 # Options:
-#   -i, --input            Path to the input image to be upscaled.
-#                          If not provided, an initial image will be generated using SDXL.
+#   -i, --input              Path to the input image to be upscaled.
+#                            If not provided, an initial image will be generated using SDXL.
 #
-#   SDXL Generation Options (used only if --input is not specified):
-#     -p, --prompt          The prompt to use for SDXL image generation (default: "A beautiful landscape").
-#     -s, --seed            Random seed for reproducibility (default: None).
-#     -n, --num-steps       Number of inference steps for the SDXL model (default: 50).
-#     -g, --guidance-scale  Guidance scale for the SDXL model (default: 7.5).
-#     -c, --checkpoint      SDXL checkpoint to use (default: "stabilityai/stable-diffusion-xl-base-1.0").
+#   SDXL Generation Options  (used only if --input is not specified):
+#     -p, --prompt           The prompt to use for SDXL image generation (default: "A beautiful landscape").
+#     -s, --seed             Random seed for reproducibility (default: None).
+#     -n, --num-steps        Number of inference steps for the SDXL model (default: 50).
+#     -g, --guidance-scale   Guidance scale for the SDXL model (default: 7.5).
+#     -T, --txt2img-checkpoint
+#                            SDXL checkpoint to use for text-to-image generation (default: "stabilityai/stable-diffusion-xl-base-1.0").
+#     -C, --inpaint-checkpoint
+#                            SDXL checkpoint to use for inpainting tasks (default: "stabilityai/stable-diffusion-2-inpainting").
 #
 #   Real-ESRGAN Upscaling Options:
 #     -u, --upscale-exponent Number of upscaling steps. Each step upscales the image by a factor of 4
 #                            (quadrupling width and height). (default: 2).
-#     -m, --model           Path to the Real-ESRGAN model weights file. (default: "RealESRGAN_x4plus.pth").
+#     -m, --model            Path to the Real-ESRGAN model weights file. (default: "RealESRGAN_x4plus.pth").
 #
 #   Hallucination Options:
-#     -H, --hallucinate     Enable hallucination feature to modify upscaled tiles using SDXL inpainting.
+#     -H, --hallucinate          Enable hallucination feature to modify upscaled tiles using SDXL inpainting.
+#     -t, --strength             Strength of the inpainting effect (between 0.0 and 1.0). Lower values make the inpainting
+#                                closer to the original image. (default: 0.3).
+#     -e, --min-area             Minimum area (in pixels) for a superpixel to be considered for hallucination (default: 1000).
+#     -b, --border-thresh        Threshold (in pixels) to determine if a superpixel is near the image border (default: 50).
+#     -S, --hallucination-steps  Number of times to perform object detection and inpainting per tile.
+#                                Higher values result in more hallucinations. (default: 1).
 #
 #   General Options:
-#     -d, --output-dir      Directory to save the output images (default: "output").
-#     -v, --verbose         Enable verbose logging (DEBUG level).
+#     -d, --output-dir       Directory to save the output images (default: "output").
+#     -v, --verbose          Enable verbose logging (DEBUG level).
 #
 # Returns:
 # Exit code 0 on success, non-zero on failure.
@@ -56,7 +67,7 @@
 # - opencv-python (install via: pip install opencv-python)
 # - basicsr (install via: pip install basicsr)
 # - realesrgan (install via: pip install realesrgan)
-# - detectron2 (optional, required if using --hallucinate) (install via: pip install detectron2)
+# - scikit-image (required for superpixel segmentation) (install via: pip install scikit-image)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
@@ -78,9 +89,11 @@ from PIL import Image
 import torch
 import cv2
 
-from diffusers import StableDiffusionXLPipeline, StableDiffusionXLInpaintPipeline
+from diffusers import StableDiffusionXLPipeline, StableDiffusionInpaintPipeline
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from realesrgan import RealESRGANer
+from skimage.segmentation import slic
+from skimage.util import img_as_float
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -117,35 +130,39 @@ def parse_arguments() -> argparse.Namespace:
     # SDXL Generation Options (only if --input is not specified)
     parser.add_argument(
         '-p', '--prompt', type=str, default='A beautiful landscape',
-        help='The prompt to use for SDXL image generation (default: "A beautiful landscape").'
+        help='The prompt to use for SDXL image generation.'
     )
     parser.add_argument(
         '-s', '--seed', type=int, default=None,
-        help='Random seed for reproducibility (default: None).'
+        help='Random seed for reproducibility.'
     )
     parser.add_argument(
         '-n', '--num-steps', type=int, default=50,
-        help='Number of inference steps for the SDXL model (default: 50).'
+        help='Number of inference steps for the SDXL model.'
     )
     parser.add_argument(
         '-g', '--guidance-scale', type=float, default=7.5,
-        help='Guidance scale for the SDXL model (default: 7.5).'
+        help='Guidance scale for the SDXL model.'
     )
     parser.add_argument(
-        '-c', '--checkpoint', type=str,
+        '-T', '--txt2img-checkpoint', type=str,
         default='stabilityai/stable-diffusion-xl-base-1.0',
-        help='SDXL checkpoint to use (default: "stabilityai/stable-diffusion-xl-base-1.0").'
+        help='SDXL checkpoint to use for text-to-image generation.'
+    )
+    parser.add_argument(
+        '-C', '--inpaint-checkpoint', type=str,
+        default='stabilityai/stable-diffusion-2-inpainting',
+        help='Stable Diffusion inpainting checkpoint to use for inpainting tasks.'
     )
 
     # Real-ESRGAN Upscaling Options
     parser.add_argument(
         '-u', '--upscale-exponent', type=int, default=2,
-        help='Number of upscaling steps. Each step upscales the image by a factor of 4 '
-             '(quadrupling width and height). (default: 2).'
+        help='Number of upscaling steps. Each step upscales the image by a factor of 4 (quadrupling width and height).'
     )
     parser.add_argument(
         '-m', '--model', type=str, default='RealESRGAN_x4plus.pth',
-        help='Path to the Real-ESRGAN model weights file. (default: "RealESRGAN_x4plus.pth").'
+        help='Path to the Real-ESRGAN model weights file.'
     )
 
     # Hallucination Option
@@ -153,11 +170,27 @@ def parse_arguments() -> argparse.Namespace:
         '-H', '--hallucinate', action='store_true',
         help='Enable hallucination feature to modify upscaled tiles using SDXL inpainting.'
     )
+    parser.add_argument(
+        '-t', '--strength', type=float, default=0.3,
+        help='Strength of the inpainting effect (between 0.0 and 1.0). Lower values make the inpainting closer to the original image.'
+    )
+    parser.add_argument(
+        '-e', '--min-area', type=int, default=1000,
+        help='Minimum area (in pixels) for a superpixel to be considered for hallucination.'
+    )
+    parser.add_argument(
+        '-b', '--border-thresh', type=int, default=50,
+        help='Threshold (in pixels) to determine if a superpixel is near the image border.'
+    )
+    parser.add_argument(
+        '-S', '--hallucination-steps', type=int, default=1,
+        help='Number of times to perform object detection and inpainting per tile. (default: 1).'
+    )
 
     # General Options
     parser.add_argument(
         '-d', '--output-dir', type=str, default='output',
-        help='Directory to save the output images (default: "output").'
+        help='Directory to save the output images.'
     )
     parser.add_argument(
         '-v', '--verbose', action='store_true',
@@ -173,7 +206,11 @@ def parse_arguments() -> argparse.Namespace:
     if args.upscale_exponent > MAX_UPSCALE_EXPONENT:
         parser.error(f"Argument --upscale-exponent must not exceed {MAX_UPSCALE_EXPONENT} to prevent memory issues.")
 
-    # If input image is not provided, ensure that SDXL parameters are valid
+    # Validate hallucination_steps
+    if args.hallucination_steps < 1:
+        parser.error("Argument --hallucination-steps must be at least 1.")
+
+    # If input image is provided, ensure that it exists
     if args.input is not None and not os.path.isfile(args.input):
         parser.error(f"Input image '{args.input}' does not exist.")
 
@@ -184,6 +221,16 @@ def parse_arguments() -> argparse.Namespace:
         download_realesrgan_model(args.model)
         if not os.path.isfile(args.model):
             parser.error(f"Failed to download Real-ESRGAN model to '{args.model}'. Please provide a valid Real-ESRGAN model weights file.")
+
+    # Validate strength parameter
+    if not 0.0 <= args.strength <= 1.0:
+        parser.error("Argument --strength must be between 0.0 and 1.0.")
+
+    # Validate min_area and border_thresh
+    if args.min_area < 0:
+        parser.error("Argument --min-area must be non-negative.")
+    if args.border_thresh < 0:
+        parser.error("Argument --border-thresh must be non-negative.")
 
     return args
 
@@ -251,13 +298,13 @@ def load_sdxl_pipeline(checkpoint: str) -> StableDiffusionXLPipeline:
         sys.exit(1)
 
 
-def load_inpaint_pipeline(checkpoint: str) -> StableDiffusionXLInpaintPipeline:
+def load_inpaint_pipeline(checkpoint: str) -> StableDiffusionInpaintPipeline:
     """
-    Loads the SDXL Inpainting pipeline for hallucination.
+    Loads the Stable Diffusion Inpainting pipeline for hallucination.
     """
-    logging.info(f"Loading SDXL Inpainting pipeline from checkpoint '{checkpoint}'. This may take a while...")
+    logging.info(f"Loading Stable Diffusion Inpainting pipeline from checkpoint '{checkpoint}'. This may take a while...")
     try:
-        inpaint_pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
+        inpaint_pipe = StableDiffusionInpaintPipeline.from_pretrained(
             checkpoint,
             torch_dtype=torch.float16 if DEVICE.type == "cuda" else torch.float32,
         )
@@ -266,13 +313,13 @@ def load_inpaint_pipeline(checkpoint: str) -> StableDiffusionXLInpaintPipeline:
         inpaint_pipe.enable_attention_slicing()
         try:
             inpaint_pipe.enable_xformers_memory_efficient_attention()
-            logging.info("Enabled xformers memory efficient attention for SDXL inpainting.")
+            logging.info("Enabled xformers memory efficient attention for Stable Diffusion Inpainting.")
         except Exception as e:
-            logging.warning(f"Failed to enable xformers memory efficient attention for SDXL inpainting: {e}")
-        logging.info("SDXL Inpainting pipeline loaded successfully.")
+            logging.warning(f"Failed to enable xformers memory efficient attention for Stable Diffusion Inpainting: {e}")
+        logging.info("Stable Diffusion Inpainting pipeline loaded successfully.")
         return inpaint_pipe
     except Exception as e:
-        logging.exception(f"Failed to load SDXL Inpainting pipeline from checkpoint '{checkpoint}'.")
+        logging.exception(f"Failed to load Stable Diffusion Inpainting pipeline from checkpoint '{checkpoint}'.")
         sys.exit(1)
 
 
@@ -434,134 +481,168 @@ def align_edges(image: Image.Image, tile_size: int = UPSCALED_TILE_SIZE) -> Imag
     return image
 
 
-def initialize_detectron2(device: torch.device) -> 'DefaultPredictor':
+def create_superpixel_mask(image_np: np.ndarray, n_segments: int = 50, compactness: float = 10.0,
+                          min_area: int = 1000, border_thresh: int = 50,
+                          excluded_segments: Optional[List[int]] = None) -> Optional[Image.Image]:
     """
-    Initializes the Detectron2 predictor for object detection.
+    Creates a mask using SLIC superpixel segmentation.
+    Excludes superpixels that are too small, near the image borders, or in the excluded_segments list.
+    Selects the largest suitable superpixel for inpainting.
     """
     try:
-        from detectron2.engine import DefaultPredictor
-        from detectron2.config import get_cfg
-        from detectron2 import model_zoo
-    except ImportError:
-        logging.error("Detectron2 is not installed. Install it using 'pip install detectron2'. Required for hallucination feature.")
-        sys.exit(1)
+        if excluded_segments is None:
+            excluded_segments = []
 
-    logging.info("Initializing Detectron2 predictor for hallucination.")
-    cfg = get_cfg()
-    cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
-    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Set threshold for this model
-    cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
-    cfg.MODEL.DEVICE = str(device)
-    predictor = DefaultPredictor(cfg)
-    logging.info("Detectron2 predictor initialized successfully.")
-    return predictor
+        # Convert image to float for SLIC
+        image_float = img_as_float(image_np)
+        segments = slic(image_float, n_segments=n_segments, compactness=compactness, start_label=1)
+
+        # Get image dimensions
+        height, width = segments.shape
+
+        # Calculate area of each segment
+        unique, counts = np.unique(segments, return_counts=True)
+        segment_areas = dict(zip(unique, counts))
+
+        # Filter segments based on min_area, border_thresh, and excluded_segments
+        suitable_segments = []
+        for seg_id, area in zip(unique, counts):
+            if area < min_area:
+                logging.debug(f"Superpixel {seg_id} skipped: area {area} is smaller than min_area {min_area}.")
+                continue
+
+            if seg_id in excluded_segments:
+                logging.debug(f"Superpixel {seg_id} skipped: already in excluded_segments.")
+                continue
+
+            # Find bounding box of the segment
+            ys, xs = np.where(segments == seg_id)
+            y_min, y_max = ys.min(), ys.max()
+            x_min, x_max = xs.min(), xs.max()
+
+            # Check distance from borders
+            if y_min < border_thresh or y_max > (height - border_thresh) or \
+               x_min < border_thresh or x_max > (width - border_thresh):
+                logging.debug(f"Superpixel {seg_id} skipped: too close to image borders.")
+                continue
+
+            suitable_segments.append((seg_id, area))
+
+        if not suitable_segments:
+            logging.debug("No suitable superpixels found for masking.")
+            return None
+
+        # Select the largest suitable superpixel
+        suitable_segments.sort(key=lambda x: x[1], reverse=True)
+        selected_seg_id = suitable_segments[0][0]
+        logging.debug(f"Selected superpixel {selected_seg_id} with area {suitable_segments[0][1]} for masking.")
+
+        # Create mask for the selected superpixel
+        mask = np.zeros(segments.shape, dtype=np.uint8)
+        mask[segments == selected_seg_id] = 255
+
+        mask_image = Image.fromarray(mask).convert("L")
+        logging.debug("Superpixel mask created successfully.")
+        return mask_image
+
+    except Exception as e:
+        logging.exception("Failed to create superpixel mask.")
+        return None
 
 
 def perform_hallucination(
     tile: Image.Image,
-    predictor: 'DefaultPredictor',
-    inpaint_pipe: StableDiffusionXLInpaintPipeline,
+    inpaint_pipe: StableDiffusionInpaintPipeline,
     prompt: str,
     guidance_scale: float,
     num_inference_steps: int,
-    output_dir: str,
+    strength: float,
+    min_area: int,
+    border_thresh: int,
+    hallucination_steps: int,
     row_idx: int,
     col_idx: int
 ) -> Image.Image:
     """
-    Performs hallucination on a given tile using Detectron2 and SDXL Inpainting.
+    Performs hallucination on a given tile using superpixel segmentation for the specified number of steps.
+    Each step creates a new mask on a different region of the tile and applies inpainting.
     """
     try:
-        upscaled_tile_np = np.array(tile)
-        outputs = predictor(upscaled_tile_np)
-        instances = outputs["instances"]
+        logging.debug(f"Processing tile at Row: {row_idx}, Column: {col_idx}. Tile size: {tile.size}")
+        current_tile = tile.copy()
+        upscaled_tile_np = np.array(current_tile)
 
-        selected_instance = select_instance(instances, tile.size)
-        if selected_instance is not None:
-            mask = create_mask(selected_instance, output_dir, row_idx, col_idx)
-            inpainted_tile = inpaint_tile(
-                tile=tile,
-                mask=mask,
-                inpaint_pipe=inpaint_pipe,
-                prompt=prompt,
-                guidance_scale=guidance_scale,
-                num_inference_steps=num_inference_steps,
-                output_dir=output_dir,
-                row_idx=row_idx,
-                col_idx=col_idx
+        excluded_segments = []
+
+        for step in range(1, hallucination_steps + 1):
+            logging.debug(f"Hallucination step {step}/{hallucination_steps} for tile at Row: {row_idx}, Column: {col_idx}.")
+            mask = create_superpixel_mask(
+                image_np=upscaled_tile_np,
+                n_segments=50,
+                compactness=10.0,
+                min_area=min_area,
+                border_thresh=border_thresh,
+                excluded_segments=excluded_segments
             )
-            return inpainted_tile
-        else:
-            logging.debug(f"No suitable object found for hallucination in tile at Row: {row_idx}, Column: {col_idx}.")
-            return tile
+
+            if mask is not None:
+                inpainted_tile = inpaint_tile(
+                    tile=current_tile,
+                    mask=mask,
+                    inpaint_pipe=inpaint_pipe,
+                    prompt=prompt,
+                    guidance_scale=guidance_scale,
+                    num_inference_steps=num_inference_steps,
+                    strength=strength,
+                )
+                current_tile = inpainted_tile
+                upscaled_tile_np = np.array(current_tile)
+
+                # Update excluded_segments to avoid modifying the same area again
+                # Extract the segment ID from the mask
+                segments = slic(img_as_float(upscaled_tile_np), n_segments=50, compactness=10.0, start_label=1)
+                selected_segments = np.unique(segments[mask == 255])
+                excluded_segments.extend(selected_segments.tolist())
+                logging.debug(f"Excluded segments after step {step}: {excluded_segments}")
+            else:
+                logging.debug(f"No suitable superpixel mask generated for hallucination step {step} on tile at Row: {row_idx}, Column: {col_idx}. Skipping this step.")
+                break  # No more suitable segments to process
+
+        return current_tile
+
     except Exception as e:
         logging.exception("Failed during hallucination process.")
         sys.exit(1)
 
 
-def select_instance(instances, image_size: tuple) -> Optional:
-    """
-    Selects a suitable instance from Detectron2 predictions based on size and position.
-    """
-    image_width, image_height = image_size
-    min_area = 0.01 * image_width * image_height  # 1% of image area
-    max_area = 0.2 * image_width * image_height  # 20% of image area
-    border_threshold = 0.05 * min(image_width, image_height)  # 5% of image size
-
-    for i in range(len(instances)):
-        bbox = instances.pred_boxes[i].tensor.cpu().numpy()[0]  # x1, y1, x2, y2
-        area = instances.pred_boxes.area()[i].item()
-
-        if area < min_area or area > max_area:
-            continue
-
-        x1, y1, x2, y2 = bbox
-        if x1 < border_threshold or y1 < border_threshold or \
-           x2 > image_width - border_threshold or y2 > image_height - border_threshold:
-            continue
-
-        return instances[i]
-    return None
-
-
-def create_mask(instance, output_dir: str, row_idx: int, col_idx: int) -> Image.Image:
-    """
-    Creates and saves a mask image for the selected instance.
-    """
-    mask = instance.pred_masks.cpu().numpy()[0].astype(np.uint8) * 255
-    mask_image = Image.fromarray(mask).convert("L")
-    mask_path = os.path.join(output_dir, f'step_mask_row{row_idx}_col{col_idx}.png')
-    mask_image.save(mask_path)
-    logging.debug(f"Mask saved to '{mask_path}'.")
-    return mask_image
-
-
 def inpaint_tile(
     tile: Image.Image,
     mask: Image.Image,
-    inpaint_pipe: StableDiffusionXLInpaintPipeline,
+    inpaint_pipe: StableDiffusionInpaintPipeline,
     prompt: str,
     guidance_scale: float,
     num_inference_steps: int,
-    output_dir: str,
-    row_idx: int,
-    col_idx: int
+    strength: float,
 ) -> Image.Image:
     """
     Performs inpainting on the given tile using the provided mask.
     """
     try:
+        logging.debug(
+            f"Starting inpainting. Tile size: {tile.size}, Mask size: {mask.size}"
+        )
         result = inpaint_pipe(
             prompt=prompt,
             image=tile,
             mask_image=mask,
             guidance_scale=guidance_scale,
             num_inference_steps=num_inference_steps,
+            strength=strength,
+            width=FIXED_TILE_SIZE,
+            height=FIXED_TILE_SIZE,
         )
         inpainted_tile = result.images[0]
-        mod_tile_path = os.path.join(output_dir, f'step_mod_tile_row{row_idx}_col{col_idx}.png')
-        inpainted_tile.save(mod_tile_path)
-        logging.debug(f"Modified tile saved to '{mod_tile_path}'.")
+        logging.debug(f"Inpainting completed. Inpainted tile size: {inpainted_tile.size}")
         return inpainted_tile
     except torch.cuda.OutOfMemoryError:
         logging.error("CUDA Out of Memory Error: Failed to perform inpainting due to insufficient GPU memory.")
@@ -590,7 +671,12 @@ def create_high_resolution_image(
     hallucinate: bool = False,
     prompt: str = "",
     guidance_scale: float = 7.5,
-    num_inference_steps: int = 50
+    num_inference_steps: int = 50,
+    strength: float = 0.8,
+    inpaint_checkpoint: str = '',
+    min_area: int = 1000,
+    border_thresh: int = 50,
+    hallucination_steps: int = 1
 ) -> None:
     """
     Generates the final high-resolution image by recursively upscaling the initial image.
@@ -604,11 +690,10 @@ def create_high_resolution_image(
 
     current_image = initial_image
 
-    predictor = None
+    # Initialize hallucination resources if needed
     inpaint_pipe = None
     if hallucinate:
-        predictor = initialize_detectron2(DEVICE)
-        inpaint_pipe = load_inpaint_pipeline(checkpoint=args.checkpoint)
+        inpaint_pipe = load_inpaint_pipeline(checkpoint=inpaint_checkpoint)
 
     for step in range(1, upscale_exponent + 1):
         logging.info(f"Starting upscale step {step}/{upscale_exponent}.")
@@ -624,24 +709,28 @@ def create_high_resolution_image(
             col_idx = idx % cols
             logging.debug(f"Upscaling tile {idx + 1}/{num_tiles} at Row: {row_idx}, Column: {col_idx}.")
 
-            upscaled_tile = upscale_tile(model, tile)
-
-            intermediate_tile_path = os.path.join(output_dir, f'step{step}_tile_row{row_idx}_col{col_idx}.png')
-            upscaled_tile.save(intermediate_tile_path)
-            logging.debug(f"Upscaled tile saved to '{intermediate_tile_path}'.")
-
-            if hallucinate and predictor and inpaint_pipe:
-                upscaled_tile = perform_hallucination(
-                    tile=upscaled_tile,
-                    predictor=predictor,
+            if hallucinate and inpaint_pipe:
+                tile = perform_hallucination(
+                    tile=tile,
                     inpaint_pipe=inpaint_pipe,
                     prompt=prompt,
                     guidance_scale=guidance_scale,
                     num_inference_steps=num_inference_steps,
-                    output_dir=output_dir,
+                    strength=strength,
+                    min_area=min_area,
+                    border_thresh=border_thresh,
+                    hallucination_steps=hallucination_steps,
                     row_idx=row_idx,
                     col_idx=col_idx
                 )
+
+            upscaled_tile = upscale_tile(model, tile)
+
+            intermediate_tile_path = os.path.join(
+                output_dir, f'step{step}_tile_row{row_idx}_col{col_idx}.png'
+            )
+            upscaled_tile.save(intermediate_tile_path)
+            logging.debug(f"Upscaled tile saved to '{intermediate_tile_path}'.")
 
             upscaled_tiles.append(upscaled_tile)
             cleanup_memory()
@@ -650,7 +739,9 @@ def create_high_resolution_image(
         new_width = current_image.width * 4
         new_height = current_image.height * 4
         logging.info(f"Stitching tiles to form a new image of size {new_width}x{new_height}.")
-        final_image = stitch_tiles(upscaled_tiles, rows=rows, cols=cols, tile_size=UPSCALED_TILE_SIZE)
+        final_image = stitch_tiles(
+            upscaled_tiles, rows=rows, cols=cols, tile_size=UPSCALED_TILE_SIZE
+        )
 
         # Post-process to align edges if necessary
         final_image = align_edges(final_image, tile_size=UPSCALED_TILE_SIZE)
@@ -662,9 +753,9 @@ def create_high_resolution_image(
 
         current_image = final_image
 
+    # Clean up hallucination resources
     if hallucinate:
-        inpaint_pipe = None
-        predictor = None
+        del inpaint_pipe
         cleanup_memory()
 
     # Save final image
@@ -700,7 +791,7 @@ def create_initial_image_if_needed(args: argparse.Namespace) -> Image.Image:
             sys.exit(1)
     else:
         # Generate initial image using SDXL
-        sdxl_pipe = load_sdxl_pipeline(checkpoint=args.checkpoint)
+        sdxl_pipe = load_sdxl_pipeline(checkpoint=args.txt2img_checkpoint)
         initial_image = generate_initial_image(
             pipe=sdxl_pipe,
             prompt=args.prompt,
@@ -740,7 +831,12 @@ def main() -> None:
         hallucinate=args.hallucinate,
         prompt=args.prompt,
         guidance_scale=args.guidance_scale,
-        num_inference_steps=args.num_steps
+        num_inference_steps=args.num_steps,
+        strength=args.strength,
+        inpaint_checkpoint=args.inpaint_checkpoint,
+        min_area=args.min_area,
+        border_thresh=args.border_thresh,
+        hallucination_steps=args.hallucination_steps  # Pass the new argument here
     )
 
     logging.info("Image upscaling process completed successfully.")
