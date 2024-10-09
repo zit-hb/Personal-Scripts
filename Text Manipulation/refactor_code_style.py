@@ -458,14 +458,14 @@ def get_refactored_code(messages: List[Dict], model: str, functions: Optional[Li
                     function_args = {'refactored_code': refactored_code}
                     return function_args
                 else:
-                    logging.error(f"No content in assistant's response.")
+                    logging.error("No content in assistant's response.")
                     if attempt < max_attempts - 1:
                         logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
                         continue
                     else:
                         return None
             else:
-                logging.error(f"No function call or content in assistant's response.")
+                logging.error("No function call or content in assistant's response.")
                 if attempt < max_attempts - 1:
                     logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
                     continue
@@ -557,7 +557,7 @@ def process_file(
 
     refactored_code = function_args.get('refactored_code')
     if not refactored_code:
-        logging.error(f"Refactored code not found in function arguments.")
+        logging.error("Refactored code not found in function arguments.")
         return None
 
     # Log additional information if available

@@ -781,9 +781,8 @@ class KubernetesSandboxDetector(BaseDetector):
         except Exception as e:
             logging.debug(f"Error reading /proc/1/cgroup: {e}")
 
-        if paranoid:
-            if os.environ.get('KUBERNETES_SERVICE_HOST'):
-                return True
+        if paranoid and os.environ.get('KUBERNETES_SERVICE_HOST'):
+            return True
         return False
 
 
@@ -875,19 +874,19 @@ class GenericSandboxDetector(BaseDetector):
                 class TOKEN_MANDATORY_LABEL(ctypes.Structure):
                     _fields_ = [("Label", SID_AND_ATTRIBUTES)]
 
-                hToken = ctypes.wintypes.HANDLE()
+                h_token = ctypes.wintypes.HANDLE()
                 TOKEN_QUERY = 0x0008
-                TokenIntegrityLevel = 25
+                token_integrity_level = 25
                 if ctypes.windll.advapi32.OpenProcessToken(
                         ctypes.windll.kernel32.GetCurrentProcess(),
                         TOKEN_QUERY,
-                        ctypes.byref(hToken),
+                        ctypes.byref(h_token),
                 ):
                     info = TOKEN_MANDATORY_LABEL()
                     ret_len = ctypes.wintypes.DWORD()
                     ctypes.windll.advapi32.GetTokenInformation(
-                        hToken,
-                        TokenIntegrityLevel,
+                        h_token,
+                        token_integrity_level,
                         ctypes.byref(info),
                         ctypes.sizeof(info),
                         ctypes.byref(ret_len),
@@ -1196,8 +1195,7 @@ def main():
     detector = run_detection(args)
     system_info = collect_results(detector)
     display_results(system_info)
-    if args.output:
-        if not save_output(system_info, args.output):
+    if args.output and not save_output(system_info, args.output):
             logging.error("Failed to save detection results.")
             sys.exit(1)
     logging.info("System detection completed successfully.")

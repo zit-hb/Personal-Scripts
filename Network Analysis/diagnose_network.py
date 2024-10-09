@@ -888,12 +888,12 @@ class SharedDiagnosticsTools:
             self.logger.info(f"HTTP request to {url} failed: {e}")
             raise e
 
-    def has_open_port(self, port: int, protocol: str = 'tcp'):
+    def has_open_port(self, port_to_check: int, protocol: str = 'tcp'):
         """
         Check if the device has an open port with the specified port number and protocol.
         """
         for port in self.device.ports:
-            if port.port_id == port and port.protocol == protocol:
+            if port.port_id == port_to_check and port.protocol == protocol:
                 return port.state.lower() == 'open'
         return False
 
@@ -3638,7 +3638,7 @@ class ContainerCommand(BaseCommand):
                 self.logger.info("Using host network mode.")
             elif network_mode == ContainerNetworkMode.BRIDGE:
                 run_cmd.extend(['--network', 'bridge'])
-                self.logger.info(f"Using bridge network mode")
+                self.logger.info("Using bridge network mode")
             else:
                 self.logger.info("Using default network mode.")
                 # Do not add any --network parameter

@@ -193,7 +193,7 @@ def determine_output_size(image_files, resolution_mode, custom_width=None, custo
     return width, height
 
 
-def load_and_resize_images(image_files, target_size, alignment_method):
+def load_and_resize_images(image_files, target_size):
     """
     Loads images, resizes them to the target size, and returns them as a list of NumPy arrays.
     """
@@ -345,7 +345,7 @@ def main():
     )
 
     # Load and resize images
-    images = load_and_resize_images(image_files, output_size, alignment_method)
+    images = load_and_resize_images(image_files, output_size)
 
     # Align images
     aligned_images = align_images(images, alignment_method)

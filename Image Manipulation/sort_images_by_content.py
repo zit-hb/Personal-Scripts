@@ -252,11 +252,10 @@ def cluster_features(features: np.ndarray, min_cluster_size: int, max_clusters: 
 def assign_labels_to_clusters(
     cluster_image_paths: List[str],
     labels: List[str],
-    text_embeddings: np.ndarray,
     clip_model: CLIPModel,
     clip_processor: CLIPProcessor,
     device: torch.device,
-    label_embeddings: np.ndarray,
+    text_embeddings: np.ndarray,
     cluster_id: int
 ) -> str:
     """
@@ -289,7 +288,7 @@ def assign_labels_to_clusters(
     cluster_centroid /= np.linalg.norm(cluster_centroid)
 
     # Compute cosine similarity between cluster centroid and all label embeddings
-    similarities = np.dot(label_embeddings, cluster_centroid)
+    similarities = np.dot(text_embeddings, cluster_centroid)
     best_label_idx = np.argmax(similarities)
     best_label = labels[best_label_idx]
 
@@ -356,7 +355,6 @@ def build_hierarchy(
         cluster_label = assign_labels_to_clusters(
             cluster_image_paths,
             text_labels,
-            text_embeddings,
             clip_model,
             clip_processor,
             device,

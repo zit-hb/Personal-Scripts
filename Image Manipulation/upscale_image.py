@@ -502,7 +502,6 @@ def create_superpixel_mask(image_np: np.ndarray, n_segments: int = 50, compactne
 
         # Calculate area of each segment
         unique, counts = np.unique(segments, return_counts=True)
-        segment_areas = dict(zip(unique, counts))
 
         # Filter segments based on min_area, border_thresh, and excluded_segments
         suitable_segments = []

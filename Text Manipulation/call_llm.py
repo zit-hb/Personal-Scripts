@@ -317,7 +317,7 @@ def generate_function_definition(client: OpenAI, prompt: str, model: str) -> Opt
 
             # Validate the function definition
             if validate_function_definition(func_def, verbose=False):
-                logging.info(f"Successfully generated function definition for prompt.")
+                logging.info("Successfully generated function definition for prompt.")
                 return func_def
             else:
                 logging.warning(
@@ -610,9 +610,8 @@ def handle_gen_def_command(args: argparse.Namespace, console: Optional[Console])
     function_def = generate_function_definition(client, args.prompt, model=args.model)
     if function_def:
         # If output-file is specified, save to file
-        if args.output_file:
-            if save_definition(function_def, args.output_file):
-                logging.info(f"Function definition saved to '{args.output_file}'.")
+        if args.output_file and save_definition(function_def, args.output_file):
+            logging.info(f"Function definition saved to '{args.output_file}'.")
         # Always display the definition
         display_definition(function_def, console)
     else:
