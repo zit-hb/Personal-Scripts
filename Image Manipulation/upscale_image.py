@@ -544,7 +544,7 @@ def create_superpixel_mask(image_np: np.ndarray, n_segments: int = 50, compactne
         logging.debug("Superpixel mask created successfully.")
         return mask_image
 
-    except Exception as e:
+    except Exception:
         logging.exception("Failed to create superpixel mask.")
         return None
 

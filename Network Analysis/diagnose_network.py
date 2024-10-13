@@ -1097,7 +1097,7 @@ class ExternalResourcesDiagnostics(BaseDiagnostics):
             self.logger.debug(f"Executing command: {' '.join(nikto_command)}")
 
             # Execute the Nikto scan
-            result = subprocess.run(
+            subprocess.run(
                 nikto_command,
                 check=True,
                 capture_output=True,
@@ -3654,7 +3654,7 @@ class ContainerCommand(BaseCommand):
 
         except subprocess.CalledProcessError as e:
             self.logger.error(f"An error occurred while running Docker: {e}")
-        except Exception as e:
+        except Exception:
             self.logger.exception("An unexpected error occurred")
         finally:
             # Clean up macvlan interface and network if they were created
@@ -3752,7 +3752,7 @@ class ContainerCommand(BaseCommand):
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to set up macvlan network: {e}")
             return False
-        except Exception as e:
+        except Exception:
             self.logger.exception("An unexpected error occurred during macvlan network setup.")
             return False
 
@@ -3770,7 +3770,7 @@ class ContainerCommand(BaseCommand):
             self.logger.info(f"Removed macvlan network: {network_name}")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to remove macvlan network: {e}")
-        except Exception as e:
+        except Exception:
             self.logger.exception("An unexpected error occurred during macvlan network cleanup.")
 
     def _setup_macvlan_interface(self, host_iface: str, parent_iface: str, subnet: str) -> bool:
@@ -3804,7 +3804,7 @@ class ContainerCommand(BaseCommand):
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to set up macvlan interface: {e}")
             return False
-        except Exception as e:
+        except Exception:
             self.logger.exception("An unexpected error occurred during macvlan interface setup.")
             return False
 
@@ -3817,7 +3817,7 @@ class ContainerCommand(BaseCommand):
             self.logger.info(f"Removed macvlan interface: {host_iface}")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"Failed to remove macvlan interface: {e}")
-        except Exception as e:
+        except Exception:
             self.logger.exception("An unexpected error occurred during macvlan interface cleanup.")
 
     def _interface_exists(self, interface_name: str) -> bool:
@@ -3832,7 +3832,7 @@ class ContainerCommand(BaseCommand):
                 text=True
             )
             return result.returncode == 0
-        except Exception as e:
+        except Exception:
             self.logger.exception(f"Error checking if interface {interface_name} exists.")
             return False
 
@@ -3872,7 +3872,7 @@ class ContainerCommand(BaseCommand):
 
             return (parent_iface, subnet, gateway_ip)
 
-        except Exception as e:
+        except Exception:
             self.logger.exception("Error while detecting network parameters.")
             return (None, None, None)
 
@@ -3895,7 +3895,7 @@ class ContainerCommand(BaseCommand):
             else:
                 self.logger.error("Unexpected format of default route.")
                 return None
-        except Exception as e:
+        except Exception:
             self.logger.exception("Failed to retrieve the default gateway.")
             return None
 
@@ -3919,7 +3919,7 @@ class ContainerCommand(BaseCommand):
             else:
                 self.logger.error("Unable to find interface in route output.")
                 return None
-        except Exception as e:
+        except Exception:
             self.logger.exception("Failed to determine the interface for the gateway.")
             return None
 
@@ -3946,7 +3946,7 @@ class ContainerCommand(BaseCommand):
                     return str(network)
             self.logger.error(f"No inet information found for interface {interface}.")
             return None
-        except Exception as e:
+        except Exception:
             self.logger.exception(f"Failed to retrieve subnet for interface {interface}.")
             return None
 
@@ -3964,7 +3964,7 @@ class ContainerCommand(BaseCommand):
             # Assign the second IP address to the host's macvlan interface
             host_ip: str = str(hosts[1])
             return host_ip
-        except Exception as e:
+        except Exception:
             self.logger.exception("Failed to calculate host IP for macvlan interface.")
             return None
 
