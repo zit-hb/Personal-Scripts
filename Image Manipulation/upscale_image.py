@@ -9,15 +9,10 @@
 # If no initial image is provided, it generates one using Stable
 # Diffusion XL (SDXL) based on a given prompt.
 #
-# Each upscale step involves splitting the image into fixed-size tiles,
-# upscaling each tile to a higher resolution using Real-ESRGAN, and then
-# stitching the upscaled tiles back together.
-#
-# Optionally, a "hallucination" feature can be enabled to modify the upscaled tiles.
-# This involves selecting a region within a tile using superpixel segmentation,
-# creating a mask, and then using SDXL Inpainting to slightly alter the region and add more details.
-# The number of times object detection and inpainting are performed per tile can be controlled
-# using the "hallucination-steps" option.
+# The process involves upscaling the initial image using Real-ESRGAN,
+# splitting it into tiles of random sizes between 768 and 1024 pixels,
+# and performing hallucination (inpainting) on each tile.
+# This ensures complete coverage of the image without gaps or overlaps.
 #
 # Usage:
 # ./upscale_image.py [options]
@@ -37,12 +32,14 @@
 #                            SDXL checkpoint to use for inpainting tasks (default: "stabilityai/stable-diffusion-2-inpainting").
 #
 #   Real-ESRGAN Upscaling Options:
-#     -u, --upscale-exponent Number of upscaling steps. Each step upscales the image by a factor of 4
-#                            (quadrupling width and height). (default: 2).
-#     -m, --model            Path to the Real-ESRGAN model weights file. (default: "RealESRGAN_x4plus.pth").
+#     -u, --upscale-exponent Number of upscaling levels. Controls how many times the hallucination and upscaling steps are repeated.
+#                            (default: 1).
+#     -f, --upscale-factor   Upscale factor for Real-ESRGAN (default: 4). Allowed values are 2 and 4.
+#     -m, --model            Path to the Real-ESRGAN model weights file. Must match the upscale factor.
+#                            (default: "RealESRGAN_x4plus.pth").
 #
 #   Hallucination Options:
-#     -H, --hallucinate          Enable hallucination feature to modify upscaled tiles using SDXL inpainting.
+#     -H, --hallucinate          Enable hallucination feature to modify tiles using SDXL inpainting.
 #     -t, --strength             Strength of the inpainting effect (between 0.0 and 1.0). Lower values make the inpainting
 #                                closer to the original image. (default: 0.3).
 #     -e, --min-area             Minimum area (in pixels) for a superpixel to be considered for hallucination (default: 1000).
@@ -78,8 +75,7 @@ import logging
 import os
 import sys
 import gc
-import math
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import warnings
 import requests
@@ -100,11 +96,15 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # Constants for tile sizes
-FIXED_TILE_SIZE = 512          # Size before upscaling
-UPSCALED_TILE_SIZE = 2048      # Size after upscaling
+INITIAL_IMAGE_SIZE = 1024
+MIN_TILE_SIZE = 768
+MAX_TILE_SIZE = 1024
 
 # Default Real-ESRGAN model URL
-DEFAULT_REALESRGAN_MODEL_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
+DEFAULT_REALESRGAN_MODEL_URLS = {
+    2: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
+    4: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+}
 
 # Determine the device to use (GPU if available, else CPU)
 DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -116,8 +116,9 @@ def parse_arguments() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Generates a high-resolution image by upscaling an initial image recursively using Real-ESRGAN. "
-            "If no initial image is provided, generates one using Stable Diffusion XL (SDXL) based on a given prompt."
+            "Generates a high-resolution image by upscaling an initial image using Real-ESRGAN, "
+            "splitting it into tiles of random sizes, performing hallucination, and optionally iterating this process "
+            "to achieve higher resolutions."
         )
     )
 
@@ -157,18 +158,22 @@ def parse_arguments() -> argparse.Namespace:
 
     # Real-ESRGAN Upscaling Options
     parser.add_argument(
-        '-u', '--upscale-exponent', type=int, default=2,
-        help='Number of upscaling steps. Each step upscales the image by a factor of 4 (quadrupling width and height).'
+        '-u', '--upscale-exponent', type=int, default=1,
+        help='Number of upscaling levels. Controls how many times the hallucination and upscaling steps are repeated.'
+    )
+    parser.add_argument(
+        '-f', '--upscale-factor', type=int, default=4,
+        help='Upscale factor for Real-ESRGAN (default: 4). Allowed values are 2 and 4.'
     )
     parser.add_argument(
         '-m', '--model', type=str, default='RealESRGAN_x4plus.pth',
-        help='Path to the Real-ESRGAN model weights file.'
+        help='Path to the Real-ESRGAN model weights file. Must match the upscale factor.'
     )
 
     # Hallucination Option
     parser.add_argument(
         '-H', '--hallucinate', action='store_true',
-        help='Enable hallucination feature to modify upscaled tiles using SDXL inpainting.'
+        help='Enable hallucination feature to modify tiles using SDXL inpainting.'
     )
     parser.add_argument(
         '-t', '--strength', type=float, default=0.3,
@@ -184,7 +189,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         '-S', '--hallucination-steps', type=int, default=1,
-        help='Number of times to perform object detection and inpainting per tile. (default: 1).'
+        help='Number of times to perform object detection and inpainting per tile. Higher values result in more hallucinations. (default: 1).'
     )
 
     # General Options
@@ -218,7 +223,7 @@ def parse_arguments() -> argparse.Namespace:
     if not os.path.isfile(args.model):
         setup_logging(verbose=args.verbose)  # Initialize logging to capture download logs
         logging.info(f"Real-ESRGAN model file '{args.model}' not found. Attempting to download...")
-        download_realesrgan_model(args.model)
+        download_realesrgan_model(args.model, args.upscale_factor)
         if not os.path.isfile(args.model):
             parser.error(f"Failed to download Real-ESRGAN model to '{args.model}'. Please provide a valid Real-ESRGAN model weights file.")
 
@@ -231,6 +236,10 @@ def parse_arguments() -> argparse.Namespace:
         parser.error("Argument --min-area must be non-negative.")
     if args.border_thresh < 0:
         parser.error("Argument --border-thresh must be non-negative.")
+
+    # Validate upscale_factor
+    if args.upscale_factor not in [2, 4]:
+        parser.error("Argument --upscale-factor must be either 2 or 4.")
 
     return args
 
@@ -247,12 +256,17 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-def download_realesrgan_model(model_path: str) -> None:
+def download_realesrgan_model(model_path: str, upscale_factor: int) -> None:
     """
     Downloads the Real-ESRGAN model weights from the default URL if not present.
     """
     try:
-        response = requests.get(DEFAULT_REALESRGAN_MODEL_URL, stream=True)
+        url = DEFAULT_REALESRGAN_MODEL_URLS.get(upscale_factor)
+        if url is None:
+            logging.error(f"No default Real-ESRGAN model URL for upscale factor {upscale_factor}.")
+            sys.exit(1)
+
+        response = requests.get(url, stream=True)
         response.raise_for_status()
         total_size = int(response.headers.get('content-length', 0))
         if os.path.dirname(model_path):
@@ -269,7 +283,7 @@ def download_realesrgan_model(model_path: str) -> None:
                 bar.update(size)
         logging.info(f"Successfully downloaded Real-ESRGAN model to '{model_path}'.")
     except Exception as e:
-        logging.error(f"Failed to download Real-ESRGAN model from '{DEFAULT_REALESRGAN_MODEL_URL}'. Error: {e}")
+        logging.error(f"Failed to download Real-ESRGAN model from '{url}'. Error: {e}")
         sys.exit(1)
 
 
@@ -372,7 +386,7 @@ def generate_initial_image(
         sys.exit(1)
 
 
-def load_realesrgan_model(model_path: str) -> RealESRGANer:
+def load_realesrgan_model(model_path: str, upscale_factor: int) -> RealESRGANer:
     """
     Loads the Real-ESRGAN model from the specified weights file using the realesrgan package.
     """
@@ -384,20 +398,33 @@ def load_realesrgan_model(model_path: str) -> RealESRGANer:
             logging.error(f"Model file '{model_path}' does not exist.")
             sys.exit(1)
 
-        rrdbnet = RRDBNet(
-            num_in_ch=3,
-            num_out_ch=3,
-            num_feat=64,
-            num_block=23,
-            num_grow_ch=32,
-            scale=4
-        )
+        if upscale_factor == 2:
+            model = RRDBNet(
+                num_in_ch=3,
+                num_out_ch=3,
+                num_feat=64,
+                num_block=23,
+                num_grow_ch=32,
+                scale=2
+            )
+        elif upscale_factor == 4:
+            model = RRDBNet(
+                num_in_ch=3,
+                num_out_ch=3,
+                num_feat=64,
+                num_block=23,
+                num_grow_ch=32,
+                scale=4
+            )
+        else:
+            logging.error(f"Unsupported upscale factor {upscale_factor}.")
+            sys.exit(1)
 
-        model = RealESRGANer(
-            scale=4,
+        realesrgan_model = RealESRGANer(
+            scale=upscale_factor,
             model_path=model_path,
             dni_weight=None,
-            model=rrdbnet,
+            model=model,
             tile=0,
             tile_pad=10,
             pre_pad=10,
@@ -406,30 +433,115 @@ def load_realesrgan_model(model_path: str) -> RealESRGANer:
         )
 
         logging.info(f"Real-ESRGAN model loaded successfully on {DEVICE}.")
-        return model
+        return realesrgan_model
     except Exception as e:
         logging.exception(f"Failed to load Real-ESRGAN model from '{model_path}'.")
         sys.exit(1)
 
 
-def split_image_into_tiles(image: Image.Image, tile_size: int = FIXED_TILE_SIZE) -> List[Image.Image]:
+def align_to_multiple(size: int, multiple: int = 8) -> int:
     """
-    Splits the image into tiles of specified size without overlapping.
+    Aligns the given size down to the nearest multiple of the specified value.
+    """
+    return size - (size % multiple)
+
+
+def generate_tile_sizes(total_size: int, min_size: int, max_size: int, multiple: int = 8) -> List[int]:
+    """
+    Generates a list of tile sizes for one dimension (width or height).
+    Each size is between min_size and max_size and divisible by 'multiple'.
+    Ensures that the sum of tile sizes equals total_size.
+    """
+    sizes = []
+    remaining = total_size
+
+    while remaining > 0:
+        if remaining <= max_size:
+            size = align_to_multiple(remaining, multiple)
+            if size < min_size and sizes:
+                # Adjust the last tile to accommodate the remaining size
+                sizes[-1] += remaining
+                sizes[-1] = align_to_multiple(sizes[-1], multiple)
+            else:
+                sizes.append(size)
+            break
+        else:
+            size = np.random.randint(min_size, max_size + 1)
+            size = align_to_multiple(size, multiple)
+            # Ensure that the remaining size after this tile is not less than min_size
+            if remaining - size < min_size:
+                size = remaining - min_size
+                size = align_to_multiple(size, multiple)
+            sizes.append(size)
+            remaining -= size
+
+    # Final adjustment to ensure the sum matches total_size
+    total_generated = sum(sizes)
+    if total_generated < total_size:
+        adjustment = total_size - total_generated
+        if adjustment % multiple == 0:
+            sizes[-1] += adjustment
+        else:
+            # Adjust to the nearest multiple of 'multiple'
+            sizes[-1] += adjustment - (adjustment % multiple)
+    elif total_generated > total_size:
+        adjustment = total_generated - total_size
+        if adjustment % multiple == 0:
+            sizes[-1] -= adjustment
+        else:
+            # Adjust to the nearest multiple of 'multiple'
+            sizes[-1] -= adjustment + (multiple - (adjustment % multiple))
+
+    # Final check to ensure all sizes are within constraints and divisible by 'multiple'
+    for size in sizes:
+        if size < min_size or size > max_size:
+            logging.warning(f"Generated tile size {size} is out of bounds ({min_size}-{max_size}). Adjusting.")
+            size = min(max(size, min_size), max_size)
+        if size % multiple != 0:
+            logging.warning(f"Generated tile size {size} is not divisible by {multiple}. Aligning.")
+            size = align_to_multiple(size, multiple)
+        # Update the size in the list
+        index = sizes.index(size)
+        sizes[index] = size
+
+    return sizes
+
+
+def split_image_into_tiles(image: Image.Image, min_tile_size: int = MIN_TILE_SIZE, max_tile_size: int = MAX_TILE_SIZE) -> List[Tuple[Image.Image, int, int]]:
+    """
+    Splits the image into tiles of random sizes between min_tile_size and max_tile_size pixels.
+    Ensures that all parts of the image are covered without gaps or overlaps.
+    Returns a list of tuples (tile, x, y), where x and y are the positions of the tile in the image.
     """
     width, height = image.size
     tiles = []
-    for y in range(0, height, tile_size):
-        for x in range(0, width, tile_size):
-            box = (x, y, min(x + tile_size, width), min(y + tile_size, height))
+
+    # Generate tile sizes for both dimensions
+    tile_widths = generate_tile_sizes(width, min_tile_size, max_tile_size)
+    tile_heights = generate_tile_sizes(height, min_tile_size, max_tile_size)
+
+    # Calculate x and y positions based on tile sizes
+    x_positions = [0]
+    for w in tile_widths[:-1]:
+        x_positions.append(x_positions[-1] + w)
+
+    y_positions = [0]
+    for h in tile_heights[:-1]:
+        y_positions.append(y_positions[-1] + h)
+
+    # Iterate over all tile positions and sizes
+    for y, h in zip(y_positions, tile_heights):
+        for x, w in zip(x_positions, tile_widths):
+            box = (x, y, x + w, y + h)
             tile = image.crop(box)
-            if tile.size != (tile_size, tile_size):
-                tile = tile.resize((tile_size, tile_size), resample=Image.BICUBIC)
-            tiles.append(tile)
-    logging.debug(f"Image split into {len(tiles)} tiles ({math.ceil(height / tile_size)} rows x {math.ceil(width / tile_size)} cols).")
+            tiles.append((tile, x, y))
+            logging.debug(f"Created tile at ({x}, {y}) with size ({w}, {h}).")
+
+    logging.info(f"Image split into {len(tiles)} tiles with varying sizes.")
     return tiles
 
 
-def upscale_with_realesrgan(model: RealESRGANer, image: Image.Image) -> Image.Image:
+def upscale_with_realesrgan(model: RealESRGANer, image: Image.Image, outscale: float) -> Image.Image:
     """
     Upscales the given image using the Real-ESRGAN model.
     Converts PIL Image to NumPy array before processing and back after.
@@ -437,7 +549,7 @@ def upscale_with_realesrgan(model: RealESRGANer, image: Image.Image) -> Image.Im
     try:
         img_np = np.array(image)
         img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-        upscaled_bgr, _ = model.enhance(img_bgr, outscale=4)
+        upscaled_bgr, _ = model.enhance(img_bgr, outscale=outscale)
         upscaled_rgb = cv2.cvtColor(upscaled_bgr, cv2.COLOR_BGR2RGB)
         upscaled_image = Image.fromarray(upscaled_rgb)
         return upscaled_image
@@ -449,41 +561,22 @@ def upscale_with_realesrgan(model: RealESRGANer, image: Image.Image) -> Image.Im
         sys.exit(1)
 
 
-def stitch_tiles(tiles: List[Image.Image], rows: int, cols: int, tile_size: int = UPSCALED_TILE_SIZE) -> Image.Image:
+def stitch_tiles(tiles_with_positions: List[Tuple[Image.Image, int, int]], image_size: Tuple[int, int]) -> Image.Image:
     """
     Stitches the tiles back into a single image without overlapping.
+    tiles_with_positions is a list of tuples (tile, x, y).
+    image_size is (width, height) of the final image.
     """
-    if not tiles:
-        logging.error("No tiles to stitch.")
-        sys.exit(1)
-
-    final_width = tile_size * cols
-    final_height = tile_size * rows
-    final_image = Image.new('RGB', (final_width, final_height))
-    idx = 0
-    for row in range(rows):
-        for col in range(cols):
-            if idx < len(tiles):
-                tile = tiles[idx]
-                final_image.paste(tile, (col * tile_size, row * tile_size))
-                idx += 1
-    logging.debug(f"Tiles stitched into image of size {final_width}x{final_height}.")
+    final_image = Image.new('RGB', image_size)
+    for tile, x, y in tiles_with_positions:
+        final_image.paste(tile, (x, y))
+    logging.debug(f"Tiles stitched into image of size {image_size[0]}x{image_size[1]}.")
     return final_image
 
 
-def align_edges(image: Image.Image, tile_size: int = UPSCALED_TILE_SIZE) -> Image.Image:
-    """
-    Post-processes the stitched image to ensure edge alignment without blending or blurring.
-    Placeholder for edge alignment logic.
-    """
-    # Implement edge correction algorithms if necessary
-    # Currently returns the image as-is
-    return image
-
-
 def create_superpixel_mask(image_np: np.ndarray, n_segments: int = 50, compactness: float = 10.0,
-                          min_area: int = 1000, border_thresh: int = 50,
-                          excluded_segments: Optional[List[int]] = None) -> Optional[Image.Image]:
+                           min_area: int = 1000, border_thresh: int = 50,
+                           excluded_segments: Optional[List[int]] = None) -> Optional[Image.Image]:
     """
     Creates a mask using SLIC superpixel segmentation.
     Excludes superpixels that are too small, near the image borders, or in the excluded_segments list.
@@ -559,22 +652,22 @@ def perform_hallucination(
     min_area: int,
     border_thresh: int,
     hallucination_steps: int,
-    row_idx: int,
-    col_idx: int
+    x: int,
+    y: int
 ) -> Image.Image:
     """
     Performs hallucination on a given tile using superpixel segmentation for the specified number of steps.
     Each step creates a new mask on a different region of the tile and applies inpainting.
     """
     try:
-        logging.debug(f"Processing tile at Row: {row_idx}, Column: {col_idx}. Tile size: {tile.size}")
+        logging.debug(f"Processing tile at position ({x}, {y}). Tile size: {tile.size}")
         current_tile = tile.copy()
         upscaled_tile_np = np.array(current_tile)
 
         excluded_segments = []
 
         for step in range(1, hallucination_steps + 1):
-            logging.debug(f"Hallucination step {step}/{hallucination_steps} for tile at Row: {row_idx}, Column: {col_idx}.")
+            logging.debug(f"Hallucination step {step}/{hallucination_steps} for tile at position ({x}, {y}).")
             mask = create_superpixel_mask(
                 image_np=upscaled_tile_np,
                 n_segments=50,
@@ -600,11 +693,11 @@ def perform_hallucination(
                 # Update excluded_segments to avoid modifying the same area again
                 # Extract the segment ID from the mask
                 segments = slic(img_as_float(upscaled_tile_np), n_segments=50, compactness=10.0, start_label=1)
-                selected_segments = np.unique(segments[mask == 255])
+                selected_segments = np.unique(segments[np.array(mask) == 255])
                 excluded_segments.extend(selected_segments.tolist())
                 logging.debug(f"Excluded segments after step {step}: {excluded_segments}")
             else:
-                logging.debug(f"No suitable superpixel mask generated for hallucination step {step} on tile at Row: {row_idx}, Column: {col_idx}. Skipping this step.")
+                logging.debug(f"No suitable superpixel mask generated for hallucination step {step} on tile at position ({x}, {y}). Skipping this step.")
                 break  # No more suitable segments to process
 
         return current_tile
@@ -630,6 +723,15 @@ def inpaint_tile(
         logging.debug(
             f"Starting inpainting. Tile size: {tile.size}, Mask size: {mask.size}"
         )
+        # Ensure that tile dimensions are divisible by 8
+        tile_width, tile_height = tile.size
+        tile_width_aligned = align_to_multiple(tile_width, 8)
+        tile_height_aligned = align_to_multiple(tile_height, 8)
+        if tile_width != tile_width_aligned or tile_height != tile_height_aligned:
+            logging.debug(f"Aligning tile size from ({tile_width}, {tile_height}) to ({tile_width_aligned}, {tile_height_aligned}).")
+            tile = tile.crop((0, 0, tile_width_aligned, tile_height_aligned))
+            mask = mask.crop((0, 0, tile_width_aligned, tile_height_aligned))
+
         result = inpaint_pipe(
             prompt=prompt,
             image=tile,
@@ -637,8 +739,8 @@ def inpaint_tile(
             guidance_scale=guidance_scale,
             num_inference_steps=num_inference_steps,
             strength=strength,
-            width=FIXED_TILE_SIZE,
-            height=FIXED_TILE_SIZE,
+            width=tile.width,
+            height=tile.height,
         )
         inpainted_tile = result.images[0]
         logging.debug(f"Inpainting completed. Inpainted tile size: {inpainted_tile.size}")
@@ -653,12 +755,13 @@ def inpaint_tile(
 
 def upscale_tile(
     model: RealESRGANer,
-    tile: Image.Image
+    tile: Image.Image,
+    outscale: float
 ) -> Image.Image:
     """
     Upscales a single tile using the Real-ESRGAN model.
     """
-    upscaled_tile = upscale_with_realesrgan(model, tile)
+    upscaled_tile = upscale_with_realesrgan(model, tile, outscale=outscale)
     return upscaled_tile
 
 
@@ -667,6 +770,7 @@ def create_high_resolution_image(
     upscale_exponent: int,
     output_dir: str,
     model: RealESRGANer,
+    upscale_factor: int,
     hallucinate: bool = False,
     prompt: str = "",
     guidance_scale: float = 7.5,
@@ -678,15 +782,16 @@ def create_high_resolution_image(
     hallucination_steps: int = 1
 ) -> None:
     """
-    Generates the final high-resolution image by recursively upscaling the initial image.
+    Generates the final high-resolution image by recursively upscaling and hallucinating the initial image.
     """
-    logging.info("Starting to generate the seamless high-resolution image.")
+    logging.info("Starting to generate the high-resolution image.")
 
-    # Save initial image
-    initial_image_path_out = os.path.join(output_dir, 'initial_image.png')
-    initial_image.save(initial_image_path_out)
-    logging.info(f"Initial image saved to '{initial_image_path_out}'.")
+    initial_image_path = os.path.join(output_dir, f'initial_image.png')
+    initial_image.save(initial_image_path)
+    logging.info(f"Initial image saved to '{initial_image_path}'.")
 
+    # Upscale initial image
+    logging.info(f"Upscaling initial image with upscale factor {upscale_factor}.")
     current_image = initial_image
 
     # Initialize hallucination resources if needed
@@ -694,19 +799,21 @@ def create_high_resolution_image(
     if hallucinate:
         inpaint_pipe = load_inpaint_pipeline(checkpoint=inpaint_checkpoint)
 
-    for step in range(1, upscale_exponent + 1):
-        logging.info(f"Starting upscale step {step}/{upscale_exponent}.")
+    for level in range(1, upscale_exponent + 1):
+        logging.info(f"Starting level {level}/{upscale_exponent}.")
 
-        tiles = split_image_into_tiles(current_image, tile_size=FIXED_TILE_SIZE)
-        num_tiles = len(tiles)
-        rows = math.ceil(current_image.height / FIXED_TILE_SIZE)
-        cols = math.ceil(current_image.width / FIXED_TILE_SIZE)
+        # Split image into tiles with random sizes
+        tiles_with_positions = split_image_into_tiles(
+            current_image,
+            min_tile_size=MIN_TILE_SIZE,
+            max_tile_size=MAX_TILE_SIZE
+        )
+        num_tiles = len(tiles_with_positions)
+        logging.info(f"Level {level}: Image split into {num_tiles} tiles.")
 
-        upscaled_tiles = []
-        for idx, tile in enumerate(tiles):
-            row_idx = idx // cols
-            col_idx = idx % cols
-            logging.debug(f"Upscaling tile {idx + 1}/{num_tiles} at Row: {row_idx}, Column: {col_idx}.")
+        processed_tiles = []
+        for idx, (tile, x, y) in enumerate(tiles_with_positions):
+            logging.debug(f"Processing tile {idx + 1}/{num_tiles} at position ({x}, {y}).")
 
             if hallucinate and inpaint_pipe:
                 tile = perform_hallucination(
@@ -719,38 +826,34 @@ def create_high_resolution_image(
                     min_area=min_area,
                     border_thresh=border_thresh,
                     hallucination_steps=hallucination_steps,
-                    row_idx=row_idx,
-                    col_idx=col_idx
+                    x=x,
+                    y=y
                 )
 
-            upscaled_tile = upscale_tile(model, tile)
+            # Upscale the tile
+            tile = upscale_with_realesrgan(model, tile, outscale=upscale_factor)
 
-            intermediate_tile_path = os.path.join(
-                output_dir, f'step{step}_tile_row{row_idx}_col{col_idx}.png'
-            )
-            upscaled_tile.save(intermediate_tile_path)
-            logging.debug(f"Upscaled tile saved to '{intermediate_tile_path}'.")
+            # Adjust the tile position in the upscaled image
+            new_x = x * upscale_factor
+            new_y = y * upscale_factor
 
-            upscaled_tiles.append(upscaled_tile)
+            processed_tiles.append((tile, new_x, new_y))
             cleanup_memory()
 
-        # Stitch the upscaled tiles back together
-        new_width = current_image.width * 4
-        new_height = current_image.height * 4
-        logging.info(f"Stitching tiles to form a new image of size {new_width}x{new_height}.")
-        final_image = stitch_tiles(
-            upscaled_tiles, rows=rows, cols=cols, tile_size=UPSCALED_TILE_SIZE
-        )
+        # Calculate the new image size
+        new_width = current_image.width * upscale_factor
+        new_height = current_image.height * upscale_factor
+        image_size = (new_width, new_height)
+        logging.debug(f"Level {level}: New image size will be {image_size}.")
 
-        # Post-process to align edges if necessary
-        final_image = align_edges(final_image, tile_size=UPSCALED_TILE_SIZE)
+        # Stitch the processed tiles back together
+        logging.info(f"Level {level}: Stitching tiles to form a new image of size {new_width}x{new_height}.")
+        current_image = stitch_tiles(processed_tiles, image_size=image_size)
 
-        # Save the upscaled image at this step
-        upscaled_image_path = os.path.join(output_dir, f'step{step}_upscaled.png')
-        final_image.save(upscaled_image_path)
-        logging.info(f"Upscaled image at step {step} saved to '{upscaled_image_path}'.")
-
-        current_image = final_image
+        # Save the image at this level
+        level_image_path = os.path.join(output_dir, f'level{level}_image.png')
+        current_image.save(level_image_path)
+        logging.info(f"Level {level}: Image saved to '{level_image_path}'.")
 
     # Clean up hallucination resources
     if hallucinate:
@@ -796,8 +899,8 @@ def create_initial_image_if_needed(args: argparse.Namespace) -> Image.Image:
             prompt=args.prompt,
             num_steps=args.num_steps,
             guidance_scale=args.guidance_scale,
-            width=UPSCALED_TILE_SIZE,
-            height=UPSCALED_TILE_SIZE,
+            width=INITIAL_IMAGE_SIZE,
+            height=INITIAL_IMAGE_SIZE,
             seed=args.seed,
         )
         return initial_image
@@ -819,7 +922,7 @@ def main() -> None:
     initial_image = create_initial_image_if_needed(args)
 
     # Load Real-ESRGAN model
-    realesrgan_model = load_realesrgan_model(model_path=args.model)
+    realesrgan_model = load_realesrgan_model(model_path=args.model, upscale_factor=args.upscale_factor)
 
     # Generate the high-resolution image
     create_high_resolution_image(
@@ -827,6 +930,7 @@ def main() -> None:
         upscale_exponent=args.upscale_exponent,
         output_dir=args.output_dir,
         model=realesrgan_model,
+        upscale_factor=args.upscale_factor,
         hallucinate=args.hallucinate,
         prompt=args.prompt,
         guidance_scale=args.guidance_scale,
@@ -835,7 +939,7 @@ def main() -> None:
         inpaint_checkpoint=args.inpaint_checkpoint,
         min_area=args.min_area,
         border_thresh=args.border_thresh,
-        hallucination_steps=args.hallucination_steps  # Pass the new argument here
+        hallucination_steps=args.hallucination_steps
     )
 
     logging.info("Image upscaling process completed successfully.")
