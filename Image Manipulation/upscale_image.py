@@ -35,8 +35,6 @@
 #     -u, --upscale-exponent Number of upscaling levels. Controls how many times the hallucination and upscaling steps are repeated.
 #                            (default: 1).
 #     -f, --upscale-factor   Upscale factor for Real-ESRGAN (default: 4). Allowed values are 2 and 4.
-#     -m, --model            Path to the Real-ESRGAN model weights file. Must match the upscale factor.
-#                            (default: "RealESRGAN_x4plus.pth").
 #
 #   Hallucination Options:
 #     -H, --hallucinate          Enable hallucination feature to modify tiles using SDXL inpainting.
@@ -76,6 +74,7 @@ import os
 import sys
 import gc
 from typing import Optional, List, Tuple
+from pathlib import Path
 
 import warnings
 import requests
@@ -100,7 +99,7 @@ INITIAL_IMAGE_SIZE = 1024
 MIN_TILE_SIZE = 768
 MAX_TILE_SIZE = 1024
 
-# Default Real-ESRGAN model URL
+# Default Real-ESRGAN model URLs
 DEFAULT_REALESRGAN_MODEL_URLS = {
     2: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
     4: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
@@ -108,6 +107,12 @@ DEFAULT_REALESRGAN_MODEL_URLS = {
 
 # Determine the device to use (GPU if available, else CPU)
 DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+# Define cache directory for models
+CACHE_DIR = Path.home() / ".cache" / "upscale_image"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+REALESRGAN_CACHE_DIR = CACHE_DIR / "realesrgan"
+REALESRGAN_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -165,10 +170,6 @@ def parse_arguments() -> argparse.Namespace:
         '-f', '--upscale-factor', type=int, default=4,
         help='Upscale factor for Real-ESRGAN (default: 4). Allowed values are 2 and 4.'
     )
-    parser.add_argument(
-        '-m', '--model', type=str, default='RealESRGAN_x4plus.pth',
-        help='Path to the Real-ESRGAN model weights file. Must match the upscale factor.'
-    )
 
     # Hallucination Option
     parser.add_argument(
@@ -219,14 +220,6 @@ def parse_arguments() -> argparse.Namespace:
     if args.input is not None and not os.path.isfile(args.input):
         parser.error(f"Input image '{args.input}' does not exist.")
 
-    # Validate Real-ESRGAN model path or download if not present
-    if not os.path.isfile(args.model):
-        setup_logging(verbose=args.verbose)  # Initialize logging to capture download logs
-        logging.info(f"Real-ESRGAN model file '{args.model}' not found. Attempting to download...")
-        download_realesrgan_model(args.model, args.upscale_factor)
-        if not os.path.isfile(args.model):
-            parser.error(f"Failed to download Real-ESRGAN model to '{args.model}'. Please provide a valid Real-ESRGAN model weights file.")
-
     # Validate strength parameter
     if not 0.0 <= args.strength <= 1.0:
         parser.error("Argument --strength must be between 0.0 and 1.0.")
@@ -256,9 +249,11 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-def download_realesrgan_model(model_path: str, upscale_factor: int) -> None:
+def download_realesrgan_model(upscale_factor: int) -> Path:
     """
     Downloads the Real-ESRGAN model weights from the default URL if not present.
+    Stores the model in the cache directory.
+    Returns the path to the downloaded model.
     """
     try:
         url = DEFAULT_REALESRGAN_MODEL_URLS.get(upscale_factor)
@@ -266,11 +261,16 @@ def download_realesrgan_model(model_path: str, upscale_factor: int) -> None:
             logging.error(f"No default Real-ESRGAN model URL for upscale factor {upscale_factor}.")
             sys.exit(1)
 
+        model_filename = os.path.basename(url)
+        model_path = REALESRGAN_CACHE_DIR / model_filename
+
+        if model_path.is_file():
+            logging.info(f"Real-ESRGAN model already exists at '{model_path}'. Skipping download.")
+            return model_path
+
         response = requests.get(url, stream=True)
         response.raise_for_status()
         total_size = int(response.headers.get('content-length', 0))
-        if os.path.dirname(model_path):
-            os.makedirs(os.path.dirname(model_path), exist_ok=True)
         with open(model_path, 'wb') as f, tqdm(
             desc=f"Downloading Real-ESRGAN model to '{model_path}'",
             total=total_size,
@@ -282,6 +282,7 @@ def download_realesrgan_model(model_path: str, upscale_factor: int) -> None:
                 size = f.write(data)
                 bar.update(size)
         logging.info(f"Successfully downloaded Real-ESRGAN model to '{model_path}'.")
+        return model_path
     except Exception as e:
         logging.error(f"Failed to download Real-ESRGAN model from '{url}'. Error: {e}")
         sys.exit(1)
@@ -386,17 +387,16 @@ def generate_initial_image(
         sys.exit(1)
 
 
-def load_realesrgan_model(model_path: str, upscale_factor: int) -> RealESRGANer:
+def load_realesrgan_model(upscale_factor: int) -> RealESRGANer:
     """
-    Loads the Real-ESRGAN model from the specified weights file using the realesrgan package.
+    Loads the Real-ESRGAN model based on the upscale factor.
+    Automatically downloads the model if it's not present in the cache.
     """
-    logging.info(f"Loading Real-ESRGAN model from '{model_path}'. This may take a while...")
+    logging.info(f"Loading Real-ESRGAN model for upscale factor {upscale_factor}.")
     try:
-        model_path = os.path.abspath(model_path)
+        model_path = download_realesrgan_model(upscale_factor)
 
-        if not os.path.isfile(model_path):
-            logging.error(f"Model file '{model_path}' does not exist.")
-            sys.exit(1)
+        model_path = model_path.resolve()
 
         if upscale_factor == 2:
             model = RRDBNet(
@@ -422,7 +422,7 @@ def load_realesrgan_model(model_path: str, upscale_factor: int) -> RealESRGANer:
 
         realesrgan_model = RealESRGANer(
             scale=upscale_factor,
-            model_path=model_path,
+            model_path=str(model_path),
             dni_weight=None,
             model=model,
             tile=0,
@@ -493,7 +493,7 @@ def generate_tile_sizes(total_size: int, min_size: int, max_size: int, multiple:
             sizes[-1] -= adjustment + (multiple - (adjustment % multiple))
 
     # Final check to ensure all sizes are within constraints and divisible by 'multiple'
-    for size in sizes:
+    for i, size in enumerate(sizes):
         if size < min_size or size > max_size:
             logging.warning(f"Generated tile size {size} is out of bounds ({min_size}-{max_size}). Adjusting.")
             size = min(max(size, min_size), max_size)
@@ -501,8 +501,7 @@ def generate_tile_sizes(total_size: int, min_size: int, max_size: int, multiple:
             logging.warning(f"Generated tile size {size} is not divisible by {multiple}. Aligning.")
             size = align_to_multiple(size, multiple)
         # Update the size in the list
-        index = sizes.index(size)
-        sizes[index] = size
+        sizes[i] = size
 
     return sizes
 
@@ -922,7 +921,7 @@ def main() -> None:
     initial_image = create_initial_image_if_needed(args)
 
     # Load Real-ESRGAN model
-    realesrgan_model = load_realesrgan_model(model_path=args.model, upscale_factor=args.upscale_factor)
+    realesrgan_model = load_realesrgan_model(upscale_factor=args.upscale_factor)
 
     # Generate the high-resolution image
     create_high_resolution_image(
