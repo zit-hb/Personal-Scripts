@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 # -------------------------------------------------------
 # Script: remove_similar_images.py
 #
@@ -9,6 +10,8 @@
 # Usage:
 # ./remove_similar_images.py [options] [directory|image]...
 #
+#   [directory|image]: The image or directory to scan for images.
+#
 # Options:
 #   -t THRESHOLD, --threshold THRESHOLD   The similarity threshold for comparison.
 #                                         Lower values = stricter comparison.
@@ -16,13 +19,10 @@
 #   -d, --directory-only                  Limit comparisons to images within the same directory.
 #   -n, --dry-run                         Show what would be done without making any changes.
 #   -v, --verbose                         Enable verbose output.
+#   -k KEEP, --keep KEEP                  Criteria for keeping a file. (choices: "oldest", "newest", "biggest", "smallest") (default: "biggest")
 #   -h, --help                            Display this help message.
 #
-# Arguments:
-#   [directory|image]: The image or directory to scan for images.
-#
 # Requirements:
-# - Python 3.x
 # - Pillow (install via: pip install Pillow)
 # - imagehash (install via: pip install imagehash)
 #
@@ -33,45 +33,56 @@
 import argparse
 import os
 import sys
-from typing import List, Dict
+from typing import List, Dict, Optional
 from PIL import Image
 import imagehash
 
 
-def parse_arguments():
+def parse_arguments() -> argparse.Namespace:
+    """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
         description='This script searches for images and removes those that are '
                     'extremely visually similar, keeping only one copy.',
-        formatter_class=argparse.RawTextHelpFormatter,
-        epilog='''
-Examples:
-  ./remove_similar_images.py -n -v /path/to/images
-  ./remove_similar_images.py -t 10 -d /path/to/images
-''')
-    parser.add_argument('paths', nargs='+', help='The image or directory to scan for images.')
-    parser.add_argument('-t', '--threshold', type=int, default=5,
-                        help='The similarity threshold for comparison.\n'
-                             'Lower values = stricter comparison.\n'
-                             'Defaults to 5 if not provided.')
-    parser.add_argument('-d', '--directory-only', action='store_true',
-                        help='Limit comparisons to images within the same directory.')
-    parser.add_argument('-n', '--dry-run', action='store_true',
-                        help='Show what would be done without making any changes.')
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help='Enable verbose output.')
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(
+        'paths',
+        nargs='+',
+        help='The image or directory to scan for images.'
+    )
+    parser.add_argument(
+        '-t', '--threshold',
+        type=int,
+        default=5,
+        help='The similarity threshold for comparison. Lower values = stricter comparison.'
+    )
+    parser.add_argument(
+        '-d', '--directory-only',
+        action='store_true',
+        help='Limit comparisons to images within the same directory.'
+    )
+    parser.add_argument(
+        '-n', '--dry-run',
+        action='store_true',
+        help='Show what would be done without making any changes.'
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Enable verbose output.'
+    )
+    parser.add_argument(
+        '-k', '--keep',
+        type=str,
+        default='biggest',
+        choices=['oldest', 'newest', 'biggest', 'smallest'],
+        help='Criteria for keeping a file.'
+    )
     return parser.parse_args()
 
 
-def check_dependencies():
-    try:
-        import PIL
-        import imagehash
-    except ImportError as e:
-        print(f"Error: Required module '{e.name}' not found. Please install it using 'pip install {e.name}'")
-        sys.exit(1)
-
-
 def collect_images(paths: List[str]) -> List[str]:
+    """Collects image files from the specified paths."""
     images = []
     supported_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.JPG', '.JPEG', '.PNG', '.WEBP')
     for path in paths:
@@ -91,6 +102,7 @@ def collect_images(paths: List[str]) -> List[str]:
 
 
 def group_images_by_directory(images: List[str]) -> Dict[str, List[str]]:
+    """Groups images by their directory path."""
     dir_to_images = {}
     for image in images:
         dir_path = os.path.dirname(image)
@@ -98,7 +110,8 @@ def group_images_by_directory(images: List[str]) -> Dict[str, List[str]]:
     return dir_to_images
 
 
-def compute_image_hash(image_path: str):
+def compute_image_hash(image_path: str) -> Optional[imagehash.ImageHash]:
+    """Computes the average hash of an image."""
     try:
         with Image.open(image_path) as img:
             return imagehash.average_hash(img)
@@ -107,7 +120,30 @@ def compute_image_hash(image_path: str):
         return None
 
 
-def compare_and_remove_images(images: List[str], args):
+def select_image_to_keep(image1: str, image2: str, criteria: str) -> str:
+    """Selects one image to keep from two images based on the specified criteria."""
+    if criteria == 'oldest':
+        time1 = os.path.getmtime(image1)
+        time2 = os.path.getmtime(image2)
+        return image1 if time1 < time2 else image2
+    elif criteria == 'newest':
+        time1 = os.path.getmtime(image1)
+        time2 = os.path.getmtime(image2)
+        return image1 if time1 > time2 else image2
+    elif criteria == 'biggest':
+        size1 = os.path.getsize(image1)
+        size2 = os.path.getsize(image2)
+        return image1 if size1 > size2 else image2
+    elif criteria == 'smallest':
+        size1 = os.path.getsize(image1)
+        size2 = os.path.getsize(image2)
+        return image1 if size1 < size2 else image2
+    else:
+        return image1
+
+
+def compare_and_remove_images(images: List[str], args: argparse.Namespace) -> None:
+    """Compares images and removes those that are extremely visually similar."""
     hash_to_image = {}
     removed_images = set()
     for image in images:
@@ -118,25 +154,33 @@ def compare_and_remove_images(images: List[str], args):
             continue
         duplicate_found = False
         for existing_hash, existing_image in hash_to_image.items():
+            if existing_image in removed_images:
+                continue
             difference = img_hash - existing_hash
             if difference < args.threshold:
                 duplicate_found = True
+                # Decide which image to keep
+                image_to_keep = select_image_to_keep(image, existing_image, args.keep)
+                image_to_remove = existing_image if image_to_keep == image else image
                 if args.verbose or args.dry_run:
-                    print(f"Removing similar image: '{image}' (Difference: {difference})")
+                    print(f"Removing similar image: '{image_to_remove}' (Difference: {difference})")
                 if not args.dry_run:
                     try:
-                        os.remove(image)
+                        os.remove(image_to_remove)
                     except Exception as e:
-                        print(f"Error deleting image '{image}': {e}")
-                removed_images.add(image)
+                        print(f"Error deleting image '{image_to_remove}': {e}")
+                removed_images.add(image_to_remove)
+                # Update hash_to_image
+                if image_to_remove == existing_image:
+                    hash_to_image[existing_hash] = image_to_keep
                 break
         if not duplicate_found:
             hash_to_image[img_hash] = image
 
 
-def main():
+def main() -> None:
+    """Main function that orchestrates the image removal process."""
     args = parse_arguments()
-    check_dependencies()
     images = collect_images(args.paths)
     if not images:
         print("No images found to process.")
