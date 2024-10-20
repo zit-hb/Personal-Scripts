@@ -13,7 +13,7 @@
 # Usage:
 # ./merge_images_sdxl.py [input_path] [options]
 #
-# - [input_path]: The path to the input image file or directory.
+#   [input_path]: The path to the input image file or directory.
 #
 # Options:
 # -r, --recursive            Process directories recursively.
@@ -29,6 +29,7 @@
 # -s, --scheduler SCHEDULER  Scheduler (sampler) to use. Choices: "ddim", "plms", "k_lms", "euler", "euler_a", "heun", "dpm_solver". (default: "ddim")
 # -c, --checkpoint CHECKPOINT
 #                            SDXL checkpoint to use. Can be a Hugging Face model ID or a local path.
+# -f, --refiner REFINER      SDXL refiner checkpoint to use. Can be a Hugging Face model ID or a local path. (default: "stabilityai/stable-diffusion-xl-refiner-1.0")
 # -l, --lora LORA_PATH       LoRA model path. Can be specified multiple times for multiple LoRAs.
 # -o, --output OUTPUT_FILE   Output file name for the merged image (default: "merged_image_sdxl.png").
 # -v, --verbose              Enable verbose logging (DEBUG level).
@@ -104,7 +105,7 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         default='average',
         choices=['average', 'weighted'],
-        help='Method to blend input images (default: average).'
+        help='Method to blend input images.'
     )
     parser.add_argument(
         '-w',
@@ -117,14 +118,14 @@ def parse_arguments() -> argparse.Namespace:
         '--num-steps',
         type=int,
         default=50,
-        help='Number of inference steps for the model (default: 50).'
+        help='Number of inference steps for the model.'
     )
     parser.add_argument(
         '-g',
         '--guidance-scale',
         type=float,
         default=4,
-        help='Guidance scale for the model. (default: 4). Controls how strongly the model follows the prompt.'
+        help='Guidance scale for the model. Controls how strongly the model follows the prompt.'
     )
     parser.add_argument(
         '-m',
@@ -152,14 +153,21 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         default='ddim',
         choices=['ddim', 'plms', 'k_lms', 'euler', 'euler_a', 'heun', 'dpm_solver'],
-        help='Scheduler (sampler) to use for image generation (default: ddim).'
+        help='Scheduler (sampler) to use for image generation.'
     )
     parser.add_argument(
         '-c',
         '--checkpoint',
         type=str,
-        default='stabilityai/stable-diffusion-xl-base-1.0',
-        help='SDXL checkpoint to use. Can be a Hugging Face model ID or a local path (default: "stabilityai/stable-diffusion-xl-base-1.0").'
+        default='stabilityai/stable-diffusion-xl-1.0',
+        help='SDXL checkpoint to use. Can be a Hugging Face model ID or a local path.'
+    )
+    parser.add_argument(
+        '-f',
+        '--refiner',
+        type=str,
+        default='stabilityai/stable-diffusion-xl-refiner-1.0',
+        help='SDXL refiner checkpoint to use. Can be a Hugging Face model ID or a local path.'
     )
     parser.add_argument(
         '-l',
@@ -173,7 +181,7 @@ def parse_arguments() -> argparse.Namespace:
         '--output',
         type=str,
         default='merged_image_sdxl.png',
-        help='Output file name for the merged image (default: "merged_image_sdxl.png").'
+        help='Output file name for the merged image.'
     )
     parser.add_argument(
         '-v',
@@ -419,7 +427,12 @@ def determine_strength(average_ssim: float) -> float:
     return strength
 
 
-def load_sdxl_model(scheduler_name: str, checkpoint: str, lora_paths: Optional[List[str]] = None) -> StableDiffusionXLImg2ImgPipeline:
+def load_sdxl_model(
+    scheduler_name: str,
+    checkpoint: str,
+    refiner_checkpoint: Optional[str],
+    lora_paths: Optional[List[str]] = None
+) -> Tuple[StableDiffusionXLImg2ImgPipeline, Optional[StableDiffusionXLImg2ImgPipeline]]:
     """
     Loads the Stable Diffusion XL (SDXL) img2img pipeline with the specified scheduler and LoRAs.
     """
@@ -491,8 +504,56 @@ def load_sdxl_model(scheduler_name: str, checkpoint: str, lora_paths: Optional[L
                     logging.error(f"LoRA path '{lora_path}' does not exist.")
                     sys.exit(1)
 
+        # Load refiner model if specified
+        refiner_pipe = None
+        if refiner_checkpoint:
+            logging.info("Loading SDXL refiner model. This may take additional time...")
+            try:
+                if os.path.exists(refiner_checkpoint):
+                    refiner_model_id = refiner_checkpoint
+                    logging.info(f"Loading SDXL refiner from local path: {refiner_model_id}")
+                else:
+                    refiner_model_id = refiner_checkpoint
+                    logging.info(f"Loading SDXL refiner from Hugging Face Model Hub: {refiner_model_id}")
+
+                refiner_pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+                    refiner_model_id,
+                    torch_dtype=torch.float16 if DEVICE.type == "cuda" else torch.float32,
+                )
+                refiner_pipe = refiner_pipe.to(DEVICE)
+
+                # Disable the safety checker
+                refiner_pipe.safety_checker = lambda images, **kwargs: (images, False)
+
+                # Enable attention slicing
+                refiner_pipe.enable_attention_slicing()
+
+                try:
+                    refiner_pipe.enable_xformers_memory_efficient_attention()
+                    logging.info("Enabled xformers memory efficient attention for refiner.")
+                except Exception as e:
+                    logging.warning(f"Failed to enable xformers memory efficient attention for refiner: {e}")
+
+                # Enable sequential CPU offloading
+                try:
+                    refiner_pipe.enable_sequential_cpu_offload()
+                    logging.info("Enabled sequential model CPU offloading for refiner.")
+                except Exception as e:
+                    logging.warning(f"Failed to enable sequential CPU offloading for refiner: {e}")
+
+                # Set the scheduler for the refiner
+                refiner_pipe.scheduler = scheduler_mapping[scheduler_name]
+                logging.info(f"Refiner scheduler set to '{scheduler_name}'.")
+
+            except Exception as e:
+                logging.exception("Failed to load SDXL refiner model.")
+                sys.exit(1)
+
         logging.info(f"Stable Diffusion XL img2img model loaded successfully on {DEVICE}.")
-        return pipe
+        if refiner_pipe:
+            logging.info(f"Refiner model loaded successfully on {DEVICE}.")
+
+        return pipe, refiner_pipe
     except Exception as e:
         logging.exception("Failed to load Stable Diffusion XL img2img model.")
         sys.exit(1)
@@ -558,7 +619,8 @@ def generate_prompt(
 
 
 def generate_merged_image(
-    pipe: StableDiffusionXLImg2ImgPipeline,
+    base_pipe: StableDiffusionXLImg2ImgPipeline,
+    refiner_pipe: Optional[StableDiffusionXLImg2ImgPipeline],
     blended_image: Image.Image,
     prompt: str,
     num_steps: int,
@@ -568,7 +630,7 @@ def generate_merged_image(
     strength: float
 ) -> Image.Image:
     """
-    Generates a merged image using the Stable Diffusion XL img2img pipeline.
+    Generates a merged image using the Stable Diffusion XL img2img pipeline, optionally refining it.
     """
     logging.info("Generating merged image using Stable Diffusion XL img2img pipeline...")
     try:
@@ -581,8 +643,8 @@ def generate_merged_image(
 
         # Use torch.no_grad() to prevent gradient computation and save memory
         with torch.no_grad():
-            # Generate the image
-            result = pipe(
+            # Generate the image using the base pipeline
+            result = base_pipe(
                 prompt=prompt,
                 image=init_image,
                 strength=strength,
@@ -591,7 +653,7 @@ def generate_merged_image(
             )
 
         if not result.images:
-            logging.error("No images were returned by the pipeline.")
+            logging.error("No images were returned by the base pipeline.")
             sys.exit(1)
 
         merged_image = result.images[0]
@@ -605,7 +667,37 @@ def generate_merged_image(
         # Additional Logging: Check image statistics
         logging.debug(f"Merged image array stats: min={merged_array.min()}, max={merged_array.max()}, mean={merged_array.mean()}, std={merged_array.std()}")
 
-        logging.info("Merged image generated successfully.")
+        logging.info("Merged image generated successfully with base model.")
+
+        # If refiner pipeline is provided, refine the image
+        if refiner_pipe:
+            logging.info("Refining the merged image using SDXL refiner...")
+            with torch.no_grad():
+                # Generate the refined image
+                refined_result = refiner_pipe(
+                    prompt=prompt,
+                    image=merged_image,
+                    strength=0,  # Strength should be 0 for the refiner
+                    guidance_scale=guidance_scale,
+                    num_inference_steps=num_steps
+                )
+
+            if not refined_result.images:
+                logging.error("No images were returned by the refiner pipeline.")
+                sys.exit(1)
+
+            merged_image = refined_result.images[0]
+
+            # Validate the refined image for NaN or Inf values
+            refined_array = np.array(merged_image)
+            if not np.isfinite(refined_array).all():
+                logging.error("Refined image contains invalid pixel values (NaN or Inf).")
+                sys.exit(1)
+
+            logging.debug(f"Refined image array stats: min={refined_array.min()}, max={refined_array.max()}, mean={refined_array.mean()}, std={refined_array.std()}")
+
+            logging.info("Merged image refined successfully.")
+
         return merged_image
     except torch.cuda.OutOfMemoryError:
         logging.error("CUDA Out of Memory Error: Failed to generate merged image due to insufficient GPU memory.")
@@ -735,12 +827,13 @@ def main() -> None:
         logging.warning("Generated prompt is empty. Using a default prompt.")
         prompt = "A seamlessly merged image combining multiple elements."
 
-    # Load SDXL model with the selected scheduler and LoRAs
-    pipe: StableDiffusionXLImg2ImgPipeline = load_sdxl_model(args.scheduler, args.checkpoint, args.lora)
+    # Load SDXL model with the selected scheduler, refiner, and LoRAs
+    base_pipe, refiner_pipe = load_sdxl_model(args.scheduler, args.checkpoint, args.refiner, args.lora)
 
-    # Generate merged image using img2img
+    # Generate merged image using img2img, optionally refining it
     merged_image: Image.Image = generate_merged_image(
-        pipe,
+        base_pipe,
+        refiner_pipe,
         blended_image,
         prompt=prompt,
         num_steps=args.num_steps,
