@@ -15,7 +15,7 @@
 #  [directory|image]: The image file or directory to process.
 #
 # Options:
-#   -f FORMAT, --format FORMAT           Output image format (e.g., jpg, png).
+#   -f FORMAT, --format FORMAT           Output image format (default: jpeg).
 #   -q QUALITY, --quality QUALITY        Output image quality (1-100). Defaults to 85.
 #   -o DIR, --output-dir DIR             Output directory for the converted images.
 #   -r, --recursive                      Process directories recursively.
@@ -49,14 +49,14 @@ def parse_arguments():
     parser.add_argument(
         '-f', '--format',
         type=str,
-        default='jpg',
-        help='Output image format (e.g., jpg, png).'
+        default='jpeg',
+        help='Output image format.'
     )
     parser.add_argument(
         '-q', '--quality',
         type=int,
         default=85,
-        help='Output image quality (1-100). Defaults to 85.'
+        help='Output image quality (1-100).'
     )
     parser.add_argument(
         '-o', '--output-dir',
