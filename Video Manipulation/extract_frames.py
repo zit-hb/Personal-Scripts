@@ -4,12 +4,12 @@
 # Script: extract_frames.py
 #
 # Description:
-# This script extracts frames from a given video file, filters them
-# based on blurriness, compression artifacts, and content matching using YOLOv8,
+# This script extracts frames from given video files or directories containing video files,
+# filters them based on blurriness, compression artifacts, and content matching using YOLOv8,
 # and saves the resulting frames to an output directory.
 #
 # Usage:
-# ./extract_frames.py [options] [video_file]
+# ./extract_frames.py [options] [input_paths ...]
 #
 # Options:
 #   -o OUTPUT_DIR, --output-dir OUTPUT_DIR
@@ -35,6 +35,8 @@
 #       Enable verbose output.
 #   -d, --dry-run
 #       Show what would be done without making any changes.
+#   -r, --recursive
+#       Recursively search for video files in the specified directory(s).
 #   -h, --help
 #       Display this help message.
 #
@@ -53,7 +55,7 @@ import os
 import sys
 import logging
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from ultralytics import YOLO
 import urllib.request
 import imagehash
@@ -65,18 +67,22 @@ MODEL_URL = 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo
 MODEL_FILENAME = 'yolov8m.pt'
 MAX_CACHE_ENTRIES = 1000
 
+# List of video file extensions to consider
+VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.mpg', '.mpeg', '.m4v']
+
 
 def parse_arguments() -> argparse.Namespace:
     """
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Extract frames from a video, filter by blurriness, compression artifacts, and content matching using YOLOv8.'
+        description='Extract frames from videos, filter by blurriness, compression artifacts, and content matching using YOLOv8.'
     )
     parser.add_argument(
-        'video_file',
+        'input_paths',
+        nargs='+',
         type=str,
-        help='The path to the input video file.'
+        help='The path(s) to input video file(s) or directory(s) containing video files.'
     )
     parser.add_argument(
         '-o',
@@ -146,6 +152,12 @@ def parse_arguments() -> argparse.Namespace:
         action='store_true',
         help='Show what would be done without making any changes.'
     )
+    parser.add_argument(
+        '-r',
+        '--recursive',
+        action='store_true',
+        help='Recursively search for video files in the specified directory(s).'
+    )
     args = parser.parse_args()
     return args
 
@@ -158,22 +170,62 @@ def setup_logging(verbose: bool) -> None:
     logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
 
+def is_video_file(file_path: str) -> bool:
+    """
+    Checks if the given file path has a video file extension.
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    return ext in VIDEO_EXTENSIONS
+
+
+def get_video_files(input_paths: List[str], recursive: bool) -> List[str]:
+    """
+    Retrieves a list of video files from the input paths.
+    """
+    video_files = []
+    for path in input_paths:
+        if os.path.isfile(path):
+            if is_video_file(path):
+                video_files.append(path)
+            else:
+                logging.warning(f"File '{path}' is not a supported video format. Skipping.")
+        elif os.path.isdir(path):
+            if recursive:
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        if is_video_file(file_path):
+                            video_files.append(file_path)
+            else:
+                for file in os.listdir(path):
+                    file_path = os.path.join(path, file)
+                    if os.path.isfile(file_path) and is_video_file(file_path):
+                        video_files.append(file_path)
+        else:
+            logging.warning(f"Path '{path}' is not a file or directory. Skipping.")
+    return video_files
+
+
 def validate_video_file(video_file: str) -> None:
     """
-    Validates that the video file exists.
+    Validates that the video file exists and is accessible.
     """
     if not os.path.isfile(video_file):
         logging.error(f"Video file '{video_file}' not found.")
         sys.exit(1)
 
 
-def create_output_directory(output_dir: Optional[str], dry_run: bool) -> str:
+def create_output_directory(base_output_dir: Optional[str], video_file: str, dry_run: bool) -> str:
     """
-    Creates the output directory if it does not exist.
+    Creates the output directory for the video if it does not exist.
+    The directory is named after the video file (without extension) inside the base output directory.
     """
-    if output_dir is None:
-        output_dir = os.getcwd()
-        logging.info(f"No output directory specified. Using current working directory: '{output_dir}'")
+    if base_output_dir is None:
+        base_output_dir = os.getcwd()
+        logging.info(f"No output directory specified. Using current working directory: '{base_output_dir}'")
+
+    video_name = os.path.splitext(os.path.basename(video_file))[0]
+    output_dir = os.path.join(base_output_dir, video_name)
 
     if not os.path.exists(output_dir):
         if dry_run:
@@ -198,7 +250,7 @@ def download_model(model_url: str, model_path: str) -> None:
         sys.exit(1)
 
 
-def load_yolov8_model() -> Tuple[YOLO, list]:
+def load_yolov8_model() -> Tuple[YOLO, List[str]]:
     """
     Loads the YOLOv8 model, downloads it if necessary, and retrieves class names.
     Returns the model and the list of class names.
@@ -235,7 +287,7 @@ def load_yolov8_model() -> Tuple[YOLO, list]:
     return model, class_names
 
 
-def validate_class_names(specified_classes: Optional[list], available_classes: list) -> None:
+def validate_class_names(specified_classes: Optional[List[str]], available_classes: List[str]) -> None:
     """
     Validates that the specified class names are available in the model's class list.
     """
@@ -356,20 +408,20 @@ def validate_frame_numbers(start_frame: int, end_frame: int, total_frames: int, 
     logging.info(f"Processing frames from {start_frame} to {end_frame}")
 
 
-def get_cached_result(cache: OrderedDict, hash_value: str) -> Optional[list]:
+def get_cached_result(cache: OrderedDict, hash_value: str) -> Optional[List[str]]:
     """
     Retrieves the cached result for the given hash.
     Returns the list of detected classes or None if not cached.
     """
     if hash_value in cache:
         cache.move_to_end(hash_value)  # Mark as recently used
-        logging.info(f"Cache hit for hash {hash_value}")
+        logging.debug(f"Cache hit for hash {hash_value}")
         return cache[hash_value]
     logging.debug(f"Cache miss for hash {hash_value}")
     return None
 
 
-def insert_cache(cache: OrderedDict, hash_value: str, result: list, max_entries: int = MAX_CACHE_ENTRIES) -> None:
+def insert_cache(cache: OrderedDict, hash_value: str, result: List[str], max_entries: int = MAX_CACHE_ENTRIES) -> None:
     """
     Inserts the result into the cache.
     """
@@ -377,8 +429,8 @@ def insert_cache(cache: OrderedDict, hash_value: str, result: list, max_entries:
     cache.move_to_end(hash_value)  # Mark as recently used
     if len(cache) > max_entries:
         evicted = cache.popitem(last=False)  # Remove least recently used
-        logging.info(f"Cache full. Evicted oldest cache entry: {evicted[0]}")
-    logging.info(f"Inserted hash {hash_value} into cache")
+        logging.debug(f"Cache full. Evicted oldest cache entry: {evicted[0]}")
+    logging.debug(f"Inserted hash {hash_value} into cache")
 
 
 def initialize_in_memory_cache() -> OrderedDict:
@@ -396,7 +448,7 @@ def process_video_frames(
     end_frame: int,
     fps: float,
     model: YOLO,
-    available_classes: list,
+    available_classes: List[str],
     cache: OrderedDict
 ) -> None:
     """
@@ -443,7 +495,7 @@ def process_frame(
     args: argparse.Namespace,
     output_dir: str,
     model: YOLO,
-    available_classes: list,
+    available_classes: List[str],
     cache: OrderedDict
 ) -> bool:
     """
@@ -501,11 +553,11 @@ def process_frame(
                 return False
 
         # Check for negative class matches
-        if args.negative_class_names:
-            negative_match = any(cls in detected_classes for cls in args.negative_class_names)
-            if negative_match:
-                logging.info(f"Frame {frame_number} contains undesired classes.")
-                return False
+            if args.negative_class_names:
+                negative_match = any(cls in detected_classes for cls in args.negative_class_names)
+                if negative_match:
+                    logging.info(f"Frame {frame_number} contains undesired classes.")
+                    return False
 
     # Save frame
     frame_filename = f"frame_{frame_number:04d}.jpg"
@@ -568,23 +620,34 @@ def main() -> None:
     args = parse_arguments()
     setup_logging(args.verbose)
 
-    validate_video_file(args.video_file)
-    output_dir = create_output_directory(args.output_dir, args.dry_run)
-    cap = open_video_capture(args.video_file)
-    fps, total_frames = get_video_properties(cap)
+    # Get list of video files
+    video_files = get_video_files(args.input_paths, args.recursive)
+    if not video_files:
+        logging.error("No valid video files found.")
+        sys.exit(1)
 
-    start_time = parse_timecode(args.start)
-    end_time = parse_timecode(args.end)
-    start_frame, end_frame = convert_times_to_frames(start_time, end_time, fps, total_frames)
-    validate_frame_numbers(start_frame, end_frame, total_frames, start_time, end_time)
-
+    # Load YOLOv8 model
     model, available_classes = load_yolov8_model()
+
+    # Initialize cache
     cache = initialize_in_memory_cache()
 
-    try:
-        process_video_frames(cap, args, output_dir, start_frame, end_frame, fps, model, available_classes, cache)
-    finally:
-        cap.release()
+    for video_file in video_files:
+        logging.info(f"Processing video file '{video_file}'")
+        validate_video_file(video_file)
+        output_dir = create_output_directory(args.output_dir, video_file, args.dry_run)
+        cap = open_video_capture(video_file)
+        fps, total_frames = get_video_properties(cap)
+
+        start_time = parse_timecode(args.start)
+        end_time = parse_timecode(args.end)
+        start_frame, end_frame = convert_times_to_frames(start_time, end_time, fps, total_frames)
+        validate_frame_numbers(start_frame, end_frame, total_frames, start_time, end_time)
+
+        try:
+            process_video_frames(cap, args, output_dir, start_frame, end_frame, fps, model, available_classes, cache)
+        finally:
+            cap.release()
 
 
 if __name__ == '__main__':
