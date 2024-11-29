@@ -41,7 +41,7 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - OpenCV (install via: apt install python3-opencv opencv-data)
+# - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

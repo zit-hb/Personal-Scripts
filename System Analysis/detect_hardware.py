@@ -21,9 +21,9 @@
 #
 # Requirements:
 # - Linux:
-#   - pciutils (install via: apt install pciutils)
-#   - usbutils (install via: apt install usbutils)
-#   - dmidecode (install via: apt install dmidecode)
+#   - pciutils (install via: apt-get install -y pciutils)
+#   - usbutils (install via: apt-get install -y usbutils)
+#   - dmidecode (install via: apt-get install -y dmidecode)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

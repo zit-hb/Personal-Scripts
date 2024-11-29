@@ -35,7 +35,7 @@
 # - Torch & Torchvision (install via: pip install torch==1.10.1+cu113 torchvision==0.11.2+cu113 --extra-index-url https://download.pytorch.org/whl/cu113)
 # - Detectron2 (install via: pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/index.html)
 # - Pillow (install via: pip install Pillow==9.5.0)
-# - OpenCV (install via: apt install python3-opencv opencv-data)
+# - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

@@ -43,7 +43,7 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - OpenCV (install via: sudo apt install python3-opencv opencv-data)
+# - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
 # - Ultralytics YOLOv8 (install via: pip install ultralytics)
 # - ImageHash and Pillow (install via: pip install ImageHash pillow)
 #

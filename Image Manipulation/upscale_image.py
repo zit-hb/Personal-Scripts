@@ -61,7 +61,7 @@
 # - basicsr (install via: pip install basicsr)
 # - realesrgan (install via: pip install realesrgan)
 # - scikit-image (required for superpixel segmentation) (install via: pip install scikit-image)
-# - OpenCV (install via: apt install python3-opencv opencv-data)
+# - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
