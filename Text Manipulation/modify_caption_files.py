@@ -16,7 +16,7 @@
 #   remove   Remove specific tags from text files.
 #   unique   Ensure all tags in text files are unique.
 #
-# Run './modify_caption_files.py [command] --help' for command-specific options.
+# Template: ubuntu22.04
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

@@ -17,10 +17,10 @@
 # -o DIR, --output-dir DIR      Output directory to copy the selected images.
 # -v, --verbose                 Enable verbose output.
 #
-# Returns exit code 0 if successful, 1 if any error occurs.
+# Template: ubuntu22.04
 #
 # Requirements:
-# - OpenCV (install via: sudo apt install python3-opencv)
+# - OpenCV (install via: apt install python3-opencv)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

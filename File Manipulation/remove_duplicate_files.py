@@ -24,8 +24,7 @@
 # -vv, --debug                  Enable debug logging (DEBUG level).
 # -n, --dry-run                 Perform a dry run without deleting any files.
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: ubuntu22.04
 #
 # Requirements:
 # - tqdm (install via: pip install tqdm)

@@ -40,6 +40,8 @@
 #   -h, --help
 #       Display this help message.
 #
+# Template: ubuntu22.04
+#
 # Requirements:
 # - OpenCV (install via: sudo apt install python3-opencv opencv-data)
 # - Ultralytics YOLOv8 (install via: pip install ultralytics)

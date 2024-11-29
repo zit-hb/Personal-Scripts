@@ -31,12 +31,11 @@
 # -o OUTPUT_FILE, --output OUTPUT_FILE
 #                            Output file name for the merged image (default: "merged_image_advanced.png").
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: ubuntu22.04
 #
 # Requirements:
+# - OpenCV (install via: apt install python3-opencv opencv-data)
 # - Pillow (install via: pip install Pillow)
-# - OpenCV (install via: pip install opencv-python opencv-contrib-python)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

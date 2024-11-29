@@ -49,20 +49,19 @@
 #     -d, --output-dir       Directory to save the output images (default: "output").
 #     -v, --verbose          Enable verbose logging (DEBUG level).
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: cuda12.4.1-ubuntu22.04
 #
 # Requirements:
 # - Pillow (install via: pip install Pillow)
-# - torch (install via: pip install torch)
-# - numpy (install via: pip install numpy)
+# - Torch & Torchvision (install via: pip install torch==2.0.1 torchvision==0.15.2 --extra-index-url https://download.pytorch.org/whl/cu118)
+# - numpy (install via: pip install numpy==1.26.4)
 # - diffusers (install via: pip install diffusers)
 # - requests (install via: pip install requests)
 # - tqdm (install via: pip install tqdm)
-# - opencv-python (install via: pip install opencv-python)
 # - basicsr (install via: pip install basicsr)
 # - realesrgan (install via: pip install realesrgan)
 # - scikit-image (required for superpixel segmentation) (install via: pip install scikit-image)
+# - OpenCV (install via: apt install python3-opencv opencv-data)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

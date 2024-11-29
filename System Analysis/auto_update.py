@@ -29,8 +29,7 @@
 # -h, --help                Show help message and exit.
 # -o, --log-file FILE       Log actions to specified file.
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: ubuntu22.04
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

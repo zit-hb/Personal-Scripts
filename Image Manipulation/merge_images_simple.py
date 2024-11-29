@@ -27,8 +27,7 @@
 # -o OUTPUT_FILE, --output OUTPUT_FILE
 #                            Output file name for the merged image (default: "merged_image.png").
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: ubuntu22.04
 #
 # Requirements:
 # - Pillow (install via: pip install Pillow)

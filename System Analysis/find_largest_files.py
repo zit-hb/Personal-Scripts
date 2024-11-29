@@ -26,8 +26,7 @@
 #   -v, --verbose                         Enable verbose logging.
 #   -h, --help                            Display this help message.
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: ubuntu22.04
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

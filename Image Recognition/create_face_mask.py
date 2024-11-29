@@ -16,7 +16,11 @@
 # - [-c CONFIDENCE, --confidence CONFIDENCE]: Minimum confidence for face detection (default: 0.5).
 # - [-p SHAPE_PREDICTOR_PATH, --shape-predictor-path SHAPE_PREDICTOR_PATH]: Path to the shape predictor file.
 #
+# Template: ubuntu22.04
+#
 # Requirements:
+# - CMake (install via: apt install cmake)
+# - OpenCV (install via: apt install python3-opencv opencv-data)
 # - Dlib (install via: pip install dlib)
 # - Shape predictor (http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2)
 #

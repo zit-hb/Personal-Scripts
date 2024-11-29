@@ -28,8 +28,7 @@
 #   --ignore-aspect-ratio             Do not maintain the aspect ratio.
 #   -h, --help                        Display this help message.
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: ubuntu22.04
 #
 # Requirements:
 # - Pillow (install via: pip install Pillow)

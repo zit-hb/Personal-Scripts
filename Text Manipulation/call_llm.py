@@ -33,8 +33,7 @@
 # -k, --api-key API_KEY       Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).
 # -m, --model MODEL           OpenAI model to use (default: "gpt-4o").
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: ubuntu22.04
 #
 # Requirements:
 # - openai (install via: pip install openai)

@@ -17,8 +17,7 @@
 # -o, --output FILE           Output the detection results to a specified file (JSON format).
 # -h, --help                  Show help message and exit.
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: ubuntu22.04
 #
 # Requirements:
 # - Linux:

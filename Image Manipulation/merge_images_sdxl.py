@@ -35,8 +35,7 @@
 # -v, --verbose              Enable verbose logging (DEBUG level).
 # -d, --default-prompt       Use a default prompt instead of generating one via BLIP.
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: cuda12.4.1-ubuntu22.04
 #
 # Requirements:
 # - Pillow (install via: pip install Pillow)

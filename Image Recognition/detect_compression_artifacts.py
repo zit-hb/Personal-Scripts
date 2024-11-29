@@ -23,8 +23,10 @@
 #
 # Returns exit code 0 if all images have low compression artifacts, 1 if any image has high artifacts.
 #
+# Template: ubuntu22.04
+#
 # Requirements:
-# - OpenCV (install via: sudo apt install python3-opencv)
+# - OpenCV (install via: apt install python3-opencv)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

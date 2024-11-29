@@ -20,6 +20,8 @@
 # --min-cluster-size MIN_CLUSTER_SIZE         Minimum cluster size for Agglomerative Clustering (default: 2).
 # --verbose                                   Enable verbose output.
 #
+# Template: cuda12.4.1-ubuntu22.04
+#
 # Requirements:
 # - PyTorch (install via: pip install torch torchvision)
 # - transformers (install via: pip install transformers)

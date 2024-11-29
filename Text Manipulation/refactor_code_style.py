@@ -29,8 +29,7 @@
 # -k, --api-key API_KEY         OpenAI API key. Can also be set via the OPENAI_API_KEY environment variable.
 # -l, --include-last-cleaned    Include the last refactored code in the chat history for consistency across multiple files.
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Template: ubuntu22.04
 #
 # Requirements:
 # - openai (install via: pip install openai)

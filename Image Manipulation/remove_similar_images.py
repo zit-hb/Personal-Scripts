@@ -22,6 +22,8 @@
 #   -k KEEP, --keep KEEP                  Criteria for keeping a file. (choices: "oldest", "newest", "biggest", "smallest") (default: "biggest")
 #   -h, --help                            Display this help message.
 #
+# Template: ubuntu22.04
+#
 # Requirements:
 # - Pillow (install via: pip install Pillow)
 # - imagehash (install via: pip install imagehash)

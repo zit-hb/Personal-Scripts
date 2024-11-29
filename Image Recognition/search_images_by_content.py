@@ -28,8 +28,9 @@
 # -r, --recursive                            Recursively search for images in subdirectories.
 # --verbose                                  Enable verbose output.
 #
+# Template: cuda12.4.1-ubuntu22.04
+#
 # Requirements:
-# - Python 3.7 or higher
 # - PyTorch (install via: pip install torch torchvision)
 # - transformers (install via: pip install transformers)
 # - Pillow (install via: pip install pillow)

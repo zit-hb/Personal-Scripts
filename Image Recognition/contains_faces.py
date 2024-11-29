@@ -38,11 +38,10 @@
 #   -q, --quiet                         Suppress non-error output.
 #   -h, --help                          Display this help message.
 #
-# Requirements:
-# - Python with OpenCV (install via: sudo apt install python3-opencv opencv-data)
+# Template: ubuntu22.04
 #
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+# Requirements:
+# - OpenCV (install via: apt install python3-opencv opencv-data)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
