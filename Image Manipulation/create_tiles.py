@@ -24,7 +24,7 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - Pillow (install via: pip install Pillow)
+# - Pillow (install via: pip install Pillow==11.0.0)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

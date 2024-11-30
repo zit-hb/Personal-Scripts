@@ -23,14 +23,14 @@
 # Template: cuda12.4.1-ubuntu22.04
 #
 # Requirements:
-# - PyTorch (install via: pip install torch torchvision)
-# - transformers (install via: pip install transformers)
-# - scikit-learn (install via: pip install scikit-learn)
-# - umap-learn (install via: pip install umap-learn)
-# - nltk (install via: pip install nltk)
-# - Pillow (install via: pip install pillow)
-# - pandas (install via: pip install pandas)
-# - huggingface-hub (install via: pip install huggingface-hub)
+# - PyTorch (install via: pip install torch==2.5.1 torchvision==0.20.1)
+# - transformers (install via: pip install transformers==4.46.3)
+# - scikit-learn (install via: pip install scikit-learn==1.5.2)
+# - umap-learn (install via: pip install umap-learn==0.5.7)
+# - nltk (install via: pip install nltk==3.9.1)
+# - Pillow (install via: pip install pillow==11.0.0)
+# - pandas (install via: pip install pandas==2.2.3)
+# - huggingface-hub (install via: pip install huggingface-hub==0.26.3)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

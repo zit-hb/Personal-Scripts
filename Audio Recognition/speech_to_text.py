@@ -38,10 +38,10 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - openai (install via: pip install openai)
-# - whisper (install via: pip install -U openai-whisper)
-# - tqdm (install via: pip install tqdm)
-# - python-dotenv (optional, for loading environment variables) (install via: pip install python-dotenv)
+# - openai (install via: pip install openai==1.55.3)
+# - whisper (install via: pip install -U openai-whisper==20240930)
+# - tqdm (install via: pip install tqdm==4.67.1)
+# - python-dotenv (install via: pip install python-dotenv==1.0.1)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

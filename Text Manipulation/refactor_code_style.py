@@ -32,7 +32,8 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - openai (install via: pip install openai)
+# - openai (install via: pip install openai==1.55.3)
+# - python-dotenv (install via: pip install python-dotenv==1.0.1)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

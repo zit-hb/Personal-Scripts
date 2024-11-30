@@ -36,10 +36,10 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - openai (install via: pip install openai)
-# - jsonschema (install via: pip install jsonschema)
-# - rich (optional, for enhanced terminal outputs) (install via: pip install rich)
-# - python-dotenv (optional, for loading .env files) (install via: pip install python-dotenv)
+# - openai (install via: pip install openai==1.55.3)
+# - jsonschema (install via: pip install jsonschema==4.23.0)
+# - rich (optional, for enhanced terminal outputs) (install via: pip install rich==13.9.4)
+# - python-dotenv (install via: pip install python-dotenv==1.0.1)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

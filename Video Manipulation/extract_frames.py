@@ -44,8 +44,9 @@
 #
 # Requirements:
 # - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
-# - Ultralytics YOLOv8 (install via: pip install ultralytics)
-# - ImageHash and Pillow (install via: pip install ImageHash pillow)
+# - Ultralytics YOLOv8 (install via: pip install ultralytics==8.3.39)
+# - Pillow (install via: pip install pillow==11.0.0)
+# - ImageHash (install via: pip install ImageHash==4.3.1)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

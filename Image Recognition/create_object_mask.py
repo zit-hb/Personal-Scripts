@@ -32,8 +32,8 @@
 # Template: cuda11.3.1-ubuntu20.04
 #
 # Requirements:
-# - Torch & Torchvision (install via: pip install torch==1.10.1+cu113 torchvision==0.11.2+cu113 --extra-index-url https://download.pytorch.org/whl/cu113)
-# - Detectron2 (install via: pip install detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/index.html)
+# - Torch & Torchvision (install via: pip install --extra-index-url https://download.pytorch.org/whl/cu113 torch==1.10.1+cu113 torchvision==0.11.2+cu113)
+# - Detectron2 (install via: pip install -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/index.html detectron2)
 # - Pillow (install via: pip install Pillow==9.5.0)
 # - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
 #
