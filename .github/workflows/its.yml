@@ -45,14 +45,16 @@ jobs:
           echo "Changed Python files:"
           echo "$CHANGED_FILES"
           
-          # Export the list as a space-separated string
-          echo "files=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+          # Export the list as a multiline string
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Run the changed scripts
         if: steps.changed_files.outputs.files != ''
         run: |
-          for file in ${{ steps.changed_files.outputs.files }}; do
-            echo "Running tests for $file"
+          echo "${{ steps.changed_files.outputs.files }}" | while IFS= read -r file; do
+            echo "Running tests for \"$file\""
             python3 docker.py --test "$file" -v
           done
         shell: bash
