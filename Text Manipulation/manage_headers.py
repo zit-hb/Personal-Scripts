@@ -27,6 +27,8 @@
 # - packaging (install via: pip install packaging==24.2)
 #
 # -------------------------------------------------------
+# © 2024 Hendrik Buchwald. All rights reserved.
+# -------------------------------------------------------
 
 import argparse
 import logging
@@ -48,6 +50,9 @@ import packaging.specifiers
 
 
 def parse_arguments():
+    """
+    Parses command-line arguments.
+    """
     parser = argparse.ArgumentParser(
         description='Modifies pip install commands in script headers to include version numbers.'
     )
@@ -105,7 +110,9 @@ def parse_arguments():
 
 
 def setup_logging(verbose: bool, debug: bool) -> None:
-    """Sets up logging configuration."""
+    """
+    Sets up logging configuration.
+    """
     if debug:
         level = logging.DEBUG
     elif verbose:
@@ -116,7 +123,9 @@ def setup_logging(verbose: bool, debug: bool) -> None:
 
 
 def collect_script_paths(path: str, recursive: bool) -> List[str]:
-    """Collects a list of script file paths from the given path."""
+    """
+    Collects a list of script file paths from the given path.
+    """
     script_paths = []
     if os.path.isfile(path):
         script_paths.append(path)
@@ -137,7 +146,9 @@ def collect_script_paths(path: str, recursive: bool) -> List[str]:
 
 
 def read_script(script_path: str) -> Tuple[List[str], List[str]]:
-    """Reads the script and returns a tuple of (header_lines, rest_lines)."""
+    """
+    Reads the script and returns a tuple of (header_lines, rest_lines).
+    """
     try:
         with open(script_path, 'r') as f:
             lines = f.readlines()
@@ -159,7 +170,9 @@ def read_script(script_path: str) -> Tuple[List[str], List[str]]:
 
 
 def find_requirements_section(header_lines: List[str]) -> Tuple[Optional[int], Optional[int]]:
-    """Finds the start and end indices of the 'Requirements' section in the header."""
+    """
+    Finds the start and end indices of the 'Requirements' section in the header.
+    """
     requirements_start = None
     requirements_end = None
     for idx, line in enumerate(header_lines):
@@ -177,7 +190,9 @@ def find_requirements_section(header_lines: List[str]) -> Tuple[Optional[int], O
 
 
 def extract_install_command(line: str) -> Optional[str]:
-    """Extracts the pip install command from a line in the Requirements section."""
+    """
+    Extracts the pip install command from a line in the Requirements section.
+    """
     match = re.search(r'\(install via:\s*(.*?)\)', line.strip('#').strip())
     if match:
         command = match.group(1).strip()
@@ -193,7 +208,9 @@ def extract_install_command(line: str) -> Optional[str]:
 
 
 def update_requirements_lines(requirements_lines: List[str], args) -> List[str]:
-    """Processes the requirements lines and returns updated lines."""
+    """
+    Processes the requirements lines and returns updated lines.
+    """
     updated_requirements_lines = []
     for line in requirements_lines:
         install_command = extract_install_command(line)
@@ -213,7 +230,9 @@ def update_requirements_lines(requirements_lines: List[str], args) -> List[str]:
 
 
 def parse_pip_install_command(install_command: str) -> Tuple[List[str], List[str], List[str]]:
-    """Parses a pip install command and returns a tuple of (prefix, options, package_specifiers)."""
+    """
+    Parses a pip install command and returns a tuple of (prefix, options, package_specifiers).
+    """
     tokens = shlex.split(install_command)
     package_specifiers = []
     options = []
@@ -251,7 +270,9 @@ def parse_pip_install_command(install_command: str) -> Tuple[List[str], List[str
 
 
 def parse_package_specifier(specifier: str) -> Tuple[str, Optional[str]]:
-    """Parses a package specifier and returns the package name and version specifier."""
+    """
+    Parses a package specifier and returns the package name and version specifier.
+    """
     try:
         req = packaging.requirements.Requirement(specifier)
         package_name = req.name
@@ -263,7 +284,9 @@ def parse_package_specifier(specifier: str) -> Tuple[str, Optional[str]]:
 
 
 def get_latest_version(package_name: str) -> Optional[str]:
-    """Gets the latest stable version of a package from PyPI."""
+    """
+    Gets the latest stable version of a package from PyPI.
+    """
     try:
         url = f'https://pypi.org/pypi/{package_name}/json'
         response = requests.get(url)
@@ -285,7 +308,9 @@ def get_latest_version(package_name: str) -> Optional[str]:
 
 
 def get_installed_version(package_name: str) -> Optional[str]:
-    """Gets the installed version of a package."""
+    """
+    Gets the installed version of a package.
+    """
     try:
         version = importlib_metadata.version(package_name)
         return version
@@ -298,7 +323,9 @@ def get_installed_version(package_name: str) -> Optional[str]:
 
 
 def process_pip_install_command(install_command: str, args: argparse.Namespace) -> str:
-    """Processes a pip install command, updating package versions as per the options."""
+    """
+    Processes a pip install command, updating package versions as per the options.
+    """
     prefix, options, package_specifiers = parse_pip_install_command(install_command)
     updated_specifiers = []
     exclude_packages = args.exclude_package if args.exclude_package else []
