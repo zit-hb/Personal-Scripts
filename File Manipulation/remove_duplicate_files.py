@@ -18,16 +18,13 @@
 # Options:
 # -a, --algorithm ALGORITHM     Hashing algorithm to use. Choices: "md5", "sha1", "sha256", etc. (default: "md5")
 # -r, --recursive               Scan directories recursively.
-# -k, --keep CRITERIA           Criteria for keeping a file. Choices: "oldest", "newest", "biggest", "smallest". (default: "oldest")
+# -k, --keep CRITERIA           Criteria for keeping a file. Choices: "oldest", "newest", "biggest", "smallest". (default: "biggest")
 # -e, --exclude EXCLUDE_DIRS    Comma-separated list of directories to exclude from scanning.
 # -v, --verbose                 Enable verbose logging (INFO level).
 # -vv, --debug                  Enable debug logging (DEBUG level).
 # -n, --dry-run                 Perform a dry run without deleting any files.
 #
 # Template: ubuntu22.04
-#
-# Requirements:
-# - tqdm (install via: pip install tqdm)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
@@ -39,8 +36,8 @@ import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Optional
-from tqdm import tqdm
 import hashlib
+
 
 def parse_arguments() -> argparse.Namespace:
     """
@@ -59,7 +56,7 @@ def parse_arguments() -> argparse.Namespace:
         '--algorithm',
         type=str,
         default='md5',
-        help='Hashing algorithm to use. Choices: "md5", "sha1", "sha256", etc. (default: "md5")'
+        help='Hashing algorithm to use. Choices: "md5", "sha1", "sha256", etc.'
     )
     parser.add_argument(
         '-r',
@@ -71,9 +68,9 @@ def parse_arguments() -> argparse.Namespace:
         '-k',
         '--keep',
         type=str,
-        default='oldest',
+        default='biggest',
         choices=['oldest', 'newest', 'biggest', 'smallest'],
-        help='Criteria for keeping a file. Choices: "oldest", "newest", "biggest", "smallest". (default: "oldest")'
+        help='Criteria for keeping a file. Choices: "oldest", "newest", "biggest", "smallest".'
     )
     parser.add_argument(
         '-e',
@@ -179,7 +176,7 @@ def find_duplicates(files: List[Path], algorithm: str) -> Dict[str, List[Path]]:
     Returns a dictionary mapping from hash to list of files with that hash.
     """
     hashes: Dict[str, List[Path]] = {}
-    for file in tqdm(files, desc="Computing file hashes", unit="file"):
+    for file in files:
         file_hash = compute_hash(file, algorithm)
         if file_hash:
             hashes.setdefault(file_hash, []).append(file)
@@ -233,7 +230,6 @@ def main() -> None:
     """
     args = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
-    logging.info("Starting Duplicate File Removal Script.")
 
     # Collect files
     files = collect_files(args.directory, args.recursive, args.exclude)
