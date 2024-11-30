@@ -21,7 +21,12 @@
 # -o, --output-dockerfile PATH      Path to save the generated Dockerfile.
 # -V, --volume VOLUME               Additional volumes to mount into the Docker container. Can be specified multiple times.
 # -d, --data PATH                   Mounts a host directory to /data in the container.
-# -v, --verbose                     Increase verbosity level (-v for verbose, -vv for debug).
+# -e, --env ENV_VAR                 Environment variables to set in the Docker container. Can be specified multiple times.
+# -P, --privileged                  Start the Docker container in privileged mode.
+# -G, --gpu                         Enable GPU access for the Docker container.
+# -N, --no-cache                    Do not use cache when building the Docker image.
+# -v, --verbose                     Enable verbose logging (INFO level).
+# -vv, --debug                      Enable debug logging (DEBUG level).
 # -T, --test [DIRECTORY]            Directory to test scripts (default: current directory).
 #
 # -- [script_args]: Arguments to pass to the target script inside the Docker container.
@@ -136,6 +141,30 @@ def parse_arguments() -> argparse.Namespace:
         help='Mounts a host directory to /data in the container.'
     )
     parser.add_argument(
+        '-e',
+        '--env',
+        action='append',
+        help='Environment variables to set in the Docker container. Can be specified multiple times.'
+    )
+    parser.add_argument(
+        '-P',
+        '--privileged',
+        action='store_true',
+        help='Start the Docker container in privileged mode.'
+    )
+    parser.add_argument(
+        '-G',
+        '--gpu',
+        action='store_true',
+        help='Enable GPU access for the Docker container.'
+    )
+    parser.add_argument(
+        '-N',
+        '--no-cache',
+        action='store_true',
+        help='Do not use cache when building the Docker image.'
+    )
+    parser.add_argument(
         '-v',
         '--verbose',
         action='store_true',
@@ -226,7 +255,7 @@ def generate_dockerfile(template_name: str, install_commands: List[str], dockerf
         logging.error(f"Template '{template_name}' is not supported.")
         sys.exit(1)
     template_info = TEMPLATES[template_name]
-    dockerfile_content = template_info['dockerfile_template'].strip()
+    dockerfile_content = template_info['dockerfile_template'].lstrip()
 
     # Prepare the install commands
     if install_commands:
@@ -242,11 +271,20 @@ def generate_dockerfile(template_name: str, install_commands: List[str], dockerf
     logging.info(f"Dockerfile generated at '{dockerfile_path}'")
 
 
-def build_docker_image(context_dir: str, dockerfile_path: str, image_tag: str, test_mode: bool = False) -> int:
+def build_docker_image(
+    context_dir: str,
+    dockerfile_path: str,
+    image_tag: str,
+    no_cache: bool = False,
+    test_mode: bool = False
+) -> int:
     """
     Builds the Docker image using the Dockerfile.
     """
-    cmd = ['docker', 'build', '-f', dockerfile_path, '-t', image_tag, context_dir]
+    cmd = ['docker', 'build', '-f', dockerfile_path, '-t', image_tag]
+    if no_cache:
+        cmd.append('--no-cache')
+    cmd.append(context_dir)
     logging.info(f"Building Docker image with tag '{image_tag}'")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -266,6 +304,9 @@ def run_docker_container(
     target_script_path: str,
     volumes: Optional[List[str]],
     data_path: Optional[str],
+    env_vars: Optional[List[str]],
+    privileged: bool,
+    gpu: bool,
     script_args: List[str],
     test_mode: bool = False
 ) -> int:
@@ -275,6 +316,17 @@ def run_docker_container(
     """
     cmd = ['docker', 'run', '--rm']
     cmd += docker_run_options
+
+    if privileged:
+        cmd += ['--privileged']
+
+    if gpu:
+        cmd += ['--gpus', 'all']
+
+    if env_vars:
+        for env_var in env_vars:
+            cmd += ['-e', env_var]
+
     script_name = os.path.basename(target_script_path)
     cmd += ['-v', f'{os.path.abspath(target_script_path)}:/app/{script_name}:ro']
     if volumes:
@@ -323,16 +375,26 @@ def process_script(script_path: str, args: argparse.Namespace, test_mode: bool =
                     dst.write(src.read())
                 logging.info(f"Dockerfile saved to '{args.output_dockerfile}'")
             image_tag = normalize_script_name(os.path.basename(script_path))
-            build_status = build_docker_image(tmpdir, dockerfile_path, image_tag, test_mode)
+            build_status = build_docker_image(
+                tmpdir,
+                dockerfile_path,
+                image_tag,
+                no_cache=args.no_cache,
+                test_mode=test_mode
+            )
             if build_status != 0:
                 return False
             docker_run_options = TEMPLATES[template_name]['docker_run_options']
+
             run_status = run_docker_container(
                 docker_run_options=docker_run_options,
                 image_tag=image_tag,
                 target_script_path=script_path,
-                volumes=None,
-                data_path=None,
+                volumes=args.volume,
+                data_path=args.data,
+                env_vars=args.env,
+                privileged=args.privileged,
+                gpu=args.gpu,
                 script_args=['-h'],
                 test_mode=test_mode
             )
@@ -424,13 +486,21 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         dockerfile_path, docker_run_options, context_dir = prepare_dockerfile(args, tmpdir)
         image_tag = normalize_script_name(os.path.basename(args.target_script))
-        build_docker_image(context_dir, dockerfile_path, image_tag)
+        build_docker_image(
+            context_dir,
+            dockerfile_path,
+            image_tag,
+            no_cache=args.no_cache
+        )
         exit_code = run_docker_container(
             docker_run_options=docker_run_options,
             image_tag=image_tag,
             target_script_path=args.target_script,
             volumes=args.volume,
             data_path=args.data,
+            env_vars=args.env,
+            privileged=args.privileged,
+            gpu=args.gpu,
             script_args=args.script_args
         )
         sys.exit(exit_code)
