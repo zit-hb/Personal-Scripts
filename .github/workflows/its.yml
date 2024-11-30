@@ -1,0 +1,58 @@
+name: integration tests
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Ensures full history for accurate diffs
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.10"
+
+      - name: Get list of changed Python files
+        id: changed_files
+        run: |
+          echo "GITHUB_EVENT_NAME: $GITHUB_EVENT_NAME"
+          
+          # Determine the base commit depending on the event type
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            BASE_SHA=$(jq -r .pull_request.base.sha "$GITHUB_EVENT_PATH")
+          else
+            # For push events, use the previous commit
+            BASE_SHA=$(git rev-parse HEAD^1)
+          fi
+          
+          echo "Base SHA: $BASE_SHA"
+          
+          # Get list of changed Python files
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" HEAD -- '*.py')
+          
+          echo "Changed Python files:"
+          echo "$CHANGED_FILES"
+          
+          # Export the list as a space-separated string
+          echo "files=$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Run the changed scripts
+        if: steps.changed_files.outputs.files != ''
+        run: |
+          for file in ${{ steps.changed_files.outputs.files }}; do
+            echo "Running tests for $file"
+            python3 docker.py --test "$file" -v
+          done
+        shell: bash

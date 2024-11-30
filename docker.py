@@ -27,7 +27,7 @@
 # -N, --no-cache                    Do not use cache when building the Docker image.
 # -v, --verbose                     Enable verbose logging (INFO level).
 # -vv, --debug                      Enable debug logging (DEBUG level).
-# -T, --test [DIRECTORY]            Directory to test scripts (default: current directory).
+# -T, --test PATH                   File or directory to test scripts.
 #
 # -- [script_args]: Arguments to pass to the target script inside the Docker container.
 #
@@ -104,10 +104,7 @@ def parse_arguments() -> argparse.Namespace:
         '-T',
         '--test',
         type=str,
-        nargs='?',
-        const='.',
-        default=None,
-        help='Directory to test scripts.'
+        help='File or directory to test scripts.'
     )
     parser.add_argument(
         '-t',
@@ -404,35 +401,50 @@ def process_script(script_path: str, args: argparse.Namespace, test_mode: bool =
         return False
 
 
-def test_scripts(args: argparse.Namespace) -> None:
+def test_scripts(args: argparse.Namespace) -> int:
     """
-    Tests all scripts with 'Template:' in their header in the specified directory.
+    Tests scripts specified in args.test (file or directory).
     Outputs a summary of which tests succeeded and which failed.
+    Returns the number of failed tests.
     """
     successes = []
     failures = []
-    test_dir: str = args.test
-    for root, _, files in os.walk(test_dir):
-        for file in files:
-            if file.endswith('.py'):
-                script_path = os.path.join(root, file)
-                logging.info(f"Processing script '{script_path}'")
-                template_name, _ = parse_script_header(script_path)
-                if not template_name:
-                    logging.info(f"Skipping script '{script_path}' as it does not specify a template.")
-                    continue
-                success = process_script(script_path, args, test_mode=True)
-                if success:
-                    successes.append(script_path)
-                else:
-                    failures.append(script_path)
-    print(f"Total scripts tested: {len(successes) + len(failures)}")
+    test_path: str = args.test
+    script_paths = []
+
+    if os.path.isfile(test_path):
+        script_paths = [test_path]
+    elif os.path.isdir(test_path):
+        for root, _, files in os.walk(test_path):
+            for file in files:
+                if file.endswith('.py'):
+                    script_paths.append(os.path.join(root, file))
+    else:
+        logging.error(f"The test path '{test_path}' is neither a file nor a directory.")
+        sys.exit(1)
+
+    for script_path in script_paths:
+        logging.info(f"Processing script '{script_path}'")
+        template_name, _ = parse_script_header(script_path)
+        if not template_name:
+            logging.info(f"Skipping script '{script_path}' as it does not specify a template.")
+            continue
+        success = process_script(script_path, args, test_mode=True)
+        if success:
+            successes.append(script_path)
+        else:
+            failures.append(script_path)
+
+    total_tests = len(successes) + len(failures)
+    print(f"Total scripts tested: {total_tests}")
     print(f"Successful tests: {len(successes)}")
     for script in successes:
         print(f"  {script}")
     print(f"Failed tests: {len(failures)}")
     for script in failures:
         print(f"  {script}")
+
+    return len(failures)
 
 
 def prepare_dockerfile(args, tmpdir) -> Tuple[str, List[str], str]:
@@ -480,8 +492,11 @@ def main() -> None:
         logging.error("No target script specified. Please provide a script to execute.")
         sys.exit(2)
     elif args.test:
-        test_scripts(args)
-        sys.exit(0)
+        failures = test_scripts(args)
+        if failures > 0:
+            sys.exit(1)
+        else:
+            sys.exit(0)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         dockerfile_path, docker_run_options, context_dir = prepare_dockerfile(args, tmpdir)
