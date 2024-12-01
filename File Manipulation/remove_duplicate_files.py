@@ -6,9 +6,6 @@
 # Description:
 # This script scans a specified directory (and optionally subdirectories)
 # for duplicate files and removes them based on the specified criteria.
-# It uses file hashing to detect duplicates and allows the user to specify
-# the hashing algorithm. Users can also choose which duplicate file to keep
-# (e.g., oldest, newest, biggest, smallest).
 #
 # Usage:
 # ./remove_duplicate_files.py [directory] [options]
@@ -18,7 +15,7 @@
 # Options:
 # -a, --algorithm ALGORITHM     Hashing algorithm to use. Choices: "md5", "sha1", "sha256", etc. (default: "md5")
 # -r, --recursive               Scan directories recursively.
-# -k, --keep CRITERIA           Criteria for keeping a file. Choices: "oldest", "newest", "biggest", "smallest". (default: "biggest")
+# -k, --keep CRITERIA           Criteria for keeping a file. Choices: "oldest", "newest", "first", "last". (default: "oldest")
 # -e, --exclude EXCLUDE_DIRS    Comma-separated list of directories to exclude from scanning.
 # -v, --verbose                 Enable verbose logging (INFO level).
 # -vv, --debug                  Enable debug logging (DEBUG level).
@@ -32,7 +29,6 @@
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Optional
@@ -68,9 +64,9 @@ def parse_arguments() -> argparse.Namespace:
         '-k',
         '--keep',
         type=str,
-        default='biggest',
-        choices=['oldest', 'newest', 'biggest', 'smallest'],
-        help='Criteria for keeping a file. Choices: "oldest", "newest", "biggest", "smallest".'
+        default='oldest',
+        choices=['oldest', 'newest', 'first', 'last'],
+        help='Criteria for keeping a file. Choices: "oldest", "newest", "first", "last". (default: "oldest")'
     )
     parser.add_argument(
         '-e',
@@ -193,10 +189,10 @@ def select_file_to_keep(files: List[Path], criteria: str) -> Path:
         file_to_keep = min(files, key=lambda f: f.stat().st_mtime)
     elif criteria == 'newest':
         file_to_keep = max(files, key=lambda f: f.stat().st_mtime)
-    elif criteria == 'biggest':
-        file_to_keep = max(files, key=lambda f: f.stat().st_size)
-    elif criteria == 'smallest':
-        file_to_keep = min(files, key=lambda f: f.stat().st_size)
+    elif criteria == 'first':
+        file_to_keep = sorted(files, key=lambda f: f.resolve().as_posix())[0]
+    elif criteria == 'last':
+        file_to_keep = sorted(files, key=lambda f: f.resolve().as_posix())[-1]
     else:
         logging.error(f"Invalid criteria '{criteria}'. Defaulting to keep the first file.")
         file_to_keep = files[0]
