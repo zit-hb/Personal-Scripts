@@ -53,7 +53,7 @@ TEMPLATES = {
         'dockerfile_template': '''
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y -y python3 python3-pip
+RUN apt-get update && apt-get install -y python3 python3-pip
 RUN pip3 install --upgrade pip
 [INSTALL_COMMANDS]
 WORKDIR /app
@@ -65,7 +65,7 @@ ENTRYPOINT ["python3"]
         'dockerfile_template': '''
 FROM nvidia/cuda:12.4.1-base-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y -y python3 python3-pip
+RUN apt-get update && apt-get install -y python3 python3-pip
 RUN pip3 install --upgrade pip
 [INSTALL_COMMANDS]
 WORKDIR /app
@@ -77,7 +77,7 @@ ENTRYPOINT ["python3"]
         'dockerfile_template': '''
 FROM nvidia/cuda:11.3.1-base-ubuntu20.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y -y python3 python3-pip
+RUN apt-get update && apt-get install -y python3 python3-pip
 RUN pip3 install --upgrade pip
 [INSTALL_COMMANDS]
 WORKDIR /app
