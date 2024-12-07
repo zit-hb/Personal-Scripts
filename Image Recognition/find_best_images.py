@@ -16,6 +16,7 @@
 # -n NUM, --num-images NUM      Number of top images to select (default: 10).
 # -o DIR, --output-dir DIR      Output directory to copy the selected images.
 # -v, --verbose                 Enable verbose output.
+# -d, --debug                   Enable debug logging.
 #
 # Template: ubuntu22.04
 #
@@ -50,35 +51,39 @@ def parse_arguments() -> argparse.Namespace:
         help='The path to the input image directory.'
     )
     parser.add_argument(
-        '-n',
-        '--num-images',
+        '-n', '--num-images',
         type=int,
         default=10,
         help='Number of top images to select.'
     )
     parser.add_argument(
-        '-o',
-        '--output-dir',
+        '-o', '--output-dir',
         type=str,
         help='Output directory to copy the selected images.'
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
+        '-v', '--verbose',
         action='store_true',
         help='Enable verbose output.'
+    )
+    parser.add_argument(
+        '-d', '--debug',
+        action='store_true',
+        help='Enable debug logging.'
     )
     return parser.parse_args()
 
 
-def setup_logging(verbose: bool) -> None:
+def setup_logging(verbose: bool, debug: bool) -> None:
     """
-    Sets up the logging configuration based on the verbose flag.
+    Sets up the logging configuration based on the verbose and debug flags.
     """
-    if verbose:
+    if debug:
+        level = logging.DEBUG
+    elif verbose:
         level = logging.INFO
     else:
-        level = logging.ERROR  # Only show errors by default
+        level = logging.ERROR
     logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
 
@@ -105,26 +110,67 @@ def get_image_files(image_directory: str) -> List[str]:
 def calculate_laplacian_variance(gray_image: np.ndarray) -> float:
     """
     Calculates the Laplacian variance of a grayscale image.
+    This is a measure of blurriness: the higher the variance, the less blurry the image.
     """
     laplacian: np.ndarray = cv2.Laplacian(gray_image, cv2.CV_64F)
     variance: float = float(laplacian.var())
     return variance
 
 
-def calculate_dct_variance(gray_image: np.ndarray) -> float:
+def calculate_artifact_score(image: np.ndarray) -> float:
     """
-    Calculates the variance of high-frequency DCT coefficients of a grayscale image.
+    Calculates a compression artifact score based on blockiness detection.
+    A common compression artifact in JPEG images is blockiness caused by the 8x8 DCT blocks.
+
+    Approach:
+    - Convert the image to grayscale.
+    - JPEG compression typically operates on 8x8 pixel blocks. Compression artifacts often manifest
+      as discontinuities along block boundaries.
+    - We measure blockiness by summing the absolute differences in intensity across the vertical and horizontal
+      boundaries that align with 8-pixel multiples.
+
+    Steps:
+    1. Convert the image to grayscale.
+    2. For every vertical boundary at columns x = 8, 16, 24, ...:
+       - Compute the absolute difference between pixels at column x-1 and x for all rows.
+       - Sum these differences to get the vertical blockiness contribution.
+    3. For every horizontal boundary at rows y = 8, 16, 24, ...:
+       - Compute the absolute difference between pixels at row y-1 and y for all columns.
+       - Sum these differences to get the horizontal blockiness contribution.
+    4. The final artifact score is the sum of vertical and horizontal blockiness values.
+
+    This metric will be higher for images with more pronounced block boundaries, which often correlate
+    with high compression artifacts.
+
+    Note:
+    - This is a heuristic that focuses primarily on blockiness, a common JPEG artifact.
+    - In practice, other factors may influence perceived compression quality, but this provides a
+      logical, block-based approach for measuring common JPEG-like artifacts.
     """
-    # Perform Discrete Cosine Transform
-    dct: np.ndarray = cv2.dct(np.float32(gray_image))
+    # Convert to grayscale
+    gray: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
 
-    # Zero out low-frequency coefficients
-    dct_high: np.ndarray = dct.copy()
-    dct_high[:8, :8] = 0  # Assuming low frequencies are in the top-left 8x8 block
+    block_size: int = 8
 
-    # Calculate variance of the high-frequency components
-    variance: float = float(np.var(dct_high))
-    return variance
+    vertical_blockiness: float = 0.0
+    # Check vertical boundaries
+    for x in range(block_size, w, block_size):
+        if x >= w:
+            break
+        col_diff: np.ndarray = np.abs(gray[:, x] - gray[:, x - 1])
+        vertical_blockiness += float(np.sum(col_diff))
+
+    horizontal_blockiness: float = 0.0
+    # Check horizontal boundaries
+    for y in range(block_size, h, block_size):
+        if y >= h:
+            break
+        row_diff: np.ndarray = np.abs(gray[y, :] - gray[y - 1, :])
+        horizontal_blockiness += float(np.sum(row_diff))
+
+    artifact_score: float = vertical_blockiness + horizontal_blockiness
+    return artifact_score
 
 
 def process_image(image_path: str) -> Optional[Dict[str, Any]]:
@@ -138,11 +184,11 @@ def process_image(image_path: str) -> Optional[Dict[str, Any]]:
 
     gray: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # Calculate blurriness scores using different methods
+    # Calculate blurriness score
     laplacian_score: float = calculate_laplacian_variance(gray)
 
-    # Calculate compression artifact score
-    artifact_score: float = calculate_dct_variance(gray)
+    # Calculate new compression artifact score
+    artifact_score: float = calculate_artifact_score(image)
 
     result: Dict[str, Any] = {
         'image': image_path,
@@ -276,7 +322,7 @@ def main() -> None:
     Main function to orchestrate the image quality assessment process.
     """
     args: argparse.Namespace = parse_arguments()
-    setup_logging(args.verbose)
+    setup_logging(args.verbose, args.debug)
 
     image_files: List[str] = get_image_files(args.image_directory)
     if not image_files:

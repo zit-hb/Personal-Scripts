@@ -519,10 +519,10 @@ def process_frame(
 
     # Check compression artifacts if threshold > 0
     if args.compression_threshold > 0:
-        compression_score = calculate_dct_variance(gray)
-        has_artifacts = compression_score > args.compression_threshold
+        artifact_score = calculate_artifact_score(frame)
+        has_artifacts = artifact_score > args.compression_threshold
         if has_artifacts:
-            logging.info(f"Frame {frame_number} has high compression artifacts (score: {compression_score:.2f})")
+            logging.info(f"Frame {frame_number} has high compression artifacts (score: {artifact_score:.2f})")
             return False
 
     # Content matching using YOLOv8 if class names are provided
@@ -556,11 +556,11 @@ def process_frame(
                 return False
 
         # Check for negative class matches
-            if args.negative_class_names:
-                negative_match = any(cls in detected_classes for cls in args.negative_class_names)
-                if negative_match:
-                    logging.info(f"Frame {frame_number} contains undesired classes.")
-                    return False
+        if args.negative_class_names:
+            negative_match = any(cls in detected_classes for cls in args.negative_class_names)
+            if negative_match:
+                logging.info(f"Frame {frame_number} contains undesired classes.")
+                return False
 
     # Save frame
     frame_filename = f"frame_{frame_number:04d}.jpg"
@@ -588,23 +588,60 @@ def calculate_laplacian_variance(gray_image: np.ndarray) -> float:
     return variance
 
 
-def calculate_dct_variance(gray_image: np.ndarray) -> float:
+def calculate_artifact_score(image: np.ndarray) -> float:
     """
-    Calculates the variance of high-frequency DCT coefficients of a grayscale image.
+    Calculates a compression artifact score based on blockiness detection.
+    A common compression artifact in JPEG images is blockiness caused by the 8x8 DCT blocks.
+
+    Approach:
+    - Convert the image to grayscale.
+    - JPEG compression typically operates on 8x8 pixel blocks. Compression artifacts often manifest
+      as discontinuities along block boundaries.
+    - We measure blockiness by summing the absolute differences in intensity across the vertical and horizontal
+      boundaries that align with 8-pixel multiples.
+
+    Steps:
+    1. Convert the image to grayscale.
+    2. For every vertical boundary at columns x = 8, 16, 24, ...:
+       - Compute the absolute difference between pixels at column x-1 and x for all rows.
+       - Sum these differences to get the vertical blockiness contribution.
+    3. For every horizontal boundary at rows y = 8, 16, 24, ...:
+       - Compute the absolute difference between pixels at row y-1 and y for all columns.
+       - Sum these differences to get the horizontal blockiness contribution.
+    4. The final artifact score is the sum of vertical and horizontal blockiness values.
+
+    This metric will be higher for images with more pronounced block boundaries, which often correlate
+    with high compression artifacts.
+
+    Note:
+    - This is a heuristic that focuses primarily on blockiness, a common JPEG artifact.
+    - In practice, other factors may influence perceived compression quality, but this provides a
+      logical, block-based approach for measuring common JPEG-like artifacts.
     """
-    # Perform Discrete Cosine Transform
-    gray_image = np.float32(gray_image) / 255.0
-    dct = cv2.dct(gray_image)
+    # Convert to grayscale
+    gray: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
 
-    # Zero out low-frequency coefficients
-    dct_high = dct.copy()
-    h, w = dct.shape
-    lh, lw = h // 10, w // 10  # Adjust based on image size
-    dct_high[:lh, :lw] = 0  # Zero out low frequencies
+    block_size: int = 8
 
-    # Calculate variance of the high-frequency components
-    variance = np.var(dct_high)
-    return variance
+    vertical_blockiness: float = 0.0
+    # Check vertical boundaries
+    for x in range(block_size, w, block_size):
+        if x >= w:
+            break
+        col_diff: np.ndarray = np.abs(gray[:, x] - gray[:, x - 1])
+        vertical_blockiness += float(np.sum(col_diff))
+
+    horizontal_blockiness: float = 0.0
+    # Check horizontal boundaries
+    for y in range(block_size, h, block_size):
+        if y >= h:
+            break
+        row_diff: np.ndarray = np.abs(gray[y, :] - gray[y - 1, :])
+        horizontal_blockiness += float(np.sum(row_diff))
+
+    artifact_score: float = vertical_blockiness + horizontal_blockiness
+    return artifact_score
 
 
 def compute_image_hash(frame: np.ndarray) -> str:

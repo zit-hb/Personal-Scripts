@@ -5,21 +5,19 @@
 #
 # Description:
 # This script detects images that exhibit high compression artifacts, such as JPEG artifacts.
-# It analyzes images using the DCT Variance method to quantify the presence of compression artifacts.
+# It analyzes images using a blockiness-based metric to quantify the presence of compression artifacts.
 # It supports batch processing and allows you to set a threshold for artifact detection.
 #
 # Usage:
 # ./detect_compression_artifacts.py [image_file|image_directory] [options]
 #
 # - [image_file]: The path to the input image file.
-# - [image_directory]: The path to the input image directory (when using --batch).
+# - [image_directory]: The path to the input image directory (when using --batch/-B).
 #
 # Options:
-# -t THRESHOLD, --threshold THRESHOLD
-#                           Threshold for compression artifact detection (default: 1000.0).
-# --batch                   Process a batch of images in a directory.
-# -o OUTPUT_FILE, --output OUTPUT_FILE
-#                           Output file to save the results.
+# -t THRESHOLD, --threshold THRESHOLD    Threshold for compression artifact detection (default: 1000.0).
+# -B, --batch                            Process a batch of images in a directory.
+# -o OUTPUT_FILE, --output OUTPUT_FILE   Output file to save the results.
 #
 # Returns exit code 0 if all images have low compression artifacts, 1 if any image has high artifacts.
 #
@@ -46,21 +44,22 @@ def parse_arguments():
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Detect images with high compression artifacts using the DCT method.'
+        description='Detect images with high compression artifacts using a blockiness-based method.'
     )
     parser.add_argument(
         'image_path',
         type=str,
-        help='The path to the input image file or directory (use --batch for directories).'
+        help='The path to the input image file or directory (use --batch/-B for directories).'
     )
     parser.add_argument(
         '-t',
         '--threshold',
         type=float,
         default=1000.0,
-        help='Threshold for compression artifact detection (default: 1000.0).'
+        help='Threshold for compression artifact detection.'
     )
     parser.add_argument(
+        '-B',
         '--batch',
         action='store_true',
         help='Process a batch of images in a directory.'
@@ -81,34 +80,72 @@ def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 
-def calculate_dct_variance(gray_image):
+def calculate_artifact_score(image: np.ndarray) -> float:
     """
-    Calculates the variance of high-frequency DCT coefficients of a grayscale image.
+    Calculates a compression artifact score based on blockiness detection.
+    A common compression artifact in JPEG images is blockiness caused by the 8x8 DCT blocks.
+
+    Approach:
+    - Convert the image to grayscale.
+    - JPEG compression typically operates on 8x8 pixel blocks. Compression artifacts often manifest
+      as discontinuities along block boundaries.
+    - We measure blockiness by summing the absolute differences in intensity across the vertical and horizontal
+      boundaries that align with 8-pixel multiples.
+
+    Steps:
+    1. Convert the image to grayscale.
+    2. For every vertical boundary at columns x = 8, 16, 24, ...:
+       - Compute the absolute difference between pixels at column x-1 and x for all rows.
+       - Sum these differences to get the vertical blockiness contribution.
+    3. For every horizontal boundary at rows y = 8, 16, 24, ...:
+       - Compute the absolute difference between pixels at row y-1 and y for all columns.
+       - Sum these differences to get the horizontal blockiness contribution.
+    4. The final artifact score is the sum of vertical and horizontal blockiness values.
+
+    This metric will be higher for images with more pronounced block boundaries, which often correlate
+    with high compression artifacts.
+
+    Note:
+    - This is a heuristic that focuses primarily on blockiness, a common JPEG artifact.
+    - In practice, other factors may influence perceived compression quality, but this provides a
+      logical, block-based approach for measuring common JPEG-like artifacts.
     """
-    # Perform Discrete Cosine Transform
-    dct = cv2.dct(np.float32(gray_image))
+    # Convert to grayscale
+    gray: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
 
-    # Zero out low-frequency coefficients
-    dct_high = dct.copy()
-    dct_high[:8, :8] = 0  # Assuming low frequencies are in the top-left 8x8 block
+    block_size: int = 8
 
-    # Calculate variance of the high-frequency components
-    variance = np.var(dct_high)
-    return variance
+    vertical_blockiness: float = 0.0
+    # Check vertical boundaries
+    for x in range(block_size, w, block_size):
+        if x >= w:
+            break
+        col_diff: np.ndarray = np.abs(gray[:, x] - gray[:, x - 1])
+        vertical_blockiness += float(np.sum(col_diff))
+
+    horizontal_blockiness: float = 0.0
+    # Check horizontal boundaries
+    for y in range(block_size, h, block_size):
+        if y >= h:
+            break
+        row_diff: np.ndarray = np.abs(gray[y, :] - gray[y - 1, :])
+        horizontal_blockiness += float(np.sum(row_diff))
+
+    artifact_score: float = vertical_blockiness + horizontal_blockiness
+    return artifact_score
 
 
 def is_image_compressed(image_path, threshold):
     """
-    Determines if an image has high compression artifacts using the DCT method.
+    Determines if an image has high compression artifacts using the blockiness-based method.
     """
     image = cv2.imread(image_path)
     if image is None:
         logging.error(f"Could not load image '{image_path}'.")
         return None, None
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    score = calculate_dct_variance(gray)
+    score = calculate_artifact_score(image)
     has_artifacts = score > threshold
     return has_artifacts, score
 
