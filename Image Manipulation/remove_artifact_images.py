@@ -153,6 +153,32 @@ def get_image_files(directory: str, recursive: bool = False) -> List[str]:
 def calculate_artifact_score(image: np.ndarray) -> float:
     """
     Calculates a compression artifact score based on blockiness detection.
+    A common compression artifact in JPEG images is blockiness caused by the 8x8 DCT blocks.
+
+    Approach:
+    - Convert the image to grayscale.
+    - JPEG compression typically operates on 8x8 pixel blocks. Compression artifacts often manifest
+      as discontinuities along block boundaries.
+    - We measure blockiness by summing the absolute differences in intensity across the vertical and horizontal
+      boundaries that align with 8-pixel multiples.
+
+    Steps:
+    1. Convert the image to grayscale.
+    2. For every vertical boundary at columns x = 8, 16, 24, ...:
+       - Compute the absolute difference between pixels at column x-1 and x for all rows.
+       - Sum these differences to get the vertical blockiness contribution.
+    3. For every horizontal boundary at rows y = 8, 16, 24, ...:
+       - Compute the absolute difference between pixels at row y-1 and y for all columns.
+       - Sum these differences to get the horizontal blockiness contribution.
+    4. The final artifact score is the sum of vertical and horizontal blockiness values.
+
+    This metric will be higher for images with more pronounced block boundaries, which often correlate
+    with high compression artifacts.
+
+    Note:
+    - This is a heuristic that focuses primarily on blockiness, a common JPEG artifact.
+    - In practice, other factors may influence perceived compression quality, but this provides a
+      logical, block-based approach for measuring common JPEG-like artifacts.
     """
     # Convert to grayscale
     gray: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
