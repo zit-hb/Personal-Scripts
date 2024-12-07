@@ -17,6 +17,10 @@
 # -o DIR, --output-dir DIR      Output directory to copy the selected images.
 # -v, --verbose                 Enable verbose output.
 # -d, --debug                   Enable debug logging.
+# -L WEIGHT, --laplacian-weight WEIGHT
+#                               Weight for the laplacian (blurriness) score (default: 1.0).
+# -A WEIGHT, --artifact-weight WEIGHT
+#                               Weight for the artifact score (default: 1.0).
 #
 # Template: ubuntu22.04
 #
@@ -70,6 +74,18 @@ def parse_arguments() -> argparse.Namespace:
         '-d', '--debug',
         action='store_true',
         help='Enable debug logging.'
+    )
+    parser.add_argument(
+        '-L', '--laplacian-weight',
+        type=float,
+        default=1.0,
+        help='Weight for the laplacian (blurriness) score.'
+    )
+    parser.add_argument(
+        '-A', '--artifact-weight',
+        type=float,
+        default=1.0,
+        help='Weight for the artifact score.'
     )
     return parser.parse_args()
 
@@ -187,7 +203,7 @@ def process_image(image_path: str) -> Optional[Dict[str, Any]]:
     # Calculate blurriness score
     laplacian_score: float = calculate_laplacian_variance(gray)
 
-    # Calculate new compression artifact score
+    # Calculate compression artifact score
     artifact_score: float = calculate_artifact_score(image)
 
     result: Dict[str, Any] = {
@@ -238,7 +254,7 @@ def normalize_scores(scores: List[float], higher_better: bool = True) -> List[fl
 
 def collect_and_normalize_scores(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Collects scores from results, normalizes them, and updates the results with normalized and overall scores.
+    Collects scores from results, normalizes them, and updates the results with normalized scores.
     """
     # Collect scores
     laplacian_scores: List[float] = [res['laplacian_score'] for res in results]
@@ -250,19 +266,32 @@ def collect_and_normalize_scores(results: List[Dict[str, Any]]) -> List[Dict[str
     # Normalize artifact scores (lower is better, so invert them)
     norm_artifact_scores: List[float] = normalize_scores(artifact_scores, higher_better=False)
 
-    # Compute overall quality score by combining blurriness and artifact scores
-    overall_scores: List[float] = [
-        (nl + na) / 2
-        for nl, na in zip(norm_laplacian_scores, norm_artifact_scores)
-    ]
-
-    # Update results with normalized and overall scores
-    for res, nl, na, oscore in zip(
-        results, norm_laplacian_scores, norm_artifact_scores, overall_scores
-    ):
+    # Update results with normalized scores
+    for res, nl, na in zip(results, norm_laplacian_scores, norm_artifact_scores):
         res['norm_laplacian_score'] = nl
         res['norm_artifact_score'] = na
-        res['overall_score'] = oscore
+
+    return results
+
+
+def compute_overall_scores(results: List[Dict[str, Any]], laplacian_weight: float, artifact_weight: float) -> List[Dict[str, Any]]:
+    """
+    Computes overall quality scores based on normalized laplacian and artifact scores,
+    weighted by the given weights.
+    """
+    total_weight = laplacian_weight + artifact_weight
+    if total_weight == 0:
+        # Avoid division by zero
+        total_weight = 1.0
+        laplacian_weight = 1.0
+        artifact_weight = 1.0
+
+    for res in results:
+        nl = res['norm_laplacian_score']
+        na = res['norm_artifact_score']
+
+        overall_score = ((nl * laplacian_weight) + (na * artifact_weight)) / total_weight
+        res['overall_score'] = overall_score
 
     return results
 
@@ -280,10 +309,11 @@ def select_top_images(results: List[Dict[str, Any]], num_images: int) -> List[Di
     return top_results
 
 
-def output_results(top_results: List[Dict[str, Any]]) -> None:
+def output_results(top_results: List[Dict[str, Any]], laplacian_weight: float, artifact_weight: float) -> None:
     """
     Outputs the top results to the console.
     """
+    print(f"Using Weights: Laplacian={laplacian_weight}, Artifacts={artifact_weight}\n")
     for res in top_results:
         print(f"Image: {res['image']}")
         print(f"  Laplacian Score: {res['laplacian_score']:.2f} (Normalized: {res['norm_laplacian_score']:.2f})")
@@ -335,9 +365,10 @@ def main() -> None:
         sys.exit(1)
 
     results = collect_and_normalize_scores(results)
+    results = compute_overall_scores(results, args.laplacian_weight, args.artifact_weight)
     top_results = select_top_images(results, args.num_images)
 
-    output_results(top_results)
+    output_results(top_results, args.laplacian_weight, args.artifact_weight)
 
     if args.output_dir:
         copy_images(top_results, args.output_dir)
