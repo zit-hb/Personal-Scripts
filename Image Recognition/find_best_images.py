@@ -4,8 +4,9 @@
 # Script: find_best_images.py
 #
 # Description:
-# This script processes images in a directory, computes quality metrics such as blurriness
-# and compression artifacts, and selects the top images with the best quality.
+# This script processes images in a directory, computes quality metrics such as blurriness,
+# compression artifacts, and additional sharpness metrics, and selects the top images with
+# the best quality.
 #
 # Usage:
 # ./find_best_images.py [image_directory] [options]
@@ -13,14 +14,18 @@
 # - [image_directory]: The path to the input image directory.
 #
 # Options:
-# -n NUM, --num-images NUM      Number of top images to select (default: 10).
-# -o DIR, --output-dir DIR      Output directory to copy the selected images.
-# -v, --verbose                 Enable verbose output.
-# -d, --debug                   Enable debug logging.
-# -L WEIGHT, --laplacian-weight WEIGHT
-#                               Weight for the laplacian (blurriness) score (default: 1.0).
+# -n NUM, --num-images NUM        Number of top images to select (default: 10).
+# -o DIR, --output-dir DIR        Output directory to copy the selected images.
+# -v, --verbose                   Enable verbose output.
+# -d, --debug                     Enable debug logging.
 # -A WEIGHT, --artifact-weight WEIGHT
-#                               Weight for the artifact score (default: 1.0).
+#                                 Weight for the artifact (compression) score (default: 1.0).
+# -L WEIGHT, --laplacian-weight WEIGHT
+#                                 Weight for the laplacian (blurriness) score (default: 1.0).
+# -S WEIGHT, --sobel-weight WEIGHT
+#                                 Weight for the sobel (sharpness) score (default: 0.1).
+# -T WEIGHT, --tenengrad-weight WEIGHT
+#                                 Weight for the tenengrad (sharpness) score (default: 0.1).
 #
 # Template: ubuntu22.04
 #
@@ -76,16 +81,28 @@ def parse_arguments() -> argparse.Namespace:
         help='Enable debug logging.'
     )
     parser.add_argument(
+        '-A', '--artifact-weight',
+        type=float,
+        default=1.0,
+        help='Weight for the artifact (compression) score.'
+    )
+    parser.add_argument(
         '-L', '--laplacian-weight',
         type=float,
         default=1.0,
         help='Weight for the laplacian (blurriness) score.'
     )
     parser.add_argument(
-        '-A', '--artifact-weight',
+        '-S', '--sobel-weight',
         type=float,
-        default=1.0,
-        help='Weight for the artifact score.'
+        default=0.1,
+        help='Weight for the sobel (sharpness) score.'
+    )
+    parser.add_argument(
+        '-T', '--tenengrad-weight',
+        type=float,
+        default=0.1,
+        help='Weight for the tenengrad (sharpness) score.'
     )
     return parser.parse_args()
 
@@ -123,16 +140,6 @@ def get_image_files(image_directory: str) -> List[str]:
     return image_files
 
 
-def calculate_laplacian_variance(gray_image: np.ndarray) -> float:
-    """
-    Calculates the Laplacian variance of a grayscale image.
-    This is a measure of blurriness: the higher the variance, the less blurry the image.
-    """
-    laplacian: np.ndarray = cv2.Laplacian(gray_image, cv2.CV_64F)
-    variance: float = float(laplacian.var())
-    return variance
-
-
 def calculate_artifact_score(image: np.ndarray) -> float:
     """
     Calculates a compression artifact score based on blockiness detection.
@@ -163,10 +170,8 @@ def calculate_artifact_score(image: np.ndarray) -> float:
     - In practice, other factors may influence perceived compression quality, but this provides a
       logical, block-based approach for measuring common JPEG-like artifacts.
     """
-    # Convert to grayscale
     gray: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape
-
     block_size: int = 8
 
     vertical_blockiness: float = 0.0
@@ -189,6 +194,40 @@ def calculate_artifact_score(image: np.ndarray) -> float:
     return artifact_score
 
 
+def calculate_laplacian_variance(gray_image: np.ndarray) -> float:
+    """
+    Calculates the Laplacian variance of a grayscale image.
+    Higher is better (less blurry).
+    """
+    laplacian: np.ndarray = cv2.Laplacian(gray_image, cv2.CV_64F)
+    variance: float = float(laplacian.var())
+    return variance
+
+
+def calculate_sobel_variance(gray_image: np.ndarray) -> float:
+    """
+    Calculates the Sobel variance of a grayscale image.
+    Higher is better (sharper edges).
+    """
+    sobelx = cv2.Sobel(gray_image, cv2.CV_64F, 1, 0, ksize=3)
+    sobely = cv2.Sobel(gray_image, cv2.CV_64F, 0, 1, ksize=3)
+    sobel = np.hypot(sobelx, sobely)
+    variance = sobel.var()
+    return float(variance)
+
+
+def calculate_tenengrad_variance(gray_image: np.ndarray) -> float:
+    """
+    Calculates the Tenengrad variance of a grayscale image.
+    Higher is better (sharper edges).
+    """
+    gx = cv2.Sobel(gray_image, cv2.CV_64F, 1, 0, ksize=3)
+    gy = cv2.Sobel(gray_image, cv2.CV_64F, 0, 1, ksize=3)
+    gradient_magnitude = np.sqrt(gx ** 2 + gy ** 2)
+    variance = np.mean(gradient_magnitude ** 2)
+    return float(variance)
+
+
 def process_image(image_path: str) -> Optional[Dict[str, Any]]:
     """
     Processes a single image to compute quality scores.
@@ -200,21 +239,26 @@ def process_image(image_path: str) -> Optional[Dict[str, Any]]:
 
     gray: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # Calculate blurriness score
-    laplacian_score: float = calculate_laplacian_variance(gray)
-
-    # Calculate compression artifact score
+    # Artifact score: lower is better
     artifact_score: float = calculate_artifact_score(image)
+    # Laplacian (blurriness): higher better
+    laplacian_score: float = calculate_laplacian_variance(gray)
+    # Sobel (sharpness): higher is better
+    sobel_score: float = calculate_sobel_variance(gray)
+    # Tenengrad (sharpness): higher is better
+    tenengrad_score: float = calculate_tenengrad_variance(gray)
 
     result: Dict[str, Any] = {
         'image': image_path,
-        'laplacian_score': laplacian_score,
         'artifact_score': artifact_score,
+        'laplacian_score': laplacian_score,
+        'sobel_score': sobel_score,
+        'tenengrad_score': tenengrad_score,
     }
 
     logging.info(
-        f"Processed '{image_path}': Laplacian = {laplacian_score:.2f}, "
-        f"Artifact Score = {artifact_score:.2f}"
+        f"Processed '{image_path}': Artifact={artifact_score:.2f}, "
+        f"Laplacian={laplacian_score:.2f}, Sobel={sobel_score:.2f}, Tenengrad={tenengrad_score:.2f}"
     )
 
     return result
@@ -237,8 +281,8 @@ def process_images(image_files: List[str]) -> List[Dict[str, Any]]:
 def normalize_scores(scores: List[float], higher_better: bool = True) -> List[float]:
     """
     Normalizes a list of scores to the range [0, 1].
-    If higher_better is True, higher scores will have higher normalized values.
-    If higher_better is False, lower scores will have higher normalized values.
+    If higher_better is True, higher scores have higher normalized values.
+    If higher_better is False, lower scores have higher normalized values.
     """
     min_score: float = min(scores)
     max_score: float = max(scores)
@@ -256,41 +300,53 @@ def collect_and_normalize_scores(results: List[Dict[str, Any]]) -> List[Dict[str
     """
     Collects scores from results, normalizes them, and updates the results with normalized scores.
     """
-    # Collect scores
-    laplacian_scores: List[float] = [res['laplacian_score'] for res in results]
     artifact_scores: List[float] = [res['artifact_score'] for res in results]
+    laplacian_scores: List[float] = [res['laplacian_score'] for res in results]
+    sobel_scores: List[float] = [res['sobel_score'] for res in results]
+    tenengrad_scores: List[float] = [res['tenengrad_score'] for res in results]
 
-    # Normalize blurriness scores (higher is better)
-    norm_laplacian_scores: List[float] = normalize_scores(laplacian_scores, higher_better=True)
-
-    # Normalize artifact scores (lower is better, so invert them)
+    # Artifact: lower is better
     norm_artifact_scores: List[float] = normalize_scores(artifact_scores, higher_better=False)
+    # Laplacian: higher is better
+    norm_laplacian_scores: List[float] = normalize_scores(laplacian_scores, higher_better=True)
+    # Sobel: higher is better
+    norm_sobel_scores: List[float] = normalize_scores(sobel_scores, higher_better=True)
+    # Tenengrad: higher is better
+    norm_tenengrad_scores: List[float] = normalize_scores(tenengrad_scores, higher_better=True)
 
-    # Update results with normalized scores
-    for res, nl, na in zip(results, norm_laplacian_scores, norm_artifact_scores):
-        res['norm_laplacian_score'] = nl
+    for res, na, nl, ns, nt in zip(results, norm_artifact_scores, norm_laplacian_scores, norm_sobel_scores, norm_tenengrad_scores):
         res['norm_artifact_score'] = na
+        res['norm_laplacian_score'] = nl
+        res['norm_sobel_score'] = ns
+        res['norm_tenengrad_score'] = nt
 
     return results
 
 
-def compute_overall_scores(results: List[Dict[str, Any]], laplacian_weight: float, artifact_weight: float) -> List[Dict[str, Any]]:
+def compute_overall_scores(results: List[Dict[str, Any]], artifact_weight: float, laplacian_weight: float,
+                           sobel_weight: float, tenengrad_weight: float) -> List[Dict[str, Any]]:
     """
-    Computes overall quality scores based on normalized laplacian and artifact scores,
-    weighted by the given weights.
+    Computes overall quality scores based on normalized scores and given weights.
     """
-    total_weight = laplacian_weight + artifact_weight
+    total_weight = artifact_weight + laplacian_weight + sobel_weight + tenengrad_weight
     if total_weight == 0:
         # Avoid division by zero
         total_weight = 1.0
-        laplacian_weight = 1.0
         artifact_weight = 1.0
+        laplacian_weight = 1.0
+        sobel_weight = 0.1
+        tenengrad_weight = 0.1
 
     for res in results:
-        nl = res['norm_laplacian_score']
         na = res['norm_artifact_score']
+        nl = res['norm_laplacian_score']
+        ns = res['norm_sobel_score']
+        nt = res['norm_tenengrad_score']
 
-        overall_score = ((nl * laplacian_weight) + (na * artifact_weight)) / total_weight
+        overall_score = ((na * artifact_weight) +
+                         (nl * laplacian_weight) +
+                         (ns * sobel_weight) +
+                         (nt * tenengrad_weight)) / total_weight
         res['overall_score'] = overall_score
 
     return results
@@ -309,15 +365,20 @@ def select_top_images(results: List[Dict[str, Any]], num_images: int) -> List[Di
     return top_results
 
 
-def output_results(top_results: List[Dict[str, Any]], laplacian_weight: float, artifact_weight: float) -> None:
+def output_results(top_results: List[Dict[str, Any]], artifact_weight: float, laplacian_weight: float,
+                   sobel_weight: float, tenengrad_weight: float) -> None:
     """
     Outputs the top results to the console.
     """
-    print(f"Using Weights: Laplacian={laplacian_weight}, Artifacts={artifact_weight}\n")
+    print(f"Using Weights: Artifacts={artifact_weight}, Laplacian={laplacian_weight}, "
+          f"Sobel={sobel_weight}, Tenengrad={tenengrad_weight}\n")
+
     for res in top_results:
         print(f"Image: {res['image']}")
+        print(f"  Artifact Score:  {res['artifact_score']:.2f} (Normalized: {res['norm_artifact_score']:.2f})")
         print(f"  Laplacian Score: {res['laplacian_score']:.2f} (Normalized: {res['norm_laplacian_score']:.2f})")
-        print(f"  Artifact Score: {res['artifact_score']:.2f} (Normalized: {res['norm_artifact_score']:.2f})")
+        print(f"  Sobel Score:     {res['sobel_score']:.2f} (Normalized: {res['norm_sobel_score']:.2f})")
+        print(f"  Tenengrad Score: {res['tenengrad_score']:.2f} (Normalized: {res['norm_tenengrad_score']:.2f})")
         print(f"  Overall Quality Score: {res['overall_score']:.2f}")
         print()
 
@@ -365,10 +426,17 @@ def main() -> None:
         sys.exit(1)
 
     results = collect_and_normalize_scores(results)
-    results = compute_overall_scores(results, args.laplacian_weight, args.artifact_weight)
+    results = compute_overall_scores(
+        results,
+        args.artifact_weight,
+        args.laplacian_weight,
+        args.sobel_weight,
+        args.tenengrad_weight
+    )
     top_results = select_top_images(results, args.num_images)
 
-    output_results(top_results, args.laplacian_weight, args.artifact_weight)
+    output_results(top_results, args.artifact_weight, args.laplacian_weight,
+                   args.sobel_weight, args.tenengrad_weight)
 
     if args.output_dir:
         copy_images(top_results, args.output_dir)
