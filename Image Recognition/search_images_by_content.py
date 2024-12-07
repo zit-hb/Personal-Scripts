@@ -35,7 +35,6 @@
 # - PyTorch (install via: pip install torch==2.5.1 torchvision==0.20.1)
 # - transformers (install via: pip install transformers==4.46.3)
 # - Pillow (install via: pip install pillow==11.0.0)
-# - tqdm (install via: pip install tqdm==4.67.1)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
@@ -51,7 +50,6 @@ from datetime import datetime
 import torch
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
-from tqdm import tqdm
 
 # Suppress specific warnings
 import warnings
@@ -213,7 +211,7 @@ def compute_similarity(
     matched_images = []
     logging.info("Computing similarities for images...")
 
-    for image_path in tqdm(image_paths, desc="Processing Images", unit="image"):
+    for image_path in image_paths:
         try:
             image = Image.open(image_path).convert('RGB')
             image_inputs = processor(images=image, return_tensors="pt").to(device)

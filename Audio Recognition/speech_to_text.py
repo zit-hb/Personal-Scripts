@@ -41,7 +41,6 @@
 # Requirements:
 # - openai (install via: pip install openai==1.55.3)
 # - whisper (install via: pip install -U openai-whisper==20240930)
-# - tqdm (install via: pip install tqdm==4.67.1)
 # - python-dotenv (install via: pip install python-dotenv==1.0.1)
 #
 # -------------------------------------------------------
@@ -54,7 +53,6 @@ import os
 import sys
 from pathlib import Path
 from typing import List, Optional
-from tqdm import tqdm
 import json
 
 import warnings
@@ -393,13 +391,9 @@ def main() -> None:
 
     logging.info(f"Transcribing {len(audio_files)} file(s) using provider '{args.provider}'.")
 
-    # Process each audio file with or without a progress bar
-    if args.verbose:
-        for audio_file in tqdm(audio_files, desc="Transcribing Audio Files", unit="file"):
-            process_file(audio_file, args)
-    else:
-        for audio_file in audio_files:
-            process_file(audio_file, args)
+    # Process each audio file
+    for audio_file in audio_files:
+        process_file(audio_file, args)
 
     logging.info("Transcription process completed successfully.")
 

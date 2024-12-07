@@ -55,7 +55,6 @@
 # - numpy (install via: pip install numpy==1.26.4)
 # - diffusers (install via: pip install diffusers==0.31.0)
 # - requests (install via: pip install requests==2.32.3)
-# - tqdm (install via: pip install tqdm==4.67.1)
 # - basicsr (install via: pip install basicsr==1.4.2)
 # - realesrgan (install via: pip install realesrgan==0.3.0)
 # - scikit-image (install via: pip install scikit-image==0.24.0)
@@ -75,7 +74,6 @@ from pathlib import Path
 
 import warnings
 import requests
-from tqdm import tqdm
 import numpy as np
 from PIL import Image
 import torch
@@ -265,19 +263,15 @@ def download_realesrgan_model(upscale_factor: int) -> Path:
             logging.info(f"Real-ESRGAN model already exists at '{model_path}'. Skipping download.")
             return model_path
 
+        logging.info(f"Starting download of Real-ESRGAN model from '{url}'.")
         response = requests.get(url, stream=True)
         response.raise_for_status()
-        total_size = int(response.headers.get('content-length', 0))
-        with open(model_path, 'wb') as f, tqdm(
-            desc=f"Downloading Real-ESRGAN model to '{model_path}'",
-            total=total_size,
-            unit='iB',
-            unit_scale=True,
-            unit_divisor=1024,
-        ) as bar:
-            for data in response.iter_content(chunk_size=1024):
-                size = f.write(data)
-                bar.update(size)
+
+        with open(model_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+
         logging.info(f"Successfully downloaded Real-ESRGAN model to '{model_path}'.")
         return model_path
     except Exception as e:
