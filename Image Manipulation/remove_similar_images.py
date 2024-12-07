@@ -10,7 +10,8 @@
 # Usage:
 # ./remove_similar_images.py [options] [directory|image]...
 #
-#   [directory|image]: The image or directory to scan for images.
+# Arguments:
+#   - [directory|image]: The image or directory to scan for images.
 #
 # Options:
 #   -t THRESHOLD, --threshold THRESHOLD   The similarity threshold for comparison.

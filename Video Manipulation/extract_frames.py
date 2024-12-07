@@ -11,6 +11,9 @@
 # Usage:
 # ./extract_frames.py [options] [input_paths ...]
 #
+# Arguments:
+#   - [input_paths ...]: The path(s) to input video file(s) or directory(s) containing video files.
+#
 # Options:
 #   -o OUTPUT_DIR, --output-dir OUTPUT_DIR
 #       The directory to save the extracted frames.

@@ -11,10 +11,11 @@
 # Usage:
 # ./create_face_mask.py [image_file] [output_file] [-c CONFIDENCE] [-p SHAPE_PREDICTOR_PATH]
 #
-# - [image_file]: The path to the input image file.
-# - [output_file]: The path to save the output mask image.
-# - [-c CONFIDENCE, --confidence CONFIDENCE]: Minimum confidence for face detection (default: 0.5).
-# - [-p SHAPE_PREDICTOR_PATH, --shape-predictor-path SHAPE_PREDICTOR_PATH]: Path to the shape predictor file.
+# Arguments:
+#   - [image_file]: The path to the input image file.
+#   - [output_file]: The path to save the output mask image.
+#   - [-c CONFIDENCE, --confidence CONFIDENCE]: Minimum confidence for face detection (default: 0.5).
+#   - [-p SHAPE_PREDICTOR_PATH, --shape-predictor-path SHAPE_PREDICTOR_PATH]: Path to the shape predictor file.
 #
 # Template: ubuntu22.04
 #

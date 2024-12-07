@@ -12,7 +12,8 @@
 # Usage:
 # ./resize_images.py [options] [directory|image]
 #
-#  [directory|image]: The image file or directory to process.
+# Arguments:
+#   - [directory|image]: The image file or directory to process.
 #
 # Options:
 #   -W WIDTH, --max-width WIDTH       Maximum width of images (e.g., 2048).

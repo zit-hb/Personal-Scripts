@@ -12,10 +12,10 @@
 # ./detect_hardware.py [options]
 #
 # Options:
-# -v, --verbose               Enable verbose logging (INFO level).
-# -vv, --debug                Enable debug logging (DEBUG level).
-# -o, --output FILE           Output the detection results to a specified file (JSON format).
-# -h, --help                  Show help message and exit.
+#   -v, --verbose               Enable verbose logging (INFO level).
+#   -vv, --debug                Enable debug logging (DEBUG level).
+#   -o, --output FILE           Output the detection results to a specified file (JSON format).
+#   -h, --help                  Show help message and exit.
 #
 # Template: ubuntu22.04
 #

@@ -14,26 +14,27 @@
 # Usage:
 # ./speech_to_text.py [input_path] [options]
 #
-# - [input_path]: The path to the input audio file or directory.
+# Arguments:
+#   - [input_path]: The path to the input audio file or directory.
 #
 # Options:
-# -p, --provider PROVIDER     Speech-to-text provider. Choices: "local", "openai". (default: "local")
-# -r, --recursive             Process directories recursively.
-# -o, --output-dir OUTPUT_DIR
-#                             Directory to save transcription files. (default: current directory)
-# -f, --format FORMAT         Output format for transcriptions. Choices: "txt", "json". (default: "txt")
-# -l, --language LANGUAGE     Language of the audio (e.g., "en", "es", "fr"). If not specified, the model will attempt to detect it.
-# -v, --verbose               Enable verbose logging (INFO level).
-# -vv, --debug                Enable debug logging (DEBUG level).
-# -w, --overwrite             Overwrite existing transcription files if they exist.
-# -b, --batch                 Enable batch processing mode. Transcriptions will be saved to files.
+#   -p, --provider PROVIDER     Speech-to-text provider. Choices: "local", "openai". (default: "local")
+#   -r, --recursive             Process directories recursively.
+#   -o, --output-dir OUTPUT_DIR
+#                               Directory to save transcription files. (default: current directory)
+#   -f, --format FORMAT         Output format for transcriptions. Choices: "txt", "json". (default: "txt")
+#   -l, --language LANGUAGE     Language of the audio (e.g., "en", "es", "fr"). If not specified, the model will attempt to detect it.
+#   -v, --verbose               Enable verbose logging (INFO level).
+#   -vv, --debug                Enable debug logging (DEBUG level).
+#   -w, --overwrite             Overwrite existing transcription files if they exist.
+#   -b, --batch                 Enable batch processing mode. Transcriptions will be saved to files.
 #
 # Local Provider Options:
-# -m, --model MODEL           Name of the local model to use (e.g., "tiny", "base", "small", "medium", "large"). (default: "base")
+#   -m, --model MODEL           Name of the local model to use (e.g., "tiny", "base", "small", "medium", "large"). (default: "base")
 #
 # OpenAI Provider Options:
-# -k, --api-key API_KEY       OpenAI API key. Can also be set via the OPENAI_API_KEY environment variable.
-# -c, --chunk-size SIZE       Maximum size (in MB) for each audio chunk when processing large files. (default: 25)
+#   -k, --api-key API_KEY       OpenAI API key. Can also be set via the OPENAI_API_KEY environment variable.
+#   -c, --chunk-size SIZE       Maximum size (in MB) for each audio chunk when processing large files. (default: 25)
 #
 # Template: ubuntu22.04
 #

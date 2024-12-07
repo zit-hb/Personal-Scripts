@@ -13,27 +13,28 @@
 # Usage:
 # ./merge_images_sdxl.py [input_path] [options]
 #
-#   [input_path]: The path to the input image file or directory.
+# Arguments:
+#   - [input_path]: The path to the input image file or directory.
 #
 # Options:
-# -r, --recursive            Process directories recursively.
-# -b, --blend-mode BLEND_MODE
-#                            Method to blend input images. Choices: "average", "weighted". (default: "average")
-# -w, --weights WEIGHTS      Comma-separated weights for weighted blending (required if blend-mode is "weighted").
-# -n, --num-steps STEPS      Number of inference steps for the model. (default: 50)
-# -g, --guidance-scale SCALE Guidance scale for the model. (default: 4)
-# -m, --resolution-mode RES_MODE
-#                            Mode to determine output image resolution. Choices: "smallest", "biggest", "middle", "custom". (default: "middle")
-# -x, --width WIDTH          Custom width for the output image (required if resolution-mode is "custom").
-# -y, --height HEIGHT        Custom height for the output image (required if resolution-mode is "custom").
-# -s, --scheduler SCHEDULER  Scheduler (sampler) to use. Choices: "ddim", "plms", "k_lms", "euler", "euler_a", "heun", "dpm_solver". (default: "ddim")
-# -c, --checkpoint CHECKPOINT
-#                            SDXL checkpoint to use. Can be a Hugging Face model ID or a local path.
-# -f, --refiner REFINER      SDXL refiner checkpoint to use. Can be a Hugging Face model ID or a local path. (default: "stabilityai/stable-diffusion-xl-refiner-1.0")
-# -l, --lora LORA_PATH       LoRA model path. Can be specified multiple times for multiple LoRAs.
-# -o, --output OUTPUT_FILE   Output file name for the merged image (default: "merged_image_sdxl.png").
-# -v, --verbose              Enable verbose logging (DEBUG level).
-# -d, --default-prompt       Use a default prompt instead of generating one via BLIP.
+#   -r, --recursive            Process directories recursively.
+#   -b, --blend-mode BLEND_MODE
+#                              Method to blend input images. Choices: "average", "weighted". (default: "average")
+#   -w, --weights WEIGHTS      Comma-separated weights for weighted blending (required if blend-mode is "weighted").
+#   -n, --num-steps STEPS      Number of inference steps for the model. (default: 50)
+#   -g, --guidance-scale SCALE Guidance scale for the model. (default: 4)
+#   -m, --resolution-mode RES_MODE
+#                              Mode to determine output image resolution. Choices: "smallest", "biggest", "middle", "custom". (default: "middle")
+#   -x, --width WIDTH          Custom width for the output image (required if resolution-mode is "custom").
+#   -y, --height HEIGHT        Custom height for the output image (required if resolution-mode is "custom").
+#   -s, --scheduler SCHEDULER  Scheduler (sampler) to use. Choices: "ddim", "plms", "k_lms", "euler", "euler_a", "heun", "dpm_solver". (default: "ddim")
+#   -c, --checkpoint CHECKPOINT
+#                              SDXL checkpoint to use. Can be a Hugging Face model ID or a local path.
+#   -f, --refiner REFINER      SDXL refiner checkpoint to use. Can be a Hugging Face model ID or a local path. (default: "stabilityai/stable-diffusion-xl-refiner-1.0")
+#   -l, --lora LORA_PATH       LoRA model path. Can be specified multiple times for multiple LoRAs.
+#   -o, --output OUTPUT_FILE   Output file name for the merged image (default: "merged_image_sdxl.png").
+#   -v, --verbose              Enable verbose logging (DEBUG level).
+#   -d, --default-prompt       Use a default prompt instead of generating one via BLIP.
 #
 # Template: cuda12.4.1-ubuntu22.04
 #

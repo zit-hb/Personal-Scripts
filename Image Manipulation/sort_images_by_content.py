@@ -12,13 +12,14 @@
 # Usage:
 # ./sort_images_by_content.py [source_directory] [options]
 #
-# - [source_directory]: The directory containing the images to be organized.
+# Arguments:
+#   - [source_directory]: The directory containing the images to be organized.
 #
 # Options:
-# -l LEVEL, --level LEVEL                     Maximum directory depth level for sorting (default: 1).
-# --max-clusters MAX_CLUSTERS                 Maximum number of clusters per level (default: 10).
-# --min-cluster-size MIN_CLUSTER_SIZE         Minimum cluster size for Agglomerative Clustering (default: 2).
-# --verbose                                   Enable verbose output.
+#   -l LEVEL, --level LEVEL                     Maximum directory depth level for sorting (default: 1).
+#   --max-clusters MAX_CLUSTERS                 Maximum number of clusters per level (default: 10).
+#   --min-cluster-size MIN_CLUSTER_SIZE         Minimum cluster size for Agglomerative Clustering (default: 2).
+#   --verbose                                   Enable verbose output.
 #
 # Template: cuda12.4.1-ubuntu22.04
 #

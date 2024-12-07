@@ -10,14 +10,15 @@
 # Usage:
 # ./find_duplicate_base_names.py [directory] [options]
 #
-# - [directory]: The path to the directory to scan for files.
+# Arguments:
+#   - [directory]: The path to the directory to scan for files.
 #
 # Options:
-# -r, --recursive               Scan directories recursively.
-# -e, --exclude EXTS            File extension to exclude (e.g., .txt). Can be specified multiple times.
-# -i, --ignore-case             Perform case-insensitive comparison of base names.
-# -v, --verbose                 Enable verbose logging (INFO level).
-# -vv, --debug                  Enable debug logging (DEBUG level).
+#   -r, --recursive               Scan directories recursively.
+#   -e, --exclude EXTS            File extension to exclude (e.g., .txt). Can be specified multiple times.
+#   -i, --ignore-case             Perform case-insensitive comparison of base names.
+#   -v, --verbose                 Enable verbose logging (INFO level).
+#   -vv, --debug                  Enable debug logging (DEBUG level).
 #
 # Template: ubuntu22.04
 #

@@ -12,26 +12,26 @@
 # ./call_llm.py [command] [options]
 #
 # Commands:
-# - gen-def (g)               Generate a function definition schema.
-# - use-def (u)               Use an existing function definition to process a prompt.
+#   - gen-def (g)               Generate a function definition schema.
+#   - use-def (u)               Use an existing function definition to process a prompt.
 #
 # Global Options:
-# -v, --verbose               Enable verbose logging (INFO level).
-# -vv, --debug                Enable debug logging (DEBUG level).
+#   -v, --verbose               Enable verbose logging (INFO level).
+#   -vv, --debug                Enable debug logging (DEBUG level).
 #
 # Options for gen-def:
-# -p, --prompt PROMPT         A single prompt for generating the function definition (required).
-# -o, --output-file FILE      Store the generated function definition in a JSON file.
-# -k, --api-key API_KEY       Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).
-# -m, --model MODEL           OpenAI model to use (default: "gpt-4o").
+#   -p, --prompt PROMPT         A single prompt for generating the function definition (required).
+#   -o, --output-file FILE      Store the generated function definition in a JSON file.
+#   -k, --api-key API_KEY       Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).
+#   -m, --model MODEL           OpenAI model to use (default: "gpt-4o").
 #
 # Options for use-def:
-# -i, --functions-file FILE   Path to the JSON file containing the function definition (required).
-# -p, --prompt PROMPT         The prompt to process using the function definition.
-# -P, --prompt-file FILE      Path to a file containing additional prompt content to append.
-# -o, --output-file FILE      Store the assistant's response in a JSON file.
-# -k, --api-key API_KEY       Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).
-# -m, --model MODEL           OpenAI model to use (default: "gpt-4o").
+#   -i, --functions-file FILE   Path to the JSON file containing the function definition (required).
+#   -p, --prompt PROMPT         The prompt to process using the function definition.
+#   -P, --prompt-file FILE      Path to a file containing additional prompt content to append.
+#   -o, --output-file FILE      Store the assistant's response in a JSON file.
+#   -k, --api-key API_KEY       Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).
+#   -m, --model MODEL           OpenAI model to use (default: "gpt-4o").
 #
 # Template: ubuntu22.04
 #

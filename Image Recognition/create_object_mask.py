@@ -12,22 +12,23 @@
 # Usage:
 # ./create_object_mask.py [image_file|image_directory] [output_file|output_directory] [options]
 #
-# - [image_file]: The path to the input image file.
-# - [image_directory]: The path to the input image directory (when using --batch).
-# - [output_file]: The path to save the output mask image(s).
-# - [output_directory]: The path to save the output mask images (when using --batch).
+# Arguments:
+#   - [image_file]: The path to the input image file.
+#   - [image_directory]: The path to the input image directory (when using --batch).
+#   - [output_file]: The path to save the output mask image(s).
+#   - [output_directory]: The path to save the output mask images (when using --batch).
 #
 # Options:
-# -o OBJECT_TYPE [OBJECT_TYPE ...], --object_type OBJECT_TYPE [OBJECT_TYPE ...]
-#                               The type(s) of object(s) to detect (e.g., "person", "cat").
-#                               If omitted, masks for all detected object types are created.
-# -t THRESHOLD, --threshold THRESHOLD
-#                               Confidence threshold for object detection (default: 0.5).
-# -m MODEL, --model MODEL       Model name to use (default: COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml).
-# --invert                      Invert the masks (objects will be white and background black).
-# --batch                       Process a batch of images in a directory.
-# --cpu                         Force the model to run on CPU.
-# --list-objects                List all detectable object classes by the model and exit.
+#   -o OBJECT_TYPE [OBJECT_TYPE ...], --object_type OBJECT_TYPE [OBJECT_TYPE ...]
+#                                 The type(s) of object(s) to detect (e.g., "person", "cat").
+#                                 If omitted, masks for all detected object types are created.
+#   -t THRESHOLD, --threshold THRESHOLD
+#                                 Confidence threshold for object detection (default: 0.5).
+#   -m MODEL, --model MODEL       Model name to use (default: COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml).
+#   --invert                      Invert the masks (objects will be white and background black).
+#   --batch                       Process a batch of images in a directory.
+#   --cpu                         Force the model to run on CPU.
+#   --list-objects                List all detectable object classes by the model and exit.
 #
 # Template: cuda11.3.1-ubuntu20.04
 #

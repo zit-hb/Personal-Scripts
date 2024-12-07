@@ -11,21 +11,22 @@
 # Usage:
 # ./find_best_images.py [image_directory] [options]
 #
-# - [image_directory]: The path to the input image directory.
+# Arguments:
+#   - [image_directory]: The path to the input image directory.
 #
 # Options:
-# -n NUM, --num-images NUM        Number of top images to select (default: 10).
-# -o DIR, --output-dir DIR        Output directory to copy the selected images.
-# -v, --verbose                   Enable verbose output.
-# -d, --debug                     Enable debug logging.
-# -A WEIGHT, --artifact-weight WEIGHT
-#                                 Weight for the artifact (compression) score (default: 1.0).
-# -L WEIGHT, --laplacian-weight WEIGHT
-#                                 Weight for the laplacian (blurriness) score (default: 1.0).
-# -S WEIGHT, --sobel-weight WEIGHT
-#                                 Weight for the sobel (sharpness) score (default: 0.1).
-# -T WEIGHT, --tenengrad-weight WEIGHT
-#                                 Weight for the tenengrad (sharpness) score (default: 0.1).
+#   -n NUM, --num-images NUM        Number of top images to select (default: 10).
+#   -o DIR, --output-dir DIR        Output directory to copy the selected images.
+#   -v, --verbose                   Enable verbose output.
+#   -d, --debug                     Enable debug logging.
+#   -A WEIGHT, --artifact-weight WEIGHT
+#                                   Weight for the artifact (compression) score (default: 1.0).
+#   -L WEIGHT, --laplacian-weight WEIGHT
+#                                   Weight for the laplacian (blurriness) score (default: 1.0).
+#   -S WEIGHT, --sobel-weight WEIGHT
+#                                   Weight for the sobel (sharpness) score (default: 0.1).
+#   -T WEIGHT, --tenengrad-weight WEIGHT
+#                                   Weight for the tenengrad (sharpness) score (default: 0.1).
 #
 # Template: ubuntu22.04
 #

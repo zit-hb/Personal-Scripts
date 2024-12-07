@@ -14,19 +14,20 @@
 # Usage:
 # ./detect_blurriness.py [image_file|image_directory] [options]
 #
-# - [image_file]: The path to the input image file.
-# - [image_directory]: The path to the input image directory (when using --batch).
+# Arguments:
+#   - [image_file]: The path to the input image file.
+#   - [image_directory]: The path to the input image directory (when using --batch).
 #
 # Options:
-# -t THRESHOLD, --threshold THRESHOLD
-#                           Threshold for blurriness detection (default depends on method).
-# --batch                   Process a batch of images in a directory.
-# --method METHOD           Method to use for blurriness detection (default: laplacian).
-#                           Choices are "laplacian", "sobel", or "tenengrad".
-# -o OUTPUT_FILE, --output OUTPUT_FILE
-#                           Output file to save the results.
+#   -t THRESHOLD, --threshold THRESHOLD
+#                             Threshold for blurriness detection (default depends on method).
+#   --batch                   Process a batch of images in a directory.
+#   --method METHOD           Method to use for blurriness detection (default: laplacian).
+#                             Choices are "laplacian", "sobel", or "tenengrad".
+#   -o OUTPUT_FILE, --output OUTPUT_FILE
+#                             Output file to save the results.
 #
-# Returns exit code 0 if all images are not blurry, 1 if any image is blurry.
+# Returns: Exit code 0 if all images are not blurry, 1 if any image is blurry.
 #
 # Template: ubuntu22.04
 #

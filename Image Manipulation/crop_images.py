@@ -12,7 +12,8 @@
 # Usage:
 # ./crop_images.py [options] [directory|image]
 #
-#  [directory|image]: The image file or directory to process.
+# Arguments:
+#   - [directory|image]: The image file or directory to process.
 #
 # Options:
 #   -T TOP, --top TOP                    Number of pixels or percentage to crop from the top.

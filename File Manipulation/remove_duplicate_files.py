@@ -10,16 +10,17 @@
 # Usage:
 # ./remove_duplicate_files.py [directory] [options]
 #
-# - [directory]: The path to the directory to scan for duplicate files.
+# Arguments:
+#   - [directory]: The path to the directory to scan for duplicate files.
 #
 # Options:
-# -a, --algorithm ALGORITHM     Hashing algorithm to use. Choices: "md5", "sha1", "sha256", etc. (default: "md5")
-# -r, --recursive               Scan directories recursively.
-# -k, --keep CRITERIA           Criteria for keeping a file. Choices: "oldest", "newest", "first", "last". (default: "oldest")
-# -e, --exclude EXCLUDE_DIRS    Comma-separated list of directories to exclude from scanning.
-# -v, --verbose                 Enable verbose logging (INFO level).
-# -vv, --debug                  Enable debug logging (DEBUG level).
-# -n, --dry-run                 Perform a dry run without deleting any files.
+#   -a, --algorithm ALGORITHM     Hashing algorithm to use. Choices: "md5", "sha1", "sha256", etc. (default: "md5")
+#   -r, --recursive               Scan directories recursively.
+#   -k, --keep CRITERIA           Criteria for keeping a file. Choices: "oldest", "newest", "first", "last". (default: "oldest")
+#   -e, --exclude EXCLUDE_DIRS    Comma-separated list of directories to exclude from scanning.
+#   -v, --verbose                 Enable verbose logging (INFO level).
+#   -vv, --debug                  Enable debug logging (DEBUG level).
+#   -n, --dry-run                 Perform a dry run without deleting any files.
 #
 # Template: ubuntu22.04
 #

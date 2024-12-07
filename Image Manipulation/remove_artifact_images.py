@@ -14,7 +14,7 @@
 # ./remove_artifact_images.py [directory] [options]
 #
 # Arguments:
-#   directory                  The path to the directory containing images.
+#   - [directory]: The path to the directory containing images.
 #
 # Options:
 #   -t THRESHOLD, --threshold THRESHOLD

@@ -12,12 +12,12 @@
 # ./detect_system.py [options]
 #
 # Options:
-# -v, --verbose               Enable verbose logging (INFO level).
-# -vv, --debug                Enable debug logging (DEBUG level).
-# -a, --all                   Perform all possible checks, including those not limited by OS type.
-# -p, --paranoid              Enable paranoid mode: perform untrusting OS checks.
-# -o, --output FILE           Output the detection results to a specified file (JSON format).
-# -h, --help                  Show help message and exit.
+#   -v, --verbose               Enable verbose logging (INFO level).
+#   -vv, --debug                Enable debug logging (DEBUG level).
+#   -a, --all                   Perform all possible checks, including those not limited by OS type.
+#   -p, --paranoid              Enable paranoid mode: perform untrusting OS checks.
+#   -o, --output FILE           Output the detection results to a specified file (JSON format).
+#   -h, --help                  Show help message and exit.
 #
 # Template: ubuntu22.04
 #

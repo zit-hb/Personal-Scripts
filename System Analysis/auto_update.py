@@ -14,20 +14,20 @@
 # ./auto_update.py [options]
 #
 # Options:
-# -i, --install             Install all available updates.
-# -c, --cleanup             Clean up package cache and remove unused packages.
-# -s, --security-only       Install security updates only.
-# -e, --enable-auto-update  Enable automatic updates.
-# -d, --disable-auto-update Disable automatic updates.
-# -U, --check-updates       Check for available updates.
-# -l, --list-updates        List available updates.
-# -x, --exclude PACKAGES    Exclude specified packages from updates (comma-separated list).
-# -r, --reboot              Reboot system after updates if necessary.
-# -n, --dry-run             Simulate updates without installing.
-# -v, --verbose             Enable verbose output (INFO level).
-# -vv, --debug              Enable debug output (DEBUG level).
-# -h, --help                Show help message and exit.
-# -o, --log-file FILE       Log actions to specified file.
+#   -i, --install             Install all available updates.
+#   -c, --cleanup             Clean up package cache and remove unused packages.
+#   -s, --security-only       Install security updates only.
+#   -e, --enable-auto-update  Enable automatic updates.
+#   -d, --disable-auto-update Disable automatic updates.
+#   -U, --check-updates       Check for available updates.
+#   -l, --list-updates        List available updates.
+#   -x, --exclude PACKAGES    Exclude specified packages from updates (comma-separated list).
+#   -r, --reboot              Reboot system after updates if necessary.
+#   -n, --dry-run             Simulate updates without installing.
+#   -v, --verbose             Enable verbose output (INFO level).
+#   -vv, --debug              Enable debug output (DEBUG level).
+#   -h, --help                Show help message and exit.
+#   -o, --log-file FILE       Log actions to specified file.
 #
 # Template: ubuntu22.04
 #

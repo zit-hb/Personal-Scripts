@@ -15,18 +15,19 @@
 # Usage:
 # ./search_images_by_content.py [source_directory] [--query "positive_query1" ...] [--negative-query "negative_query1" ...] [options]
 #
-# - [source_directory]: The directory containing the images to be searched.
-# - --query (-q): The textual content to search for within the images (e.g., "a playful cat sitting on a mat").
-#                 Multiple --query (-q) arguments can be provided. All must match.
-# - --negative-query (-Q): The textual content that should NOT be present in the images.
-#                          Multiple --negative-query (-Q) arguments can be provided. None should match.
+# Arguments:
+#   - [source_directory]: The directory containing the images to be searched.
+#   - --query (-q): The textual content to search for within the images (e.g., "a playful cat sitting on a mat").
+#                   Multiple --query (-q) arguments can be provided. All must match.
+#   - --negative-query (-Q): The textual content that should NOT be present in the images.
+#                            Multiple --negative-query (-Q) arguments can be provided. None should match.
 #
 # Options:
-# -t PT, --positive-threshold PT             Similarity threshold for positive queries (default: 0.2).
-# -T NT, --negative-threshold NT             Similarity threshold for negative queries (default: 0.2).
-# -n, --names-only                           Output only the file names of matched images.
-# -r, --recursive                            Recursively search for images in subdirectories.
-# --verbose                                  Enable verbose output.
+#   -t PT, --positive-threshold PT             Similarity threshold for positive queries (default: 0.2).
+#   -T NT, --negative-threshold NT             Similarity threshold for negative queries (default: 0.2).
+#   -n, --names-only                           Output only the file names of matched images.
+#   -r, --recursive                            Recursively search for images in subdirectories.
+#   --verbose                                  Enable verbose output.
 #
 # Template: cuda12.4.1-ubuntu22.04
 #

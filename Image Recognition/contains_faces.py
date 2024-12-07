@@ -13,7 +13,8 @@
 # Usage:
 # ./contains_faces.py [options] [image_file]
 #
-# - [image_file]: The path to the image file to check for faces.
+# Arguments:
+#   - [image_file]: The path to the image file to check for faces.
 #
 # Options:
 #   -s SCALE, --scale-factor SCALE      Parameter specifying how much the image size is reduced at each image scale (default: 1.1).

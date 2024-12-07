@@ -11,7 +11,8 @@
 # Usage:
 # ./create_tiles.py [options] <image_path>
 #
-#  <image_path>: The image file to process.
+# Arguments:
+#   - [image_path]: The image file to process.
 #
 # Options:
 #   -H HEIGHT, --height HEIGHT           Height of each tile in pixels (default: 1024).

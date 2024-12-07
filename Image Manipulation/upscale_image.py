@@ -20,6 +20,8 @@
 # Options:
 #   -i, --input              Path to the input image to be upscaled.
 #                            If not provided, an initial image will be generated using SDXL.
+#   -d, --output-dir         Directory to save the output images (default: "output").
+#   -v, --verbose            Enable verbose logging (DEBUG level).
 #
 #   SDXL Generation Options  (used only if --input is not specified):
 #     -p, --prompt           The prompt to use for SDXL image generation (default: "A beautiful landscape").
@@ -44,10 +46,6 @@
 #     -b, --border-thresh        Threshold (in pixels) to determine if a superpixel is near the image border (default: 50).
 #     -S, --hallucination-steps  Number of times to perform object detection and inpainting per tile.
 #                                Higher values result in more hallucinations. (default: 1).
-#
-#   General Options:
-#     -d, --output-dir       Directory to save the output images (default: "output").
-#     -v, --verbose          Enable verbose logging (DEBUG level).
 #
 # Template: cuda12.4.1-ubuntu22.04
 #

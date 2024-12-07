@@ -12,7 +12,8 @@
 # Usage:
 # ./convert_images.py [options] [directory|image]
 #
-#  [directory|image]: The image file or directory to process.
+# Arguments:
+#    - [directory|image]: The image file or directory to process.
 #
 # Options:
 #   -f FORMAT, --format FORMAT           Output image format (default: jpeg).

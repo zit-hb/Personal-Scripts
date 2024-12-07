@@ -12,7 +12,8 @@
 # Usage:
 # ./remove_images_by_size.py [options] [directory|image]
 #
-#  [directory|image]: The image file or directory to process.
+# Arguments:
+#   - [directory|image]: The image file or directory to process.
 #
 # Options:
 #   -W WIDTH, --required-width WIDTH     Limit images to certain width (e.g., 1024, >1024, <1024).

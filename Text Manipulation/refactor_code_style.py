@@ -14,20 +14,21 @@
 # Usage:
 # ./refactor_code_style.py [input_path] [options]
 #
-# - [input_path]: The path to the input code file or directory.
+# Arguments:
+#   - [input_path]: The path to the input code file or directory.
 #
 # Options:
-# -o, --output-dir OUTPUT_DIR   Directory to save refactored code files. (default: overwrite input files)
-# -s, --style STYLE             Coding style to apply. Choices: "Default", "Google", "Airbnb", "PEP8", "Standard". (default: "Default")
-# -r, --recursive               Process directories recursively.
-# -i, --include PATTERNS        Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)
-# -e, --exclude PATTERNS        Comma-separated list of glob patterns to exclude (e.g., "*.min.js, test_*"). (default: none)
-# -m, --model MODEL             OpenAI model to use for code refactoring. (default: "gpt-4o")
-# -L, --level LEVEL             Level of changes to apply. Choices: "minimal", "small_fixes", "bug_fixes", "rewrite". (default: "minimal")
-# -v, --verbose                 Enable verbose logging (INFO level).
-# -vv, --debug                  Enable debug logging (DEBUG level).
-# -k, --api-key API_KEY         OpenAI API key. Can also be set via the OPENAI_API_KEY environment variable.
-# -l, --include-last-cleaned    Include the last refactored code in the chat history for consistency across multiple files.
+#   -o, --output-dir OUTPUT_DIR   Directory to save refactored code files. (default: overwrite input files)
+#   -s, --style STYLE             Coding style to apply. Choices: "Default", "Google", "Airbnb", "PEP8", "Standard". (default: "Default")
+#   -r, --recursive               Process directories recursively.
+#   -i, --include PATTERNS        Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)
+#   -e, --exclude PATTERNS        Comma-separated list of glob patterns to exclude (e.g., "*.min.js, test_*"). (default: none)
+#   -m, --model MODEL             OpenAI model to use for code refactoring. (default: "gpt-4o")
+#   -L, --level LEVEL             Level of changes to apply. Choices: "minimal", "small_fixes", "bug_fixes", "rewrite". (default: "minimal")
+#   -v, --verbose                 Enable verbose logging (INFO level).
+#   -vv, --debug                  Enable debug logging (DEBUG level).
+#   -k, --api-key API_KEY         OpenAI API key. Can also be set via the OPENAI_API_KEY environment variable.
+#   -l, --include-last-cleaned    Include the last refactored code in the chat history for consistency across multiple files.
 #
 # Template: ubuntu22.04
 #

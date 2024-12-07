@@ -7,10 +7,10 @@
 # Manages headers of the Python scripts.
 #
 # Usage:
-# ./manage_headers.py [subcommand] [options]
+# ./manage_headers.py [command] [options]
 #
-# Subcommands:
-#   update_pip                    Update 'pip' install commands in script headers with version numbers.
+# Commands:
+#   - update_pip                  Update 'pip' install commands in script headers with version numbers.
 #
 # Options:
 #   -r, --recursive               Recursively process directories.

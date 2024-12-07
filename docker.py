@@ -12,24 +12,24 @@
 # Usage:
 # ./docker.py [target_script] [options] -- [script_args]
 #
-# - [target_script]: The path to the target script to execute inside the Docker container.
+# Arguments:
+#   - [target_script]: The path to the target script to execute inside the Docker container.
+#   - [script_args]: Arguments to pass to the target script inside the Docker container.
 #
 # Options:
-# -t, --template TEMPLATE_NAME      Dockerfile template to use.
-#                                   If not specified, the template from the script header is used.
-# -i, --input-dockerfile PATH       Path to an existing Dockerfile to use.
-# -o, --output-dockerfile PATH      Path to save the generated Dockerfile.
-# -V, --volume VOLUME               Additional volumes to mount into the Docker container. Can be specified multiple times.
-# -d, --data PATH                   Mounts a host directory to /data in the container.
-# -e, --env ENV_VAR                 Environment variables to set in the Docker container. Can be specified multiple times.
-# -P, --privileged                  Start the Docker container in privileged mode.
-# -G, --gpu                         Enable GPU access for the Docker container.
-# -N, --no-cache                    Do not use cache when building the Docker image.
-# -v, --verbose                     Enable verbose logging (INFO level).
-# -vv, --debug                      Enable debug logging (DEBUG level).
-# -T, --test PATH                   File or directory to test scripts.
-#
-# -- [script_args]: Arguments to pass to the target script inside the Docker container.
+#   -t, --template TEMPLATE_NAME      Dockerfile template to use.
+#                                     If not specified, the template from the script header is used.
+#   -i, --input-dockerfile PATH       Path to an existing Dockerfile to use.
+#   -o, --output-dockerfile PATH      Path to save the generated Dockerfile.
+#   -V, --volume VOLUME               Additional volumes to mount into the Docker container. Can be specified multiple times.
+#   -d, --data PATH                   Mounts a host directory to /data in the container.
+#   -e, --env ENV_VAR                 Environment variables to set in the Docker container. Can be specified multiple times.
+#   -P, --privileged                  Start the Docker container in privileged mode.
+#   -G, --gpu                         Enable GPU access for the Docker container.
+#   -N, --no-cache                    Do not use cache when building the Docker image.
+#   -v, --verbose                     Enable verbose logging (INFO level).
+#   -vv, --debug                      Enable debug logging (DEBUG level).
+#   -T, --test PATH                   File or directory to test scripts.
 #
 # Requirements:
 # - Docker must be installed and running on the host system.

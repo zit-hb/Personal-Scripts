@@ -12,7 +12,8 @@
 # Usage:
 # ./find_largest_files.py [options] [directory]
 #
-# - [directory]: The directory to search for files. Defaults to the current directory if not provided.
+# Arguments:
+#   - [directory]: The directory to search for files. Defaults to the current directory if not provided.
 #
 # Options:
 #   -n NUM_FILES, --num-files NUM_FILES   The number of largest files to display. Defaults to 10.

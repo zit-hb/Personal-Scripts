@@ -11,15 +11,16 @@
 # Usage:
 # ./detect_compression_artifacts.py [image_file|image_directory] [options]
 #
-# - [image_file]: The path to the input image file.
-# - [image_directory]: The path to the input image directory (when using --batch/-B).
+# Arguments:
+#   - [image_file]: The path to the input image file.
+#   - [image_directory]: The path to the input image directory (when using --batch/-B).
 #
 # Options:
-# -t THRESHOLD, --threshold THRESHOLD    Threshold for compression artifact detection (default: 1000.0).
-# -B, --batch                            Process a batch of images in a directory.
-# -o OUTPUT_FILE, --output OUTPUT_FILE   Output file to save the results.
+#   -t THRESHOLD, --threshold THRESHOLD    Threshold for compression artifact detection (default: 1000.0).
+#   -B, --batch                            Process a batch of images in a directory.
+#   -o OUTPUT_FILE, --output OUTPUT_FILE   Output file to save the results.
 #
-# Returns exit code 0 if all images have low compression artifacts, 1 if any image has high artifacts.
+# Returns: Exit code 0 if all images have low compression artifacts, 1 if any image has high artifacts.
 #
 # Template: ubuntu22.04
 #

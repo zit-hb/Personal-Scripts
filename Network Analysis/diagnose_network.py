@@ -13,61 +13,58 @@
 # ./diagnose_network.py [command] [options]
 #
 # Commands:
-# - system-info (si)          Display detailed network information about the system.
-# - diagnose (dg)             Perform automated diagnostics on the network.
-# - traffic-monitor (tm)      Monitor network traffic to detect anomalies and bad actors.
-# - wifi (wf)                 Perform WiFi diagnostics and analyze available networks.
-# - container (co)            Run the script inside of a Docker container.
+#   - system-info (si)          Display detailed network information about the system.
+#   - diagnose (dg)             Perform automated diagnostics on the network.
+#   - traffic-monitor (tm)      Monitor network traffic to detect anomalies and bad actors.
+#   - wifi (wf)                 Perform WiFi diagnostics and analyze available networks.
+#   - container (co)            Run the script inside of a Docker container.
 #
 # Global Options:
-# -v, --verbose               Enable verbose logging (INFO level).
-# -vv, --debug                Enable debug logging (DEBUG level).
+#   -v, --verbose               Enable verbose logging (INFO level).
+#   -vv, --debug                Enable debug logging (DEBUG level).
 #
 # System Info Command Options:
-# -t, --traceroute            Perform a traceroute to a specified address (default: 8.8.8.8, 2001:4860:4860::8888).
+#   -t, --traceroute            Perform a traceroute to a specified address (default: 8.8.8.8, 2001:4860:4860::8888).
 #
 # Diagnostics Command Options:
-# -s, --subnet                Manually specify subnets to scan. Disables automatic subnet detection.
-# -V, --virtual               Enable virtual interfaces in subnet detection.
-# -6, --ipv6                  Enable IPv6 in subnet detection.
-# -d, --discovery             Perform network discovery to find devices only.
-# -o, --output-file           Specify a file to save discovered devices.
-# -i, --input-file            Specify a file to load discovered devices.
-# -e, --execution             Specify the execution mode (choices: docker, native) (default: docker).
-# -N, --nikto                 Enable Nikto scanning for discovered devices.
-# -G, --golismero             Enable Golismero scanning for discovered devices.
-# -S, --sqlmap                Enable SQLMap scanning for discovered devices.
-# -W, --wapiti                Enable Wapiti scanning for discovered devices.
-# -T, --whatweb               Enable WhatWeb scanning for discovered devices.
-# -F, --wafw00f               Enable WAFW00F scanning for discovered devices.
-# -H, --hydra                 Enable Hydra scanning for discovered devices.
-# -A, --all                   Enable all available diagnostic tools.
+#   -s, --subnet                Manually specify subnets to scan. Disables automatic subnet detection.
+#   -V, --virtual               Enable virtual interfaces in subnet detection.
+#   -6, --ipv6                  Enable IPv6 in subnet detection.
+#   -d, --discovery             Perform network discovery to find devices only.
+#   -o, --output-file           Specify a file to save discovered devices.
+#   -i, --input-file            Specify a file to load discovered devices.
+#   -e, --execution             Specify the execution mode (choices: docker, native) (default: docker).
+#   -N, --nikto                 Enable Nikto scanning for discovered devices.
+#   -G, --golismero             Enable Golismero scanning for discovered devices.
+#   -S, --sqlmap                Enable SQLMap scanning for discovered devices.
+#   -W, --wapiti                Enable Wapiti scanning for discovered devices.
+#   -T, --whatweb               Enable WhatWeb scanning for discovered devices.
+#   -F, --wafw00f               Enable WAFW00F scanning for discovered devices.
+#   -H, --hydra                 Enable Hydra scanning for discovered devices.
+#   -A, --all                   Enable all available diagnostic tools.
 #
 # Traffic Monitor Command Options:
-# -i, --interface             Specify the network interface to monitor (e.g., wlan0, eth0).
-# --dhcp-threshold            Set DHCP flood threshold (default: 10).
-# --port-scan-threshold       Set port scan threshold (default: 5).
-# --dns-exfil-threshold       Set DNS exfiltration threshold (default: 100).
-# --bandwidth-threshold       Set bandwidth abuse threshold in bytes per minute (default: 1000000).
-# --icmp-threshold            Set ICMP flood threshold (default: 50).
-# --syn-threshold             Set SYN flood threshold (default: 100).
-# --http-threshold            Set HTTP abuse threshold (default: 100).
-# --malformed-threshold       Set malformed packets threshold (default: 5).
-# --rogue-dhcp-threshold      Set rogue DHCP server threshold (default: 1).
+#   -i, --interface             Specify the network interface to monitor (e.g., wlan0, eth0).
+#   --dhcp-threshold            Set DHCP flood threshold (default: 10).
+#   --port-scan-threshold       Set port scan threshold (default: 5).
+#   --dns-exfil-threshold       Set DNS exfiltration threshold (default: 100).
+#   --bandwidth-threshold       Set bandwidth abuse threshold in bytes per minute (default: 1000000).
+#   --icmp-threshold            Set ICMP flood threshold (default: 50).
+#   --syn-threshold             Set SYN flood threshold (default: 100).
+#   --http-threshold            Set HTTP abuse threshold (default: 100).
+#   --malformed-threshold       Set malformed packets threshold (default: 5).
+#   --rogue-dhcp-threshold      Set rogue DHCP server threshold (default: 1).
 #
 # WiFi Command Options:
-# -s, --ssid                  Specify the SSID to perform targeted diagnostics.
-#                             If not specified, performs generic WiFi checks.
-# -i, --interface             Specify the network interface to scan (e.g., wlan0, wlp3s0).
-# -m, --signal-threshold      Set the minimum signal strength threshold (default: 50).
+#   -s, --ssid                  Specify the SSID to perform targeted diagnostics.
+#                               If not specified, performs generic WiFi checks.
+#   -i, --interface             Specify the network interface to scan (e.g., wlan0, wlp3s0).
+#   -m, --signal-threshold      Set the minimum signal strength threshold (default: 50).
 #
 # Container Command Options:
-# -n, --network               Docker network mode to use (choices: bridge, host, macvlan, default) (default: host).
-# -w, --work-dir              Specify the working directory to mount into the container (default: working directory).
-# --                          Pass additional arguments to the script inside the container.
-#
-# Returns:
-# Exit code 0 on success, non-zero on failure.
+#   -n, --network               Docker network mode to use (choices: bridge, host, macvlan, default) (default: host).
+#   -w, --work-dir              Specify the working directory to mount into the container (default: working directory).
+#   --                          Pass additional arguments to the script inside the container.
 #
 # Requirements with container:
 # - Docker (install via: apt-get install -y docker.io)

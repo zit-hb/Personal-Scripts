@@ -12,24 +12,25 @@
 # Usage:
 # ./merge_images_advanced.py [input_path] [options]
 #
-# - [input_path]: The path to the input image file or directory.
+# Arguments:
+#   - [input_path]: The path to the input image file or directory.
 #
 # Options:
-# -r, --recursive            Process directories recursively.
-# --blend-mode BLEND_MODE    Mode to blend images.
-#                            Choices: "average", "median", "max", "min".
-#                            (default: "average")
-# --alignment-method METHOD  Feature detection method for alignment.
-#                            Choices: "ORB", "SIFT", "SURF".
-#                            (default: "ORB")
-# --resolution-mode RES_MODE
-#                            Mode to determine output image resolution.
-#                            Choices: "smallest", "biggest", "middle", "custom".
-#                            (default: "middle")
-# --width WIDTH              Custom width for the output image (required if resolution-mode is "custom").
-# --height HEIGHT            Custom height for the output image (required if resolution-mode is "custom").
-# -o OUTPUT_FILE, --output OUTPUT_FILE
-#                            Output file name for the merged image (default: "merged_image_advanced.png").
+#   -r, --recursive            Process directories recursively.
+#   --blend-mode BLEND_MODE    Mode to blend images.
+#                              Choices: "average", "median", "max", "min".
+#                              (default: "average")
+#   --alignment-method METHOD  Feature detection method for alignment.
+#                              Choices: "ORB", "SIFT", "SURF".
+#                              (default: "ORB")
+#   --resolution-mode RES_MODE
+#                              Mode to determine output image resolution.
+#                              Choices: "smallest", "biggest", "middle", "custom".
+#                              (default: "middle")
+#   --width WIDTH              Custom width for the output image (required if resolution-mode is "custom").
+#   --height HEIGHT            Custom height for the output image (required if resolution-mode is "custom").
+#   -o OUTPUT_FILE, --output OUTPUT_FILE
+#                              Output file name for the merged image (default: "merged_image_advanced.png").
 #
 # Template: ubuntu22.04
 #
