@@ -18,7 +18,7 @@
 #   -n NUM, --num-images NUM        Number of top images to select (default: 10).
 #   -o DIR, --output-dir DIR        Output directory to copy the selected images.
 #   -v, --verbose                   Enable verbose output.
-#   -d, --debug                     Enable debug logging.
+#   -vv, --debug                    Enable debug logging.
 #   -A WEIGHT, --artifact-weight WEIGHT
 #                                   Weight for the artifact (compression) score (default: 1.0).
 #   -L WEIGHT, --laplacian-weight WEIGHT
@@ -77,7 +77,7 @@ def parse_arguments() -> argparse.Namespace:
         help='Enable verbose output.'
     )
     parser.add_argument(
-        '-d', '--debug',
+        '-vv', '--debug',
         action='store_true',
         help='Enable debug logging.'
     )

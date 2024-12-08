@@ -29,7 +29,7 @@
 #   -n, --dry-run               Simulate removal of blurry images without deleting them.
 #   -r, --recursive             Recursively traverse subdirectories.
 #   -v, --verbose               Enable verbose logging (INFO level).
-#   -d, --debug                 Enable debug logging (DEBUG level).
+#   -vv, --debug                Enable debug logging (DEBUG level).
 #
 # Template: ubuntu22.04
 #
@@ -100,7 +100,7 @@ def parse_arguments() -> argparse.Namespace:
         help='Enable verbose logging (INFO level).'
     )
     parser.add_argument(
-        '-d', '--debug',
+        '-vv', '--debug',
         action='store_true',
         help='Enable debug logging (DEBUG level).'
     )
