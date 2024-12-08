@@ -23,8 +23,8 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - requests (install via: pip install requests==2.32.3)
-# - packaging (install via: pip install packaging==24.2)
+#   - requests (install via: pip install requests==2.32.3)
+#   - packaging (install via: pip install packaging==24.2)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

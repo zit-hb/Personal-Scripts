@@ -18,7 +18,7 @@
 #   - [input_path]: The path to the input code file or directory.
 #
 # Options:
-#   -o, --output-dir OUTPUT_DIR   Directory to save refactored code files. (default: overwrite input files)
+#   -o, --output-dir DIR          Directory to save refactored code files. (default: overwrite input files)
 #   -s, --style STYLE             Coding style to apply. Choices: "Default", "Google", "Airbnb", "PEP8", "Standard". (default: "Default")
 #   -r, --recursive               Process directories recursively.
 #   -i, --include PATTERNS        Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)
@@ -33,8 +33,8 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - openai (install via: pip install openai==1.55.3)
-# - python-dotenv (install via: pip install python-dotenv==1.0.1)
+#   - openai (install via: pip install openai==1.55.3)
+#   - python-dotenv (install via: pip install python-dotenv==1.0.1)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

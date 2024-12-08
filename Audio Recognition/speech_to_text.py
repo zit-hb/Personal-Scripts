@@ -20,8 +20,7 @@
 # Options:
 #   -p, --provider PROVIDER     Speech-to-text provider. Choices: "local", "openai". (default: "local")
 #   -r, --recursive             Process directories recursively.
-#   -o, --output-dir OUTPUT_DIR
-#                               Directory to save transcription files. (default: current directory)
+#   -o, --output-dir DIR        Directory to save transcription files. (default: current directory)
 #   -f, --format FORMAT         Output format for transcriptions. Choices: "txt", "json". (default: "txt")
 #   -l, --language LANGUAGE     Language of the audio (e.g., "en", "es", "fr"). If not specified, the model will attempt to detect it.
 #   -v, --verbose               Enable verbose logging (INFO level).
@@ -39,9 +38,9 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - openai (install via: pip install openai==1.55.3)
-# - whisper (install via: pip install -U openai-whisper==20240930)
-# - python-dotenv (install via: pip install python-dotenv==1.0.1)
+#   - openai (install via: pip install openai==1.55.3)
+#   - whisper (install via: pip install -U openai-whisper==20240930)
+#   - python-dotenv (install via: pip install python-dotenv==1.0.1)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

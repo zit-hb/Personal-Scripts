@@ -26,8 +26,8 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - Pillow (install via: pip install Pillow==11.0.0)
-# - imagehash (install via: pip install imagehash==4.3.1)
+#   - Pillow (install via: pip install Pillow==11.0.0)
+#   - imagehash (install via: pip install imagehash==4.3.1)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

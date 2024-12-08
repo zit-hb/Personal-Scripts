@@ -20,10 +20,10 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - Linux:
-#   - pciutils (install via: apt-get install -y pciutils)
-#   - usbutils (install via: apt-get install -y usbutils)
-#   - dmidecode (install via: apt-get install -y dmidecode)
+#   Linux:
+#     - pciutils (install via: apt-get install -y pciutils)
+#     - usbutils (install via: apt-get install -y usbutils)
+#     - dmidecode (install via: apt-get install -y dmidecode)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

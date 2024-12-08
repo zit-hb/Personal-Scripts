@@ -16,11 +16,10 @@
 #
 # Options:
 #   -r, --recursive            Process directories recursively.
-#   --resize-mode RESIZE_MODE  Mode to handle differing image sizes.
+#   --resize-mode MODE         Mode to handle differing image sizes.
 #                              Choices: "center", "zoom", "tile", "stretch", "scale".
 #                              (default: "center")
-#   --resolution-mode RES_MODE
-#                              Mode to determine output image resolution.
+#   --resolution-mode MODE     Mode to determine output image resolution.
 #                              Choices: "smallest", "biggest", "middle", "custom".
 #                              (default: "middle")
 #   --width WIDTH              Custom width for the output image (required if resolution-mode is "custom").
@@ -31,7 +30,7 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - Pillow (install via: pip install Pillow==11.0.0)
+#   - Pillow (install via: pip install Pillow==11.0.0)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

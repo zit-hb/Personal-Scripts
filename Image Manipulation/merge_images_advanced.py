@@ -35,8 +35,8 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
-# - Pillow (install via: pip install Pillow==11.0.0)
+#   - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
+#   - Pillow (install via: pip install Pillow==11.0.0)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

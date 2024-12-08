@@ -27,14 +27,14 @@
 #   -T NT, --negative-threshold NT             Similarity threshold for negative queries (default: 0.2).
 #   -n, --names-only                           Output only the file names of matched images.
 #   -r, --recursive                            Recursively search for images in subdirectories.
-#   --verbose                                  Enable verbose output.
+#   -v, --verbose                              Enable verbose output.
 #
 # Template: cuda12.4.1-ubuntu22.04
 #
 # Requirements:
-# - PyTorch (install via: pip install torch==2.5.1 torchvision==0.20.1)
-# - transformers (install via: pip install transformers==4.46.3)
-# - Pillow (install via: pip install pillow==11.0.0)
+#   - PyTorch (install via: pip install torch==2.5.1 torchvision==0.20.1)
+#   - transformers (install via: pip install transformers==4.46.3)
+#   - Pillow (install via: pip install pillow==11.0.0)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
@@ -108,7 +108,7 @@ def parse_arguments() -> argparse.Namespace:
         help='Recursively search for images in subdirectories.'
     )
     parser.add_argument(
-        '--verbose',
+        '-v', '--verbose',
         action='store_true',
         help='Enable verbose output.'
     )

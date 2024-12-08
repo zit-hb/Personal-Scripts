@@ -12,9 +12,9 @@
 # ./modify_caption_files.py [command] [options]
 #
 # Commands:
-#   - mod      Modify first lines of text files corresponding to images.
-#   - remove   Remove specific tags from text files.
-#   - unique   Ensure all tags in text files are unique.
+#   - mod        Modify first lines of text files corresponding to images.
+#   - remove     Remove specific tags from text files.
+#   - unique     Ensure all tags in text files are unique.
 #
 # Template: ubuntu22.04
 #

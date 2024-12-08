@@ -50,15 +50,15 @@
 # Template: cuda12.4.1-ubuntu22.04
 #
 # Requirements:
-# - Pillow (install via: pip install Pillow==11.0.0)
-# - Torch & Torchvision (install via: pip install --extra-index-url https://download.pytorch.org/whl/cu118 torch==2.0.1 torchvision==0.15.2)
-# - numpy (install via: pip install numpy==1.26.4)
-# - diffusers (install via: pip install diffusers==0.31.0)
-# - requests (install via: pip install requests==2.32.3)
-# - basicsr (install via: pip install basicsr==1.4.2)
-# - realesrgan (install via: pip install realesrgan==0.3.0)
-# - scikit-image (install via: pip install scikit-image==0.24.0)
-# - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
+#   - Pillow (install via: pip install Pillow==11.0.0)
+#   - Torch & Torchvision (install via: pip install --extra-index-url https://download.pytorch.org/whl/cu118 torch==2.0.1 torchvision==0.15.2)
+#   - numpy (install via: pip install numpy==1.26.4)
+#   - diffusers (install via: pip install diffusers==0.31.0)
+#   - requests (install via: pip install requests==2.32.3)
+#   - basicsr (install via: pip install basicsr==1.4.2)
+#   - realesrgan (install via: pip install realesrgan==0.3.0)
+#   - scikit-image (install via: pip install scikit-image==0.24.0)
+#   - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

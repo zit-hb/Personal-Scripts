@@ -20,10 +20,10 @@
 # Template: ubuntu22.04
 #
 # Requirements:
-# - CMake (install via: apt-get install -y cmake)
-# - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
-# - Dlib (install via: pip install dlib==19.24.6)
-# - Shape predictor (http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2)
+#   - CMake (install via: apt-get install -y cmake)
+#   - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
+#   - Dlib (install via: pip install dlib==19.24.6)
+#   - Shape predictor (http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

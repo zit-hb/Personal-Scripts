@@ -67,37 +67,37 @@
 #   --                          Pass additional arguments to the script inside the container.
 #
 # Requirements with container:
-# - Docker (install via: apt-get install -y docker.io)
+#   - Docker (install via: apt-get install -y docker.io)
 #
 # Requirements without container:
-# - System Info Command:
-#   - traceroute (install via: apt-get install -y traceroute)
+#   - System Info Command:
+#     - traceroute (install via: apt-get install -y traceroute)
 #
-# - Diagnose Command:
-#   - requests (install via: pip install requests)
-#   - nmap (install via: apt-get install -y nmap)
-#   - Nikto Check (native):
-#     - nikto (install via: apt-get install -y nikto)
-#   - SQLMap Check (native):
-#     - sqlmap (install via: apt-get install -y sqlmap)
-#   - Wapiti Check (native):
-#     - wapiti (install via: apt-get install -y wapiti)
-#   - WhatWeb Check (native):
-#     - whatweb (install via: apt-get install -y whatweb)
-#   - WAFW00F Check (native):
-#     - wafw00f (install via: apt-get install -y wafw00f)
-#   - Hydra Check (native):
-#     - hydra (install via: apt-get install -y hydra)
+#   - Diagnose Command:
+#     - requests (install via: pip install requests)
+#     - nmap (install via: apt-get install -y nmap)
+#     - Nikto Check (native):
+#       - nikto (install via: apt-get install -y nikto)
+#     - SQLMap Check (native):
+#       - sqlmap (install via: apt-get install -y sqlmap)
+#     - Wapiti Check (native):
+#       - wapiti (install via: apt-get install -y wapiti)
+#     - WhatWeb Check (native):
+#       - whatweb (install via: apt-get install -y whatweb)
+#     - WAFW00F Check (native):
+#       - wafw00f (install via: apt-get install -y wafw00f)
+#     - Hydra Check (native):
+#       - hydra (install via: apt-get install -y hydra)
 #
-# - Traffic Monitor Command:
-#   - scapy (install via: pip install scapy)
+#   - Traffic Monitor Command:
+#     - scapy (install via: pip install scapy)
 #
-# - WiFi Command:
-#   - nmcli (install via: apt-get install -y network-manager)
+#   - WiFi Command:
+#     - nmcli (install via: apt-get install -y network-manager)
 #
-# - Optional:
-#   - rich (install via: pip install rich)
-#   - python-dotenv (install via: pip install python-dotenv)
+#   - Optional:
+#     - rich (install via: pip install rich)
+#     - python-dotenv (install via: pip install python-dotenv)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
