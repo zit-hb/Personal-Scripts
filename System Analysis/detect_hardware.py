@@ -68,10 +68,47 @@ class CPUInfo:
 
 
 @dataclass
+class MemorySlotInfo:
+    """Data class for storing detailed Memory Slot information."""
+    array_handle: str = ''
+    error_information_handle: str = ''
+    total_width: str = ''
+    data_width: str = ''
+    size: str = ''
+    form_factor: str = ''
+    set_value: str = ''
+    locator: str = ''
+    bank_locator: str = ''
+    type: str = ''
+    type_detail: str = ''
+    speed: str = ''
+    manufacturer: str = ''
+    serial_number: str = ''
+    asset_tag: str = ''
+    part_number: str = ''
+    rank: str = ''
+    configured_memory_speed: str = ''
+    minimum_voltage: str = ''
+    maximum_voltage: str = ''
+    configured_voltage: str = ''
+    memory_technology: str = ''
+    memory_operating_mode_capability: str = ''
+    firmware_version: str = ''
+    module_manufacturer_id: str = ''
+    module_product_id: str = ''
+    memory_subsystem_controller_manufacturer_id: str = ''
+    memory_subsystem_controller_product_id: str = ''
+    non_volatile_size: str = ''
+    volatile_size: str = ''
+    cache_size: str = ''
+    logical_size: str = ''
+
+
+@dataclass
 class MemoryInfo:
     """Data class for storing Memory information."""
     total: str = ''
-    slots: List[Dict[str, Any]] = field(default_factory=list)
+    slots: List[MemorySlotInfo] = field(default_factory=list)
 
 
 @dataclass
@@ -167,6 +204,16 @@ class LinuxCPUDetector(BaseDetector):
 class LinuxMemoryDetector(BaseDetector):
     """Detector for Memory information on Linux."""
 
+    @staticmethod
+    def _clean_value(value: str) -> str:
+        """Return empty string for unknown/not specified values, otherwise the trimmed value."""
+        if not value:
+            return ''
+        val_lower = value.strip().lower()
+        if val_lower in ('unknown', 'none', 'not specified'):
+            return ''
+        return value.strip()
+
     def detect(self) -> Optional[MemoryInfo]:
         """Detect Memory information on Linux."""
         memory_info = MemoryInfo()
@@ -200,10 +247,51 @@ class LinuxMemoryDetector(BaseDetector):
                         continue
                     elif ':' in line:
                         key, value = line.split(':', 1)
-                        slot[key.strip()] = value.strip()
+                        key = key.strip()
+                        cleaned_value = self._clean_value(value)
+                        slot[key] = cleaned_value
                 if slot:
                     slot_info.append(slot)
-                memory_info.slots = slot_info
+
+                # Convert dictionaries to MemorySlotInfo objects (already cleaned)
+                slot_objects = []
+                for s in slot_info:
+                    slot_objects.append(MemorySlotInfo(
+                        array_handle=s.get('Array Handle', ''),
+                        error_information_handle=s.get('Error Information Handle', ''),
+                        total_width=s.get('Total Width', ''),
+                        data_width=s.get('Data Width', ''),
+                        size=s.get('Size', ''),
+                        form_factor=s.get('Form Factor', ''),
+                        set_value=s.get('Set', ''),
+                        locator=s.get('Locator', ''),
+                        bank_locator=s.get('Bank Locator', ''),
+                        type=s.get('Type', ''),
+                        type_detail=s.get('Type Detail', ''),
+                        speed=s.get('Speed', ''),
+                        manufacturer=s.get('Manufacturer', ''),
+                        serial_number=s.get('Serial Number', ''),
+                        asset_tag=s.get('Asset Tag', ''),
+                        part_number=s.get('Part Number', ''),
+                        rank=s.get('Rank', ''),
+                        configured_memory_speed=s.get('Configured Memory Speed', ''),
+                        minimum_voltage=s.get('Minimum Voltage', ''),
+                        maximum_voltage=s.get('Maximum Voltage', ''),
+                        configured_voltage=s.get('Configured Voltage', ''),
+                        memory_technology=s.get('Memory Technology', ''),
+                        memory_operating_mode_capability=s.get('Memory Operating Mode Capability', ''),
+                        firmware_version=s.get('Firmware Version', ''),
+                        module_manufacturer_id=s.get('Module Manufacturer ID', ''),
+                        module_product_id=s.get('Module Product ID', ''),
+                        memory_subsystem_controller_manufacturer_id=s.get('Memory Subsystem Controller Manufacturer ID', ''),
+                        memory_subsystem_controller_product_id=s.get('Memory Subsystem Controller Product ID', ''),
+                        non_volatile_size=s.get('Non-Volatile Size', ''),
+                        volatile_size=s.get('Volatile Size', ''),
+                        cache_size=s.get('Cache Size', ''),
+                        logical_size=s.get('Logical Size', '')
+                    ))
+                memory_info.slots = slot_objects
+
             except Exception as e:
                 logging.error(f"Error detecting detailed memory slot info: {e}")
             logging.debug(f"Detected Memory info: {memory_info}")
@@ -551,19 +639,48 @@ class HardwareInfoDisplay:
 
     def _print_sorted_attributes(self, obj: Any, indent: str = "  ") -> None:
         """Print sorted non-empty attributes of an object with optional indentation."""
-        for key, value in sorted(obj.__dict__.items()):
-            if value:
+        if isinstance(obj, dict):
+            # If it's a dict, print key-values
+            for k, v in sorted(obj.items()):
+                if v and not (isinstance(v, list) and len(v) == 0):
+                    print(f"{indent}{k}: {v}")
+            print()
+            return
+
+        if hasattr(obj, '__dict__'):
+            attributes = sorted(obj.__dict__.items())
+
+            for key, value in attributes:
+                if not value:
+                    # skip empty values
+                    continue
+
                 if isinstance(value, list):
-                    print(f"{indent}{key}:")
-                    formatted_list = self._join_with_line_breaks(
-                        [str(item) for item in value],
-                        max_length=100,
-                        padding=indent + "    "
-                    )
-                    print(formatted_list)
+                    if len(value) == 0:
+                        continue
+                    # If it's a list of objects or strings
+                    if value and not isinstance(value[0], str):
+                        print(f"{indent}{key}:")
+                        for item in value:
+                            self._print_sorted_attributes(item, indent=indent + "    ")
+                    else:
+                        # It's a list of strings
+                        print(f"{indent}{key}:")
+                        formatted_list = self._join_with_line_breaks(
+                            [str(item) for item in value],
+                            max_length=100,
+                            padding=indent + "    "
+                        )
+                        print(formatted_list)
                 else:
+                    # Just print the attribute
                     print(f"{indent}{key}: {value}")
-        print()
+            print()
+        else:
+            # Just print the object if it's something else
+            if obj:
+                print(f"{indent}{obj}")
+                print()
 
     def _print_section(self, title: str, data: Any) -> None:
         """Print a section title and its associated data."""
@@ -576,7 +693,7 @@ class HardwareInfoDisplay:
                 print(f"  {class_name}:")
                 for device in data[class_name]:
                     self._print_sorted_attributes(device, indent="    ")
-        elif hasattr(data, '__dict__'):
+        else:
             self._print_sorted_attributes(data, indent="  ")
         print()
 
@@ -663,9 +780,22 @@ def collect_results(hardware_info: HardwareInfo) -> Dict[str, Any]:
         )
         sorted_pci[class_name] = sorted_devices
 
+    # Convert memory slots to dictionaries (already cleaned up in LinuxMemoryDetector)
+    memory_dict = {}
+    if hardware_info.memory:
+        memory_dict['total'] = hardware_info.memory.total
+        slots = []
+        for slot in hardware_info.memory.slots:
+            slot_attrs = {}
+            for k, v in slot.__dict__.items():
+                if v:  # skip empty
+                    slot_attrs[k] = v
+            slots.append(slot_attrs)
+        memory_dict['slots'] = slots
+
     return {
         'CPU': dict(sorted(hardware_info.cpu.__dict__.items())) if hardware_info.cpu else {},
-        'Memory': dict(sorted(hardware_info.memory.__dict__.items())) if hardware_info.memory else {},
+        'Memory': memory_dict if hardware_info.memory else {},
         'Storage': sorted_storage,
         'USBDevices': sorted_usb,
         'PciDevices': sorted_pci,
