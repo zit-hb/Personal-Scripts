@@ -31,7 +31,7 @@
 #   - CMake (install via: apt-get install -y cmake)
 #   - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
 #   - Dlib (install via: pip install dlib==19.24.6)
-#   - NumPy (install via: pip install numpy==2.1.3)
+#   - NumPy (install via: pip install numpy==1.21.5)
 #   - requests (install via: pip install requests==2.32.3)
 #
 # -------------------------------------------------------
