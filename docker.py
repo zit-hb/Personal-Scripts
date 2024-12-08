@@ -30,6 +30,7 @@
 #   -v, --verbose                     Enable verbose logging (INFO level).
 #   -vv, --debug                      Enable debug logging (DEBUG level).
 #   -T, --test PATH                   File or directory to test scripts.
+#   -c, --cache PATH                  Path to a directory to use as a cache (default: ~/.cache/buchwald).
 #
 # Requirements:
 # - Docker must be installed and running on the host system.
@@ -174,6 +175,13 @@ def parse_arguments() -> argparse.Namespace:
         help='Enable debug logging (DEBUG level).'
     )
     parser.add_argument(
+        '-c',
+        '--cache',
+        type=str,
+        default='~/.cache/buchwald',
+        help='Path to a directory to use as a cache.'
+    )
+    parser.add_argument(
         'script_args',
         nargs=argparse.REMAINDER,
         help='Arguments to pass to the target script inside the Docker container.'
@@ -305,6 +313,7 @@ def run_docker_container(
     privileged: bool,
     gpu: bool,
     script_args: List[str],
+    cache_path: Optional[str],
     test_mode: bool = False
 ) -> int:
     """
@@ -326,11 +335,18 @@ def run_docker_container(
 
     script_name = os.path.basename(target_script_path)
     cmd += ['-v', f'{os.path.abspath(target_script_path)}:/app/{script_name}:ro']
+
     if volumes:
         for vol in volumes:
             cmd += ['-v', vol]
+
     if data_path:
         cmd += ['-v', f'{os.path.abspath(data_path)}:/data']
+
+    if cache_path:
+        expanded_cache_path = os.path.expanduser(cache_path)
+        cmd += ['-v', f'{expanded_cache_path}:/root/.cache']
+
     cmd += [image_tag, f'/app/{script_name}'] + script_args
 
     logging.info(f"Running Docker container with command: {' '.join(cmd)}")
@@ -393,6 +409,7 @@ def process_script(script_path: str, args: argparse.Namespace, test_mode: bool =
                 privileged=args.privileged,
                 gpu=args.gpu,
                 script_args=['-h'],
+                cache_path=args.cache,
                 test_mode=test_mode
             )
             return run_status == 0
@@ -516,7 +533,8 @@ def main() -> None:
             env_vars=args.env,
             privileged=args.privileged,
             gpu=args.gpu,
-            script_args=args.script_args
+            script_args=args.script_args,
+            cache_path=args.cache
         )
         sys.exit(exit_code)
 
