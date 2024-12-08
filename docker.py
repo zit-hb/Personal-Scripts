@@ -47,7 +47,8 @@ import re
 import subprocess
 import sys
 import tempfile
-from typing import List, Optional, Tuple
+from typing import List, Optional
+from dataclasses import dataclass
 
 TEMPLATES = {
     'ubuntu22.04': {
@@ -87,6 +88,19 @@ ENTRYPOINT ["python3"]
 ''',
     },
 }
+
+
+@dataclass
+class ScriptHeader:
+    template_name: Optional[str]
+    install_commands: List[str]
+
+
+@dataclass
+class DockerfilePreparation:
+    dockerfile_path: str
+    docker_run_options: List[str]
+    context_dir: str
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -213,10 +227,9 @@ def setup_logging(verbose: bool, debug: bool) -> None:
     logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
 
-def parse_script_header(script_path: str) -> Tuple[Optional[str], List[str]]:
+def parse_script_header(script_path: str) -> ScriptHeader:
     """
     Parses the script header to extract the template name and install commands.
-    Returns a tuple of (template_name, install_commands_list).
     """
     template_name = None
     install_commands = []
@@ -255,7 +268,7 @@ def parse_script_header(script_path: str) -> Tuple[Optional[str], List[str]]:
                 logging.debug(f"No install command found in line: '{line_content}'")
     logging.info(f"Extracted template: {template_name}")
     logging.info(f"Extracted install commands: {install_commands}")
-    return template_name, install_commands
+    return ScriptHeader(template_name=template_name, install_commands=install_commands)
 
 
 def generate_dockerfile(template_name: str, install_commands: List[str], dockerfile_path: str) -> None:
@@ -282,13 +295,37 @@ def generate_dockerfile(template_name: str, install_commands: List[str], dockerf
     logging.info(f"Dockerfile generated at '{dockerfile_path}'")
 
 
+def run_build_command(cmd: List[str], verbose: bool, tty_mode: bool, test_mode: bool) -> int:
+    """
+    Runs the docker build command.
+    If verbose and tty_mode and not test_mode: run without capture (live output).
+    Otherwise: run with capture. If verbose, log the output; if not verbose, do not log.
+    """
+    if verbose and tty_mode and not test_mode:
+        # Live output (no capture)
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            logging.error(f"Failed to build Docker image. Exit code: {result.returncode}")
+        return result.returncode
+    else:
+        # Capture output
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if verbose:
+            logging.info(result.stdout)
+            logging.info(result.stderr)
+        if result.returncode != 0:
+            logging.error(f"Failed to build Docker image. Exit code: {result.returncode}")
+        return result.returncode
+
+
 def build_docker_image(
     context_dir: str,
     dockerfile_path: str,
     image_tag: str,
-    no_cache: bool = False,
-    test_mode: bool = False,
-    tty_mode: bool = False
+    no_cache: bool,
+    verbose: bool,
+    tty_mode: bool,
+    test_mode: bool
 ) -> int:
     """
     Builds the Docker image using the Dockerfile.
@@ -299,18 +336,24 @@ def build_docker_image(
     cmd.append(context_dir)
     logging.info(f"Building Docker image with tag '{image_tag}'")
 
+    return run_build_command(cmd, verbose, tty_mode, test_mode)
+
+
+def run_container_command(cmd: List[str], verbose: bool, tty_mode: bool, test_mode: bool) -> int:
+    """
+    Runs the docker run command.
+    If test_mode or not tty_mode: capture and if verbose log output, else no logging.
+    Otherwise (no test_mode and tty_mode): run without capture (live output).
+    """
     if test_mode or not tty_mode:
         result = subprocess.run(cmd, capture_output=True, text=True)
-        logging.info(result.stdout)
-        logging.info(result.stderr)
-        if not test_mode:
-            result.check_returncode()
+        if verbose:
+            logging.info(result.stdout)
+            logging.info(result.stderr)
         return result.returncode
     else:
+        # Live output
         result = subprocess.run(cmd)
-        if result.returncode != 0:
-            logging.error(f"Failed to build Docker image. Exit code: {result.returncode}")
-            sys.exit(1)
         return result.returncode
 
 
@@ -325,12 +368,12 @@ def run_docker_container(
     gpu: bool,
     script_args: List[str],
     cache_path: Optional[str],
-    test_mode: bool = False,
-    tty_mode: bool = False
+    verbose: bool,
+    tty_mode: bool,
+    test_mode: bool
 ) -> int:
     """
     Runs the Docker container with the specified image and options.
-    Returns the exit code of the container.
     """
     cmd = ['docker', 'run', '--rm']
     cmd += docker_run_options
@@ -341,6 +384,8 @@ def run_docker_container(
     if gpu:
         cmd += ['--gpus', 'all']
 
+    # If tty_mode and not test_mode, we will run with live output (no capture),
+    # so we add '-it' to docker run in that scenario
     if tty_mode and not test_mode:
         cmd += ['-it']
 
@@ -366,15 +411,7 @@ def run_docker_container(
 
     logging.info(f"Running Docker container with command: {' '.join(cmd)}")
 
-    if test_mode or not tty_mode:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if not test_mode:
-            print(result.stdout)
-            print(result.stderr)
-        return result.returncode
-    else:
-        result = subprocess.run(cmd)
-        return result.returncode
+    return run_container_command(cmd, verbose, tty_mode, test_mode)
 
 
 def normalize_script_name(script_path: str) -> str:
@@ -386,58 +423,71 @@ def normalize_script_name(script_path: str) -> str:
     return script_name
 
 
-def process_script(script_path: str, args: argparse.Namespace, tty_mode: bool = False, test_mode: bool = False) -> bool:
+def process_single_script(script_path: str, args: argparse.Namespace, tty_mode: bool, test_mode: bool) -> bool:
     """
     Processes a single script: parse header, generate Dockerfile, build image, run container.
     Returns True if succeeded, False otherwise.
     """
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            header_template_name, install_commands = parse_script_header(script_path)
-            if not header_template_name:
-                logging.info(f"Skipping script '{script_path}' as it does not specify a template.")
-                return False
-            template_name = args.template or header_template_name
-            if template_name not in TEMPLATES:
-                logging.error(f"Template '{template_name}' is not supported for script '{script_path}'.")
-                return False
-            dockerfile_path = os.path.join(tmpdir, 'Dockerfile')
-            generate_dockerfile(template_name, install_commands, dockerfile_path)
-            if args.output_dockerfile:
-                with open(dockerfile_path, 'r') as src, open(args.output_dockerfile, 'w') as dst:
-                    dst.write(src.read())
-                logging.info(f"Dockerfile saved to '{args.output_dockerfile}'")
-            image_tag = normalize_script_name(os.path.basename(script_path))
-            build_status = build_docker_image(
-                tmpdir,
-                dockerfile_path,
-                image_tag,
-                no_cache=args.no_cache,
-                test_mode=test_mode,
-                tty_mode=tty_mode
-            )
-            if build_status != 0:
-                return False
-            docker_run_options = TEMPLATES[template_name]['docker_run_options']
-
-            run_status = run_docker_container(
-                docker_run_options=docker_run_options,
-                image_tag=image_tag,
-                target_script_path=script_path,
-                volumes=args.volume,
-                data_path=args.data,
-                env_vars=args.env,
-                privileged=args.privileged,
-                gpu=args.gpu,
-                script_args=['-h'],
-                cache_path=args.cache,
-                test_mode=test_mode,
-                tty_mode=tty_mode
-            )
-            return run_status == 0
-    except Exception as e:
-        logging.error(f"Processing script '{script_path}' failed: {e}")
+    # Parse the script header
+    header = parse_script_header(script_path)
+    if not header.template_name:
+        logging.info(f"Skipping script '{script_path}' as it does not specify a template.")
         return False
+
+    # Determine template
+    template_name = args.template or header.template_name
+    if template_name not in TEMPLATES:
+        logging.error(f"Template '{template_name}' is not supported for script '{script_path}'.")
+        return False
+
+    # Create a temporary directory for Dockerfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        dockerfile_path = os.path.join(tmpdir, 'Dockerfile')
+        generate_dockerfile(template_name, header.install_commands, dockerfile_path)
+
+        if args.output_dockerfile:
+            with open(dockerfile_path, 'r') as src, open(args.output_dockerfile, 'w') as dst:
+                dst.write(src.read())
+            logging.info(f"Dockerfile saved to '{args.output_dockerfile}'")
+
+        image_tag = normalize_script_name(os.path.basename(script_path))
+
+        # Build the Docker image
+        build_status = build_docker_image(
+            context_dir=tmpdir,
+            dockerfile_path=dockerfile_path,
+            image_tag=image_tag,
+            no_cache=args.no_cache,
+            verbose=args.verbose,
+            tty_mode=tty_mode,
+            test_mode=test_mode
+        )
+        if build_status != 0:
+            return False
+
+        docker_run_options = TEMPLATES[template_name]['docker_run_options']
+
+        # Determine script_args for test mode
+        script_args = ['-h'] if test_mode else args.script_args
+
+        # Run the Docker container
+        run_status = run_docker_container(
+            docker_run_options=docker_run_options,
+            image_tag=image_tag,
+            target_script_path=script_path,
+            volumes=args.volume,
+            data_path=args.data,
+            env_vars=args.env,
+            privileged=args.privileged,
+            gpu=args.gpu,
+            script_args=script_args,
+            cache_path=args.cache,
+            verbose=args.verbose,
+            tty_mode=tty_mode,
+            test_mode=test_mode
+        )
+
+        return run_status == 0
 
 
 def test_scripts(args: argparse.Namespace) -> int:
@@ -462,13 +512,16 @@ def test_scripts(args: argparse.Namespace) -> int:
         logging.error(f"The test path '{test_path}' is neither a file nor a directory.")
         sys.exit(1)
 
+    # TTY mode disabled for tests
+    tty_mode = False
+
     for script_path in script_paths:
         logging.info(f"Processing script '{script_path}'")
-        template_name, _ = parse_script_header(script_path)
-        if not template_name:
+        header = parse_script_header(script_path)
+        if not header.template_name:
             logging.info(f"Skipping script '{script_path}' as it does not specify a template.")
             continue
-        success = process_script(script_path, args, tty_mode=False, test_mode=True)
+        success = process_single_script(script_path, args, tty_mode=tty_mode, test_mode=True)
         if success:
             successes.append(script_path)
         else:
@@ -486,10 +539,9 @@ def test_scripts(args: argparse.Namespace) -> int:
     return len(failures)
 
 
-def prepare_dockerfile(args, tmpdir) -> Tuple[str, List[str], str]:
+def prepare_dockerfile(args: argparse.Namespace, tmpdir: str) -> DockerfilePreparation:
     """
-    Prepares the Dockerfile and returns the path to the Dockerfile,
-    the docker run options, and the build context directory.
+    Prepares the Dockerfile and returns a DockerfilePreparation object.
     """
     if args.input_dockerfile:
         dockerfile_path = args.input_dockerfile
@@ -499,10 +551,14 @@ def prepare_dockerfile(args, tmpdir) -> Tuple[str, List[str], str]:
             logging.error(f"Input Dockerfile '{dockerfile_path}' does not exist.")
             sys.exit(1)
         docker_run_options = []
+        return DockerfilePreparation(
+            dockerfile_path=dockerfile_path,
+            docker_run_options=docker_run_options,
+            context_dir=context_dir
+        )
     else:
-        header_template_name, install_commands = parse_script_header(args.target_script)
-        # Determine which template to use
-        template_name = args.template or header_template_name
+        header = parse_script_header(args.target_script)
+        template_name = args.template or header.template_name
         if not template_name:
             logging.error("No template specified. Please specify a template using '--template' or in the script header.")
             sys.exit(1)
@@ -510,14 +566,18 @@ def prepare_dockerfile(args, tmpdir) -> Tuple[str, List[str], str]:
             logging.error(f"Template '{template_name}' is not supported.")
             sys.exit(1)
         dockerfile_path = os.path.join(tmpdir, 'Dockerfile')
-        generate_dockerfile(template_name, install_commands, dockerfile_path)
+        generate_dockerfile(template_name, header.install_commands, dockerfile_path)
         if args.output_dockerfile:
             with open(dockerfile_path, 'r') as src, open(args.output_dockerfile, 'w') as dst:
                 dst.write(src.read())
             logging.info(f"Dockerfile saved to '{args.output_dockerfile}'")
         context_dir = tmpdir
         docker_run_options = TEMPLATES[template_name]['docker_run_options']
-    return dockerfile_path, docker_run_options, context_dir
+        return DockerfilePreparation(
+            dockerfile_path=dockerfile_path,
+            docker_run_options=docker_run_options,
+            context_dir=context_dir
+        )
 
 
 def main() -> None:
@@ -541,17 +601,27 @@ def main() -> None:
             sys.exit(0)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        dockerfile_path, docker_run_options, context_dir = prepare_dockerfile(args, tmpdir)
+        prep = prepare_dockerfile(args, tmpdir)
         image_tag = normalize_script_name(os.path.basename(args.target_script))
-        build_docker_image(
-            context_dir,
-            dockerfile_path,
-            image_tag,
+        test_mode = False
+
+        # Build the Docker image
+        build_status = build_docker_image(
+            context_dir=prep.context_dir,
+            dockerfile_path=prep.dockerfile_path,
+            image_tag=image_tag,
             no_cache=args.no_cache,
-            tty_mode=tty_mode
+            verbose=args.verbose,
+            tty_mode=tty_mode,
+            test_mode=test_mode
         )
-        exit_code = run_docker_container(
-            docker_run_options=docker_run_options,
+
+        if build_status != 0:
+            sys.exit(build_status)
+
+        # Run the Docker container
+        run_status = run_docker_container(
+            docker_run_options=prep.docker_run_options,
             image_tag=image_tag,
             target_script_path=args.target_script,
             volumes=args.volume,
@@ -561,9 +631,11 @@ def main() -> None:
             gpu=args.gpu,
             script_args=args.script_args,
             cache_path=args.cache,
-            tty_mode=tty_mode
+            verbose=args.verbose,
+            tty_mode=tty_mode,
+            test_mode=test_mode
         )
-        sys.exit(exit_code)
+        sys.exit(run_status)
 
 
 if __name__ == '__main__':
