@@ -31,6 +31,7 @@
 #   -vv, --debug                      Enable debug logging (DEBUG level).
 #   -T, --test PATH                   File or directory to test scripts.
 #   -c, --cache PATH                  Path to a directory to use as a cache (default: ~/.cache/buchwald).
+#   -Y, --no-tty                      Disable TTY mode even if stdout is a terminal.
 #
 # Requirements:
 # - Docker must be installed and running on the host system.
@@ -182,6 +183,11 @@ def parse_arguments() -> argparse.Namespace:
         help='Path to a directory to use as a cache.'
     )
     parser.add_argument(
+        '-Y', '--no-tty',
+        action='store_true',
+        help='Disable TTY mode even if stdout is a terminal.'
+    )
+    parser.add_argument(
         'script_args',
         nargs=argparse.REMAINDER,
         help='Arguments to pass to the target script inside the Docker container.'
@@ -281,7 +287,8 @@ def build_docker_image(
     dockerfile_path: str,
     image_tag: str,
     no_cache: bool = False,
-    test_mode: bool = False
+    test_mode: bool = False,
+    tty_mode: bool = False
 ) -> int:
     """
     Builds the Docker image using the Dockerfile.
@@ -291,16 +298,20 @@ def build_docker_image(
         cmd.append('--no-cache')
     cmd.append(context_dir)
     logging.info(f"Building Docker image with tag '{image_tag}'")
-    try:
+
+    if test_mode or not tty_mode:
         result = subprocess.run(cmd, capture_output=True, text=True)
         logging.info(result.stdout)
         logging.info(result.stderr)
         if not test_mode:
             result.check_returncode()
         return result.returncode
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to build Docker image. Exit code: {e.returncode}")
-        sys.exit(1)
+    else:
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            logging.error(f"Failed to build Docker image. Exit code: {result.returncode}")
+            sys.exit(1)
+        return result.returncode
 
 
 def run_docker_container(
@@ -314,7 +325,8 @@ def run_docker_container(
     gpu: bool,
     script_args: List[str],
     cache_path: Optional[str],
-    test_mode: bool = False
+    test_mode: bool = False,
+    tty_mode: bool = False
 ) -> int:
     """
     Runs the Docker container with the specified image and options.
@@ -328,6 +340,9 @@ def run_docker_container(
 
     if gpu:
         cmd += ['--gpus', 'all']
+
+    if tty_mode and not test_mode:
+        cmd += ['-it']
 
     if env_vars:
         for env_var in env_vars:
@@ -350,11 +365,16 @@ def run_docker_container(
     cmd += [image_tag, f'/app/{script_name}'] + script_args
 
     logging.info(f"Running Docker container with command: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if not test_mode:
-        print(result.stdout)
-        print(result.stderr)
-    return result.returncode
+
+    if test_mode or not tty_mode:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if not test_mode:
+            print(result.stdout)
+            print(result.stderr)
+        return result.returncode
+    else:
+        result = subprocess.run(cmd)
+        return result.returncode
 
 
 def normalize_script_name(script_path: str) -> str:
@@ -366,7 +386,7 @@ def normalize_script_name(script_path: str) -> str:
     return script_name
 
 
-def process_script(script_path: str, args: argparse.Namespace, test_mode: bool = False) -> bool:
+def process_script(script_path: str, args: argparse.Namespace, tty_mode: bool = False, test_mode: bool = False) -> bool:
     """
     Processes a single script: parse header, generate Dockerfile, build image, run container.
     Returns True if succeeded, False otherwise.
@@ -393,7 +413,8 @@ def process_script(script_path: str, args: argparse.Namespace, test_mode: bool =
                 dockerfile_path,
                 image_tag,
                 no_cache=args.no_cache,
-                test_mode=test_mode
+                test_mode=test_mode,
+                tty_mode=tty_mode
             )
             if build_status != 0:
                 return False
@@ -410,7 +431,8 @@ def process_script(script_path: str, args: argparse.Namespace, test_mode: bool =
                 gpu=args.gpu,
                 script_args=['-h'],
                 cache_path=args.cache,
-                test_mode=test_mode
+                test_mode=test_mode,
+                tty_mode=tty_mode
             )
             return run_status == 0
     except Exception as e:
@@ -446,7 +468,7 @@ def test_scripts(args: argparse.Namespace) -> int:
         if not template_name:
             logging.info(f"Skipping script '{script_path}' as it does not specify a template.")
             continue
-        success = process_script(script_path, args, test_mode=True)
+        success = process_script(script_path, args, tty_mode=False, test_mode=True)
         if success:
             successes.append(script_path)
         else:
@@ -505,6 +527,9 @@ def main() -> None:
     args = parse_arguments()
     setup_logging(args.verbose, args.debug)
 
+    # Determine TTY mode: enabled if not no-tty and stdout is a TTY
+    tty_mode = (not args.no_tty) and sys.stdout.isatty()
+
     if not args.target_script and not args.test:
         logging.error("No target script specified. Please provide a script to execute.")
         sys.exit(2)
@@ -522,7 +547,8 @@ def main() -> None:
             context_dir,
             dockerfile_path,
             image_tag,
-            no_cache=args.no_cache
+            no_cache=args.no_cache,
+            tty_mode=tty_mode
         )
         exit_code = run_docker_container(
             docker_run_options=docker_run_options,
@@ -534,7 +560,8 @@ def main() -> None:
             privileged=args.privileged,
             gpu=args.gpu,
             script_args=args.script_args,
-            cache_path=args.cache
+            cache_path=args.cache,
+            tty_mode=tty_mode
         )
         sys.exit(exit_code)
 
