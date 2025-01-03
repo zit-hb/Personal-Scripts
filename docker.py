@@ -32,6 +32,7 @@
 #   -T, --test PATH                   File or directory to test scripts.
 #   -c, --cache PATH                  Path to a directory to use as a cache (default: ~/.cache/buchwald).
 #   -Y, --no-tty                      Disable TTY mode even if stdout is a terminal.
+#   -p, --port PORT_MAPPING           Forward ports from the Docker container (e.g., 8080:8080). Can be specified multiple times.
 #
 # Requirements:
 # - Docker must be installed and running on the host system.
@@ -202,6 +203,12 @@ def parse_arguments() -> argparse.Namespace:
         help='Disable TTY mode even if stdout is a terminal.'
     )
     parser.add_argument(
+        '-p',
+        '--port',
+        action='append',
+        help='Forward ports from the Docker container (e.g., 8080:8080). Can be specified multiple times.'
+    )
+    parser.add_argument(
         'script_args',
         nargs=argparse.REMAINDER,
         help='Arguments to pass to the target script inside the Docker container.'
@@ -370,7 +377,8 @@ def run_docker_container(
     cache_path: Optional[str],
     verbose: bool,
     tty_mode: bool,
-    test_mode: bool
+    test_mode: bool,
+    ports: Optional[List[str]] = None
 ) -> int:
     """
     Runs the Docker container with the specified image and options.
@@ -392,6 +400,11 @@ def run_docker_container(
     if env_vars:
         for env_var in env_vars:
             cmd += ['-e', env_var]
+
+    # Add port mappings
+    if ports:
+        for port_mapping in ports:
+            cmd += ['-p', port_mapping]
 
     script_name = os.path.basename(target_script_path)
     cmd += ['-v', f'{os.path.abspath(target_script_path)}:/app/{script_name}:ro']
@@ -484,7 +497,8 @@ def process_single_script(script_path: str, args: argparse.Namespace, tty_mode: 
             cache_path=args.cache,
             verbose=args.verbose,
             tty_mode=tty_mode,
-            test_mode=test_mode
+            test_mode=test_mode,
+            ports=args.port
         )
 
         return run_status == 0
@@ -633,7 +647,8 @@ def main() -> None:
             cache_path=args.cache,
             verbose=args.verbose,
             tty_mode=tty_mode,
-            test_mode=test_mode
+            test_mode=test_mode,
+            ports=args.port
         )
         sys.exit(run_status)
 
