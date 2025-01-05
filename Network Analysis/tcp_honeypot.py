@@ -12,18 +12,22 @@
 #   ./tcp_honeypot.py [options]
 #
 # Options:
-#   -p, --port PORT               TCP port or port range to bind. Can be specified multiple times (default: 8080).
+#   -p, --port PORT               TCP port or port range to bind.
+#                                 Can be specified multiple times (default: 8080).
 #   -r, --reverse-dns             Attempt reverse DNS lookup (passive).
 #   -e, --email EMAIL             Enable email notification to this recipient.
 #   -H, --smtp-server SERVER      SMTP server hostname or IP (default: localhost).
 #   -O, --smtp-port PORT          SMTP server port (default: 25).
 #   -u, --smtp-user USERNAME      SMTP username (if auth is required).
 #   -a, --smtp-password PASSWORD  SMTP password (if auth is required).
-#   -f, --smtp-sender ADDRESS     Sender email address (default: honeypot@example.com).
+#   -f, --smtp-sender ADDRESS     Sender email address (default: hendrik@example.com).
 #   -t, --smtp-tls                Use STARTTLS after connecting.
 #   -x, --smtp-ssl                Use SSL/TLS for the entire SMTP connection.
 #   -b, --webhook URL             Enable webhook notification to the given URL.
 #   -o, --stdout                  Print a notification to stdout for each connection.
+#   -L, --flood-limit INT         Number of notifications per IP within the flood
+#                                 interval. 0 = unlimited (default: 10).
+#   -I, --flood-interval INT      Flood protection interval in seconds (default: 300).
 #   -v, --verbose                 Enable verbose logging (INFO level).
 #   -vv, --debug                  Enable debug logging (DEBUG level).
 #   -h, --help                    Show this help message and exit.
@@ -198,18 +202,38 @@ class Honeypot:
     """
     A honeypot that listens on specified TCP ports. Whenever a client connects,
     the connection is immediately closed, and a ConnectionInfo object is
-    passed to all notifiers.
+    passed to all notifiers. Flood protection ensures that only a certain number
+    of notifications per IP are sent within a configured time interval, while
+    still logging all connections.
     """
 
     def __init__(
         self,
         ports: List[int],
         notifiers: List[Notifier],
-        perform_rdns: bool = False
+        perform_rdns: bool = False,
+        flood_limit: int = 10,
+        flood_interval: int = 300
     ) -> None:
+        """
+        :param ports: List of TCP ports to listen on.
+        :param notifiers: List of Notifier instances for sending alerts.
+        :param perform_rdns: Whether to attempt a reverse DNS lookup.
+        :param flood_limit: Max notifications per IP within the flood_interval. 0 = no limit.
+        :param flood_interval: Flood protection interval in seconds.
+        """
         self.ports = ports
         self.notifiers = notifiers
         self.perform_rdns = perform_rdns
+        self.flood_limit = flood_limit
+        self.flood_interval = flood_interval
+
+        # Keep track of how many notifications we've sent per IP
+        # within the current interval, plus the next reset time.
+        # Example structure:
+        #   self._ip_notify_count[ip] = {"count": X, "reset_time": T}
+        self._ip_notify_count: Dict[str, Dict[str, float]] = {}
+
         self._threads: List[threading.Thread] = []
         self._stop_flag = False
 
@@ -268,6 +292,7 @@ class Honeypot:
             if self.perform_rdns:
                 reverse_dns = self._do_reverse_dns(ip)
 
+            # Always log every incoming connection.
             logging.info(f"Incoming connection from {ip}:{src_port} on port {port}")
 
             # Build connection info dataclass
@@ -282,9 +307,15 @@ class Honeypot:
             # Immediately close the connection
             conn.close()
 
-            # Notify all notifiers
-            for notifier in self.notifiers:
-                notifier.notify(conn_info)
+            # Check flood protection before notifying
+            if not self._flood_exceeded(ip):
+                # Flood limit not exceeded; send all configured notifications
+                for notifier in self.notifiers:
+                    notifier.notify(conn_info)
+            else:
+                logging.info(
+                    f"Flood limit reached for IP {ip}. No notifications sent for this connection."
+                )
 
         s.close()
 
@@ -295,6 +326,35 @@ class Honeypot:
             return host
         except Exception:
             return None
+
+    def _flood_exceeded(self, ip: str) -> bool:
+        """
+        Check if the given IP has exceeded the flood limit.
+        Reset the counter if the interval has passed.
+        If flood_limit == 0, then no limit applies.
+        """
+        if self.flood_limit == 0:
+            # No flood protection
+            return False
+
+        now = time.time()
+        data = self._ip_notify_count.setdefault(
+            ip,
+            {"count": 0, "reset_time": now + self.flood_interval}
+        )
+
+        # If current time is beyond the reset_time, reset the count and reset_time.
+        if now > data["reset_time"]:
+            data["count"] = 0
+            data["reset_time"] = now + self.flood_interval
+
+        # Check if count is at or above limit
+        if data["count"] >= self.flood_limit:
+            return True
+
+        # If below the limit, increment the count and allow notifications
+        data["count"] += 1
+        return False
 
 
 def parse_port_or_range(port_str: str) -> List[int]:
@@ -336,7 +396,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '-r', '--reverse-dns',
         action='store_true',
-        help='Attempt reverse DNS lookup for each connection (passive).'
+        help='Attempt reverse DNS lookup for each connection.'
     )
 
     # Email
@@ -349,7 +409,7 @@ def parse_arguments() -> argparse.Namespace:
         '-H', '--smtp-server',
         type=str,
         default='localhost',
-        help='SMTP server hostname or IP (default: localhost).'
+        help='SMTP server hostname or IP.'
     )
     parser.add_argument(
         '-O', '--smtp-port',
@@ -372,8 +432,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '-f', '--smtp-sender',
         type=str,
-        default='honeypot@example.com',
-        help='Email sender address (default: honeypot@example.com).'
+        default='hendrik@example.com',
+        help='Email sender address.'
     )
     parser.add_argument(
         '-t', '--smtp-tls',
@@ -398,6 +458,22 @@ def parse_arguments() -> argparse.Namespace:
         '-o', '--stdout',
         action='store_true',
         help='Print a message to stdout for every connection.'
+    )
+
+    # Flood protection
+    parser.add_argument(
+        '-L', '--flood-limit',
+        type=int,
+        default=10,
+        help=(
+            "Number of notifications per IP within the flood interval."
+        )
+    )
+    parser.add_argument(
+        '-I', '--flood-interval',
+        type=int,
+        default=300,
+        help="Flood protection interval in seconds."
     )
 
     # Logging
@@ -441,7 +517,7 @@ def resolve_smtp_config(args: argparse.Namespace) -> Dict[str, any]:
         "smtp_port": args.smtp_port or int(os.getenv("HB_SMTP_PORT", "25")),
         "smtp_user": args.smtp_user or os.getenv("HB_SMTP_USER"),
         "smtp_password": args.smtp_password or os.getenv("HB_SMTP_PASSWORD"),
-        "smtp_sender": args.smtp_sender or os.getenv("HB_SMTP_SENDER", "honeypot@example.com"),
+        "smtp_sender": args.smtp_sender or os.getenv("HB_SMTP_SENDER", "hendrik@example.com"),
         "use_tls": args.smtp_tls or (os.getenv("HB_SMTP_TLS", "false").lower() == "true"),
         "use_ssl": args.smtp_ssl or (os.getenv("HB_SMTP_SSL", "false").lower() == "true"),
     }
@@ -510,7 +586,9 @@ def main():
     honeypot = Honeypot(
         ports=unique_ports,
         notifiers=notifiers,
-        perform_rdns=args.reverse_dns
+        perform_rdns=args.reverse_dns,
+        flood_limit=args.flood_limit,
+        flood_interval=args.flood_interval
     )
     honeypot.start()
 
