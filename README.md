@@ -21,11 +21,11 @@ Simply mount your data, specify needed options, and execute.
   ```
   Mounts `/path/to/audio` to `/data` in the container.
 
-- **Enable GPU Support (`-G`):**
+- **Open Ports (`-p`):**
   ```bash
-  ./docker.py -G 'Image Manipulation/upscale_image.py'
+  ./docker.py -p 80:80 -p 8080:8080 'Network Analysis/tcp_honeypot.py' -p 80 -p 8080 -o
   ```
-  Enables GPU access for GPU-accelerated tasks.
+  Forwards ports `80` and `8080` to the host machine.
 
 - **Set Environment Variables (`-e`):**
   ```bash
@@ -38,3 +38,15 @@ Simply mount your data, specify needed options, and execute.
   ./docker.py -N 'System Analysis/detect_hardware.py'
   ```
   Forces Docker to rebuild the image without using cache.
+
+- **Enable Privileged Mode (`-P`):**
+  ```bash
+  ./docker.py -P 'System Analysis/detect_hardware.py'
+  ```
+  Enables privileged mode for tasks that require it.
+
+- **Enable GPU Support (`-G`):**
+  ```bash
+  ./docker.py -G 'Image Manipulation/upscale_image.py'
+  ```
+  Enables GPU access for GPU-accelerated tasks.
