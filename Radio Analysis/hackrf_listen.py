@@ -4,71 +4,42 @@
 # Script: hackrf_listen.py
 #
 # Description:
-# This script uses a HackRF device to tune to a specified
-# frequency (or optionally scan for an active frequency),
-# automatically determine the best demodulation mode if
-# not specified (NFM, AM, USB, LSB, or WFM), and record
-# the resulting audio to an OGG Vorbis file.
+# A HackRF script to tune to a specified frequency
+# and demodulate it in one of several modes:
 #
-# Advanced scanning features allow the script to search
-# over larger frequency ranges with smaller steps. It can
-# attempt multiple demodulation modes at each candidate
-# frequency and evaluate the resulting audio for sufficient
-# signal quality before deciding on the best frequency
-# and mode.
+#   - AM  (Amplitude Modulation, typical ~520 kHz - 1710 kHz)
+#   - FM  (Wide FM, typical broadcast band ~87.5 MHz - 108 MHz)
+#   - NFM (Narrowband FM)
+#   - AIR (Aircraft VHF AM, typically 118 - 136 MHz)
+#   - HF  (Shortwave / HF AM Broadcast, ~2 MHz - 26 MHz commonly)
+#   - CB  (Citizen's Band, ~27 MHz, AM)
+#
+# Depending on the selected mode, the script sets
+# appropriate defaults and DSP routines to demodulate
+# the signal, writing the resulting audio to an OGG Vorbis file.
 #
 # Usage:
-#   ./hackrf_listen.py --freq FREQ_HZ [options]
+#   ./hackrf_listen.py [options]
 #
-# Options:
-#   -f, --freq FREQ_HZ           Tuning frequency in Hz (e.g. 100e6).
-#   -m, --mode {nfm,am,usb,lsb,wfm}
-#                                Demodulation mode. If not specified, the script
-#                                attempts to auto-detect based on frequency.
-#   -s, --sample-rate SR         HackRF sample rate in Hz (default: 2e6).
-#   -b, --bandwidth BW           Baseband filter bandwidth in Hz (default: SR).
-#   -a, --audio-rate AR          Output audio sample rate in Hz (default: 48000).
-#   -d, --duration SEC           Duration in seconds (0 => indefinite).
-#   -o, --output FILE            Output .ogg file name (default: recording.ogg).
-#   -I, --device-index IDX       HackRF device index (default: 0).
-#   -L, --lna-gain DB            LNA gain in dB [0..40 in steps of 8] (default: 16).
-#   -G, --vga-gain DB            VGA gain in dB [0..62 in steps of 2] (default: 20).
-#   -P, --amp                    Enable HackRF internal amplifier (default: off).
-#   -T, --auto-tune              Advanced tune around --freq ± --auto-tune-range in
-#                                increments of --auto-tune-step, testing multiple modes.
-#   -S, --auto-scan              Perform an advanced FFT-based scan over [--freq-start..--freq-end].
-#                                If --freq is given but no start/end, uses freq ± 0.2 MHz by default.
-#   -X, --freq-start FREQ_HZ     Start frequency for auto-scan (Hz).
-#   -Y, --freq-end FREQ_HZ       End frequency for auto-scan (Hz).
-#   -H, --scan-threshold DB      Threshold in dB above noise floor for auto-scan (default=5.0).
-#   -Z, --scan-fft-size N        FFT size for auto-scan (default=1024).
-#   -W, --scan-dwell SEC         Dwell time in seconds for each step in auto-scan (default=0.05).
-#   -R, --auto-tune-range HZ     Range ± around --freq for auto-tune (default=100000).
-#   -E, --auto-tune-step HZ      Step size in Hz for auto-tune (default=10000).
-#   -U, --adv-scan-steps HZ      Frequency step size in advanced scanning (default=50000).
-#   -Q, --adv-scan-quality FLOAT Minimum audio "quality" threshold (default=0.01).
-#   -N, --adv-scan-min-snr FLOAT Minimum SNR (dB) to consider a signal valid (default=5.0).
-#   -M, --scan-modes {generic,am,fm}
-#                                Which subset of modes to try during auto-scan/auto-tune.
-#                                'generic' => [nfm, am, usb, lsb, wfm]
-#                                'am' => [am]
-#                                'fm' => [wfm, nfm]
-#                                (default: generic)
-#   -v, --verbose                Increase verbosity (-v => INFO, -vv => DEBUG).
-#
-# Examples:
-#   1) Wide FM broadcast at ~100 MHz:
-#      ./hackrf_listen.py --freq 100e6 --mode wfm --duration 10 --output fm_test.ogg
-#
-#   2) 2m Amateur Band NFM (145.0 MHz), indefinite recording:
-#      ./hackrf_listen.py --freq 145e6 --mode nfm --output my_recording.ogg
-#
-#   3) HF SSB (7.2 MHz, LSB), narrower sample rate for voice:
-#      ./hackrf_listen.py --freq 7.2e6 --mode lsb --sample-rate 200000 \
-#                         --output 40m_lsb.ogg
-#
-#   4) Automatic advanced scan to find best signal near 100 MHz:
-#      ./hackrf_listen.py --freq 100e6 --auto-scan
+# Options (common to all modes):
+#   -m, --mode {am,fm,nfm,air,hf,cb}     Select demodulation mode.
+#   -f, --freq FREQ_HZ                   Frequency in Hz (e.g. 1e6 for 1 MHz).
+#   -s, --sample-rate SR                 HackRF sample rate in Hz (mode-specific default if not provided).
+#   -b, --bandwidth BW                   Baseband filter bandwidth in Hz (mode-specific default if not provided).
+#   -a, --audio-rate AR                  Output audio sample rate in Hz (default: 48000).
+#   -d, --duration SEC                   Duration in seconds (0 => indefinite).
+#   -o, --output FILE                    Output .ogg file name (default: recording.ogg).
+#   -I, --device-index IDX               HackRF device index (default: 0).
+#   -L, --lna-gain DB                    LNA gain in dB [0..40 in steps of 8] (default: 16).
+#   -G, --vga-gain DB                    VGA gain in dB [0..62 in steps of 2] (default: 20).
+#   -P, --amp                            Enable HackRF internal amplifier (default: off).
+#   -F, --auto-scan                      Attempt to automatically find the "best" frequency for the chosen mode.
+#   -S, --scan-start FREQ_HZ             Start frequency (Hz) for scanning (default depends on mode).
+#   -T, --scan-stop FREQ_HZ              Stop frequency (Hz) for scanning (default depends on mode).
+#   -p, --scan-step FREQ_HZ              Step in Hz for scanning (default depends on mode).
+#   -W, --fm-deviation                   Deviation in Hz for wide-FM demod (default: 75000).
+#   -N, --nfm-deviation                  Deviation in Hz for narrow-FM demod (default: 5000).
+#   -v, --verbose                        Increase verbosity (-v => INFO, -vv => DEBUG).
 #
 # IMPORTANT:
 #   - This script is for demonstration and educational use only.
@@ -79,7 +50,7 @@
 #
 # Requirements:
 #   - libhackrf (install via: apt-get install -y libhackrf0 libusb-1.0-0-dev)
-#   - numpy (install via: pip install numpy==2.2.1)
+#   - numpy (install via: pip install numpy==2.2.2)
 #   - scipy (install via: pip install scipy==1.15.1)
 #   - soundfile (install via: pip install soundfile==0.13.0)
 #   - libsndfile1 (install via: apt-get install -y libsndfile1)
@@ -91,24 +62,20 @@
 import argparse
 import logging
 import time
-import sys
+import math
 import numpy as np
 import scipy.signal
 import soundfile as sf
 import ctypes
 import atexit
-import math
-from typing import Optional, Tuple, Generator, Any, Dict, List
-from math import gcd
+import threading
+from typing import Dict, Any, Optional
 
-
-# =========================================================================
-# HackRF ctypes interface
-# =========================================================================
 _libhackrf = ctypes.CDLL('libhackrf.so.0')
 
 HACKRF_SUCCESS = 0
 _p_hackrf_device = ctypes.c_void_p
+
 
 class _hackrf_transfer(ctypes.Structure):
     _fields_ = [
@@ -119,6 +86,7 @@ class _hackrf_transfer(ctypes.Structure):
         ("rx_ctx", ctypes.c_void_p),
         ("tx_ctx", ctypes.c_void_p),
     ]
+
 
 _transfer_callback = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.POINTER(_hackrf_transfer))
 
@@ -168,7 +136,7 @@ _libhackrf.hackrf_stop_rx.argtypes = [_p_hackrf_device]
 _libhackrf.hackrf_is_streaming.restype = ctypes.c_int
 _libhackrf.hackrf_is_streaming.argtypes = [_p_hackrf_device]
 
-# Initialize HackRF
+
 _init_result = _libhackrf.hackrf_init()
 if _init_result != HACKRF_SUCCESS:
     raise RuntimeError("Error initializing HackRF (libhackrf).")
@@ -176,7 +144,7 @@ if _init_result != HACKRF_SUCCESS:
 
 def _finalize_hackrf() -> None:
     """
-    Finalize HackRF upon script exit by calling hackrf_exit().
+    Finalizes the HackRF library on program exit.
     """
     _libhackrf.hackrf_exit()
 
@@ -184,21 +152,52 @@ def _finalize_hackrf() -> None:
 atexit.register(_finalize_hackrf)
 
 
-# =========================================================================
-# Utility: Closest Valid HackRF Filter Bandwidth
-# =========================================================================
-def get_valid_hackrf_bandwidth(desired_bw: float) -> int:
+def validate_frequency(freq: float) -> None:
     """
-    Map a desired baseband filter bandwidth to the closest valid HackRF filter.
-    Official valid values (Hz) from HackRF docs:
-    [1750000, 2500000, 5000000, 5500000, 6000000, 7500000,
-     10000000, 15000000, 20000000, 24000000, 28000000]
+    Warns if the frequency is outside the typical HackRF range (~1 MHz..6 GHz).
+    """
+    if freq < 1e6:
+        logging.warning(
+            f"HackRF typically cannot tune below 1 MHz. "
+            f"You requested {freq/1e6:.3f} MHz. Proceeding, but you may need an upconverter or a modified HackRF."
+        )
+    elif freq > 6e9:
+        logging.warning(
+            f"HackRF typically cannot tune above 6 GHz. "
+            f"You requested {freq/1e6:.3f} MHz. Proceeding, but this may not work."
+        )
 
-    If out of range, clamp to nearest.
+
+def validate_sample_rate(sample_rate: float) -> None:
+    """
+    Warns if the provided sample rate is outside the typical HackRF range (~2 MHz..20 MHz).
+    """
+    if sample_rate < 2e6 or sample_rate > 20e6:
+        logging.warning(
+            f"Sample rate {sample_rate} Hz is outside the typical HackRF range (2 MHz..20 MHz). "
+            f"Proceeding, but it may not work optimally."
+        )
+
+
+def get_valid_bandwidth_for_am(desired_bw: float) -> int:
+    """
+    Returns a valid HackRF baseband filter bandwidth for AM-like modes.
+    """
+    valid_bw = [150000, 200000, 300000, 500000, 1500000, 2400000, 2800000]
+    if desired_bw <= valid_bw[0]:
+        return valid_bw[0]
+    if desired_bw >= valid_bw[-1]:
+        return valid_bw[-1]
+    return int(min(valid_bw, key=lambda x: abs(x - desired_bw)))
+
+
+def get_valid_bandwidth_for_fm(desired_bw: float) -> int:
+    """
+    Returns a valid HackRF baseband filter bandwidth for wide FM-like modes.
     """
     valid_bw = [
-        1750000, 2500000, 5000000, 5500000, 6000000, 7500000,
-        10000000, 15000000, 20000000, 24000000, 28000000
+        1750000, 2000000, 2500000, 5000000, 5500000, 6000000,
+        7500000, 10000000, 15000000, 20000000, 24000000, 28000000
     ]
     if desired_bw <= valid_bw[0]:
         return valid_bw[0]
@@ -207,32 +206,57 @@ def get_valid_hackrf_bandwidth(desired_bw: float) -> int:
     return int(min(valid_bw, key=lambda x: abs(x - desired_bw)))
 
 
-# =========================================================================
-# Clamping Gains to Valid HackRF Steps
-# =========================================================================
+def get_valid_bandwidth_for_nfm(desired_bw: float) -> int:
+    """
+    Returns a valid HackRF baseband filter bandwidth for narrow FM-like modes.
+    """
+    valid_bw = [150000, 200000, 300000, 500000, 1500000, 2400000, 2800000]
+    if desired_bw <= valid_bw[0]:
+        return valid_bw[0]
+    if desired_bw >= valid_bw[-1]:
+        return valid_bw[-1]
+    return int(min(valid_bw, key=lambda x: abs(x - desired_bw)))
+
+
+def get_valid_bandwidth_for_air(desired_bw: float) -> int:
+    """
+    Returns a valid HackRF baseband filter bandwidth for aircraft AM-like modes.
+    """
+    valid_bw = [150000, 200000, 300000, 500000]
+    if desired_bw <= valid_bw[0]:
+        return valid_bw[0]
+    if desired_bw >= valid_bw[-1]:
+        return valid_bw[-1]
+    return int(min(valid_bw, key=lambda x: abs(x - desired_bw)))
+
+
 def clamp_lna_gain(gain: int) -> int:
     """
-    Clamp LNA gain to valid steps: 0..40 in steps of 8.
+    Clamps the LNA gain to valid HackRF steps (0, 8, 16, 24, 32, 40).
     """
     valid_lna = [0, 8, 16, 24, 32, 40]
-    return min(valid_lna, key=lambda x: abs(x - gain))
+    clamped = min(valid_lna, key=lambda x: abs(x - gain))
+    if clamped != gain:
+        logging.warning(f"Requested LNA gain {gain} dB is invalid for HackRF; using {clamped} dB instead.")
+    return clamped
 
 
 def clamp_vga_gain(gain: int) -> int:
     """
-    Clamp VGA gain to valid steps: 0..62 in steps of 2.
+    Clamps the VGA gain to valid HackRF steps (0..62 in steps of 2).
     """
     valid_vga = list(range(0, 63, 2))
-    return min(valid_vga, key=lambda x: abs(x - gain))
+    clamped = min(valid_vga, key=lambda x: abs(x - gain))
+    if clamped != gain:
+        logging.warning(f"Requested VGA gain {gain} dB is invalid for HackRF; using {clamped} dB instead.")
+    return clamped
 
 
-# =========================================================================
-# HackRF Device wrapper
-# =========================================================================
 class HackRFDevice:
     """
-    Minimal HackRF device wrapper for receiving complex samples via ctypes.
+    Represents a HackRF device, handling opening, configuration, and sample streaming.
     """
+
     def __init__(self, device_index: int = 0) -> None:
         devlist_handle = _libhackrf.hackrf_device_list()
         if not devlist_handle:
@@ -247,14 +271,23 @@ class HackRFDevice:
                 f"Could not open HackRF device idx={device_index}, code={result}."
             )
 
+        # Tracking streaming state
         self._streaming = False
-        self._rx_callback_function = _transfer_callback(self._rx_callback)
+
+        # Lock/condition for thread-safe buffer access
         self._rx_buffer = bytearray()
-        self._target_samples = 0
+        self._rx_buffer_lock = threading.Lock()
+        self._rx_buffer_cond = threading.Condition(self._rx_buffer_lock)
+
+        # HackRF callback must remain alive
+        self._rx_callback_function = _transfer_callback(self._rx_callback)
+
+        # Used to limit number of bytes for read_samples() if specified
+        self._target_bytes = 0
 
     def close(self) -> None:
         """
-        Close the HackRF device and stop any active streaming.
+        Closes the HackRF device if open, stopping any active streams first.
         """
         if self._dev:
             if self._streaming:
@@ -265,24 +298,39 @@ class HackRFDevice:
 
     def __del__(self) -> None:
         """
-        Destructor: ensure device is closed.
+        Destructor ensures the device is closed.
         """
         self.close()
 
     def set_sample_rate(self, sr_hz: float) -> None:
         """
-        Set the HackRF device sample rate.
+        Sets the HackRF device sample rate in Hz.
         """
         sr = ctypes.c_double(sr_hz)
         r = _libhackrf.hackrf_set_sample_rate(self._dev, sr)
         if r != HACKRF_SUCCESS:
             raise RuntimeError(f"Error setting sample rate to {sr_hz} Hz, code={r}")
 
-    def set_baseband_filter_bandwidth(self, bw_hz: float) -> None:
+    def set_baseband_filter_bandwidth(self, bw_hz: float, mode: str) -> None:
         """
-        Set the HackRF baseband filter bandwidth, clamped to the nearest valid value.
+        Selects a valid HackRF filter bandwidth for the given mode, then sets it on the device.
         """
-        valid_bw = get_valid_hackrf_bandwidth(bw_hz)
+        if mode in ['am', 'hf', 'cb']:
+            valid_bw = get_valid_bandwidth_for_am(bw_hz)
+        elif mode == 'fm':
+            valid_bw = get_valid_bandwidth_for_fm(bw_hz)
+        elif mode == 'nfm':
+            valid_bw = get_valid_bandwidth_for_nfm(bw_hz)
+        elif mode == 'air':
+            valid_bw = get_valid_bandwidth_for_air(bw_hz)
+        else:
+            raise RuntimeError(f"Unknown mode for bandwidth selection: {mode}")
+
+        if abs(valid_bw - bw_hz) > 1:
+            logging.warning(
+                f"Requested bandwidth {bw_hz} Hz adjusted to {valid_bw} Hz for mode '{mode}'."
+            )
+
         r = _libhackrf.hackrf_set_baseband_filter_bandwidth(
             self._dev, ctypes.c_uint32(valid_bw)
         )
@@ -291,7 +339,7 @@ class HackRFDevice:
 
     def set_freq(self, freq_hz: float) -> None:
         """
-        Set the HackRF tuning frequency in Hz.
+        Sets the HackRF center frequency in Hz.
         """
         r = _libhackrf.hackrf_set_freq(self._dev, ctypes.c_uint64(int(freq_hz)))
         if r != HACKRF_SUCCESS:
@@ -299,7 +347,7 @@ class HackRFDevice:
 
     def set_amp_enable(self, enable: bool) -> None:
         """
-        Enable or disable the HackRF internal amplifier.
+        Enables (True) or disables (False) the HackRF internal amplifier.
         """
         val = 1 if enable else 0
         r = _libhackrf.hackrf_set_amp_enable(self._dev, ctypes.c_uint8(val))
@@ -308,7 +356,7 @@ class HackRFDevice:
 
     def set_lna_gain(self, gain: int) -> None:
         """
-        Set the LNA gain in dB, clamped to valid steps.
+        Sets the LNA gain in dB, clamping to valid HackRF steps.
         """
         gain_clamped = clamp_lna_gain(gain)
         r = _libhackrf.hackrf_set_lna_gain(self._dev, ctypes.c_uint32(gain_clamped))
@@ -317,7 +365,7 @@ class HackRFDevice:
 
     def set_vga_gain(self, gain: int) -> None:
         """
-        Set the VGA gain in dB, clamped to valid steps.
+        Sets the VGA gain in dB, clamping to valid HackRF steps.
         """
         gain_clamped = clamp_vga_gain(gain)
         r = _libhackrf.hackrf_set_vga_gain(self._dev, ctypes.c_uint32(gain_clamped))
@@ -326,8 +374,8 @@ class HackRFDevice:
 
     def _rx_callback(self, transfer_ptr: ctypes.POINTER(_hackrf_transfer)) -> int:
         """
-        Internal RX callback function for HackRF streaming.
-        Accumulates raw byte data in self._rx_buffer.
+        HackRF RX callback; accumulates raw data into self._rx_buffer,
+        stops streaming if the desired amount is reached.
         """
         transfer = transfer_ptr.contents
         buf_length = transfer.valid_length
@@ -335,35 +383,36 @@ class HackRFDevice:
             data_array = ctypes.cast(
                 transfer.buffer, ctypes.POINTER(ctypes.c_byte * buf_length)
             ).contents
-            self._rx_buffer.extend(data_array)
 
-        # If we need a certain # of bytes, once we have them, we can stop streaming
-        if self._target_samples > 0 and len(self._rx_buffer) >= self._target_samples:
-            self._streaming = False
-            return 0
+            with self._rx_buffer_cond:
+                self._rx_buffer.extend(data_array)
+
+                # If we have a target, stop if it's reached
+                ret = 0
+                if self._target_bytes > 0 and len(self._rx_buffer) >= self._target_bytes:
+                    ret = -1
+                    self._streaming = False
+                self._rx_buffer_cond.notify_all()
+            return ret
 
         return 0
 
-    def read_samples(
-        self,
-        num_samples: int = 0,
-        duration: float = 0.0,
-        chunk_size: int = 8192
-    ) -> Generator[bytearray, None, None]:
+    def read_samples(self, num_samples: int = 0, duration: float = 0.0, chunk_size: int = 8192):
         """
-        Generator that yields chunks of raw I/Q data (uint8) from the HackRF.
-        If num_samples>0, stop after that many *complex* samples have been read.
-        If duration>0, stop after that time. If both are 0, read indefinitely.
-
-        NOTE: self._target_samples is in *bytes*, not complex-sample count.
-              Each complex sample is 2 bytes (I + Q, each 8-bit).
+        Generator that reads samples from the HackRF in thread-safe chunks.
+        Yields chunks of raw IQ bytes in multiples of chunk_size*2.
+        If num_samples > 0, stops after reading those samples total.
+        If duration > 0, also stops after that time has elapsed.
         """
         if self._streaming:
-            raise RuntimeError("Already streaming. Stop first or use another device.")
-
+            raise RuntimeError("Already streaming. Stop first or use a new device.")
         self._rx_buffer = bytearray()
-        # Each complex sample = 2 bytes
-        self._target_samples = 0 if num_samples <= 0 else (num_samples * 2)
+
+        # If user wants a specific sample count, set a target in bytes
+        if num_samples > 0:
+            self._target_bytes = 2 * num_samples
+        else:
+            self._target_bytes = 0
 
         r = _libhackrf.hackrf_start_rx(self._dev, self._rx_callback_function, None)
         if r != HACKRF_SUCCESS:
@@ -374,25 +423,36 @@ class HackRFDevice:
 
         try:
             while True:
-                # If enough data for a chunk, yield
-                if len(self._rx_buffer) >= (chunk_size * 2):
-                    out = self._rx_buffer[: (chunk_size * 2)]
-                    del self._rx_buffer[: (chunk_size * 2)]
-                    yield out
+                with self._rx_buffer_cond:
+                    # Wait for enough data or until streaming stops/duration reached
+                    while len(self._rx_buffer) < chunk_size * 2 and self._streaming:
+                        if duration > 0 and (time.time() - start_time) >= duration:
+                            break
+                        self._rx_buffer_cond.wait(timeout=0.1)
 
-                # Check stopping conditions
-                if not self._streaming:
-                    break
-                if duration > 0 and (time.time() - start_time) >= duration:
-                    break
+                    # Check conditions to exit
+                    if not self._streaming:
+                        break
+                    if duration > 0 and (time.time() - start_time) >= duration:
+                        break
 
-                time.sleep(0.01)
+                    if len(self._rx_buffer) >= chunk_size * 2:
+                        out = self._rx_buffer[:chunk_size * 2]
+                        del self._rx_buffer[:chunk_size * 2]
+                    else:
+                        # Not enough data or streaming ended
+                        break
 
-            # Yield leftover
-            while len(self._rx_buffer) > 0:
-                need = min(len(self._rx_buffer), chunk_size * 2)
-                out = self._rx_buffer[:need]
-                del self._rx_buffer[:need]
+                yield out
+
+            # Drain remaining buffer after stopping or time out
+            while True:
+                with self._rx_buffer_cond:
+                    if len(self._rx_buffer) == 0:
+                        break
+                    needed = min(len(self._rx_buffer), chunk_size * 2)
+                    out = self._rx_buffer[:needed]
+                    del self._rx_buffer[:needed]
                 yield out
 
         finally:
@@ -400,24 +460,30 @@ class HackRFDevice:
             self._streaming = False
 
 
-# =========================================================================
-# DSP Routines and Helpers
-# =========================================================================
 def _dc_block_singlepole(
     samples: np.ndarray,
     state: Dict[str, float],
-    alpha: float = 0.9995
+    sample_rate: float,
+    cutoff: float = 30.0
 ) -> np.ndarray:
     """
-    Apply a single-pole high-pass filter to block DC:
-      y[n] = x[n] - x[n-1] + alpha * y[n-1]
+    Applies a single-pole DC blocking filter to 'samples' using a
+    frequency-dependent 'alpha' parameter derived from the provided
+    'cutoff' (in Hz) and 'sample_rate' (in samples/sec).
 
-    'state' should hold 'prev_x' and 'prev_y'.
+    The filter state is carried in 'state' for continuous streaming.
+
+    By default, cutoff=30 Hz is used, which is typical for AM/FM audio
+    to remove sub-audio DC offsets. Adjust as needed for other bandwidths.
     """
     if "prev_x" not in state:
         state["prev_x"] = 0.0
     if "prev_y" not in state:
         state["prev_y"] = 0.0
+
+    # Compute alpha based on the desired cutoff and the current sample rate.
+    # alpha = exp(-2*pi * cutoff / sample_rate)
+    alpha = math.exp(-2.0 * math.pi * cutoff / sample_rate)
 
     prev_x = state["prev_x"]
     prev_y = state["prev_y"]
@@ -434,826 +500,333 @@ def _dc_block_singlepole(
     return out
 
 
-def _resample_if_needed(
-    audio: np.ndarray,
-    current_rate: float,
-    target_rate: float
-) -> np.ndarray:
+def _resample_if_needed(audio: np.ndarray, current_rate: float, target_rate: float) -> np.ndarray:
     """
-    If current_rate != target_rate (within small tolerance),
-    resample the audio using a rational factor derived from gcd.
-    This avoids huge integer up/down factors for large sample rates.
+    Resamples 'audio' from current_rate to target_rate using scipy.signal.resample_poly.
+    Returns the new audio array.
     """
     if abs(current_rate - target_rate) < 1e-3:
         return audio
-
+    from math import gcd
     sr_int = int(round(current_rate))
     ar_int = int(round(target_rate))
     if sr_int <= 0 or ar_int <= 0:
         return audio
-
     g = gcd(sr_int, ar_int)
     up = ar_int // g
     down = sr_int // g
+    return scipy.signal.resample_poly(audio, up, down).astype(np.float32)
 
-    return scipy.signal.resample_poly(audio, up, down)
 
-
-def demodulate_nfm(
-    iq_chunk: np.ndarray,
-    state: Dict[str, Any],
-    sample_rate: float,
-    audio_rate: float,
-    cutoff: float = 15000.0
-) -> np.ndarray:
+def _lpf_resample_cplx(iq: np.ndarray, sr_in: float, sr_out: float, cutoff: float, state: Dict[str, Any]) -> (np.ndarray, float):
     """
-    Narrow FM demodulation for voice transmissions.
+    Applies a low-pass FIR filter to complex samples (iq), then resamples to sr_out.
+    The filter states are maintained in 'state'.
+    Returns the filtered and resampled complex samples, plus the new sample rate.
     """
-    if "prev_iq" not in state:
-        state["prev_iq"] = np.complex64(0.0)
-    combined = np.concatenate(([state["prev_iq"]], iq_chunk))
-    state["prev_iq"] = iq_chunk[-1] if len(iq_chunk) else state["prev_iq"]
+    if "lpf_resample_taps" not in state:
+        norm_cutoff = cutoff / (sr_in / 2.0)
+        num_taps = 129
+        fir = scipy.signal.firwin(num_taps, norm_cutoff)
+        state["lpf_resample_taps"] = fir
+        state["lpf_resample_zi_i"] = np.zeros(len(fir) - 1, dtype=np.float32)
+        state["lpf_resample_zi_q"] = np.zeros(len(fir) - 1, dtype=np.float32)
 
-    # freq discriminate
-    phase = np.angle(combined[1:] * np.conjugate(combined[:-1]))
+    fir = state["lpf_resample_taps"]
 
-    # DC block
-    if "dc_block" not in state:
-        state["dc_block"] = {}
-    freqdem = _dc_block_singlepole(phase, state["dc_block"])
+    i_samp = np.real(iq).astype(np.float32)
+    q_samp = np.imag(iq).astype(np.float32)
 
-    # Lowpass
-    if "lpf_taps" not in state:
-        num_taps = 101
-        fir = scipy.signal.firwin(num_taps, cutoff / (sample_rate / 2.0))
-        state["lpf_taps"] = fir
-        state["lpf_zi"] = np.zeros(len(fir) - 1, dtype=np.float32)
-
-    filtered, state["lpf_zi"] = scipy.signal.lfilter(
-        state["lpf_taps"], [1.0], freqdem, zi=state["lpf_zi"]
+    out_i, state["lpf_resample_zi_i"] = scipy.signal.lfilter(
+        fir, [1.0], i_samp, zi=state["lpf_resample_zi_i"]
+    )
+    out_q, state["lpf_resample_zi_q"] = scipy.signal.lfilter(
+        fir, [1.0], q_samp, zi=state["lpf_resample_zi_q"]
     )
 
-    # Decimate
-    decim_factor = int(sample_rate // audio_rate)
-    decim_factor = max(decim_factor, 1)
-    decim_signal = filtered[::decim_factor]
-    decim_sr = sample_rate / decim_factor
+    ratio_i = _resample_if_needed(out_i, sr_in, sr_out)
+    ratio_q = _resample_if_needed(out_q, sr_in, sr_out)
 
-    # Final resample if needed
-    audio = _resample_if_needed(decim_signal, decim_sr, audio_rate)
-    return audio.astype(np.float32)
+    return ratio_i + 1j * ratio_q, sr_out
 
 
 def demodulate_am(
     iq_chunk: np.ndarray,
     state: Dict[str, Any],
-    sample_rate: float,
-    audio_rate: float,
+    sr: float,
+    ar: float,
     cutoff: float = 5000.0
 ) -> np.ndarray:
     """
-    AM demodulation (envelope detection).
+    Demodulates AM via envelope detection, then low-pass filtering,
+    DC block (adjusted by the sample rate), and resampling.
     """
     envelope = np.abs(iq_chunk)
 
-    # DC block
-    if "dc_block" not in state:
-        state["dc_block"] = {}
-    dc_blocked = _dc_block_singlepole(envelope, state["dc_block"])
-
-    # Lowpass
     if "lpf_taps" not in state:
-        num_taps = 101
-        fir = scipy.signal.firwin(num_taps, cutoff / (sample_rate / 2.0))
+        num_taps = 129
+        fir = scipy.signal.firwin(num_taps, cutoff / (sr / 2.0))
         state["lpf_taps"] = fir
         state["lpf_zi"] = np.zeros(len(fir) - 1, dtype=np.float32)
 
     filtered, state["lpf_zi"] = scipy.signal.lfilter(
-        state["lpf_taps"], [1.0], dc_blocked, zi=state["lpf_zi"]
+        state["lpf_taps"], [1.0], envelope, zi=state["lpf_zi"]
     )
 
-    decim_factor = int(sample_rate // audio_rate)
-    decim_factor = max(decim_factor, 1)
-    decim_signal = filtered[::decim_factor]
-    decim_sr = sample_rate / decim_factor
-
-    audio = _resample_if_needed(decim_signal, decim_sr, audio_rate)
-    return audio.astype(np.float32)
-
-
-def demodulate_ssb(
-    iq_chunk: np.ndarray,
-    state: Dict[str, Any],
-    sample_rate: float,
-    audio_rate: float,
-    sideband: str = 'usb',
-    audio_bw: float = 3000.0
-) -> np.ndarray:
-    """
-    Basic SSB demodulation for USB/LSB.
-    Mix down by ±1500 Hz, lowpass, DC block, decimate, resample.
-    """
-    shift_freq = +1500.0 if sideband == 'usb' else -1500.0
-    if "phase_acc" not in state:
-        state["phase_acc"] = 0.0
-    phase_acc = state["phase_acc"]
-
-    n = len(iq_chunk)
-    if n == 0:
-        return np.array([], dtype=np.float32)
-
-    ts = 1.0 / sample_rate
-    t_arr = np.arange(n) * ts
-    full_phase = 2.0 * math.pi * shift_freq * t_arr + phase_acc
-    state["phase_acc"] = full_phase[-1] + 2.0 * math.pi * shift_freq * ts
-
-    mix = iq_chunk * np.exp(-1j * full_phase).astype(np.complex64)
-    audio_signal = mix.real
-
-    if "lpf_taps" not in state:
-        num_taps = 101
-        fir = scipy.signal.firwin(num_taps, audio_bw / (sample_rate / 2.0))
-        state["lpf_taps"] = fir
-        state["lpf_zi"] = np.zeros(len(fir) - 1, dtype=np.float32)
-
-    filtered, state["lpf_zi"] = scipy.signal.lfilter(
-        state["lpf_taps"], [1.0], audio_signal, zi=state["lpf_zi"]
-    )
-
+    # Apply a proper single-pole DC block that depends on the current sample rate sr.
     if "dc_block" not in state:
         state["dc_block"] = {}
-    dc_blocked = _dc_block_singlepole(filtered, state["dc_block"])
+    dc_blocked = _dc_block_singlepole(filtered, state["dc_block"], sr, 30.0)
 
-    decim_factor = int(sample_rate // audio_rate)
-    decim_factor = max(decim_factor, 1)
-    decim_signal = dc_blocked[::decim_factor]
-    decim_sr = sample_rate / decim_factor
-
-    audio = _resample_if_needed(decim_signal, decim_sr, audio_rate)
-    return audio.astype(np.float32)
+    audio = _resample_if_needed(dc_blocked, sr, ar)
+    return audio
 
 
 def demodulate_wfm(
     iq_chunk: np.ndarray,
     state: Dict[str, Any],
-    sample_rate: float,
-    audio_rate: float,
+    sr: float,
+    ar: float,
     if_cutoff: float = 100000.0,
     audio_cutoff: float = 15000.0,
-    deemphasis: float = 7.5e-5
+    deemphasis: float = 7.5e-5,
+    fm_dev: float = 75000.0
 ) -> np.ndarray:
     """
-    Wide FM demodulation (mono) with simple 75us de-emphasis.
+    Demodulates wide FM by downsampling IQ, phase demod, audio filtering,
+    frequency-dependent DC block, de-emphasis, and final resampling.
     """
+    inter_sr = 200000.0
+    if "pre_downsample" not in state:
+        state["pre_downsample"] = {}
+    iq_ds, sr_ds = _lpf_resample_cplx(iq_chunk, sr, inter_sr, if_cutoff, state["pre_downsample"])
+
     if "prev_iq" not in state:
         state["prev_iq"] = np.complex64(0.0)
-    combined = np.concatenate(([state["prev_iq"]], iq_chunk))
-    state["prev_iq"] = iq_chunk[-1] if len(iq_chunk) else state["prev_iq"]
 
-    # freq discriminate
+    combined = np.concatenate(([state["prev_iq"]], iq_ds))
+    state["prev_iq"] = iq_ds[-1] if len(iq_ds) else state["prev_iq"]
     phase = np.angle(combined[1:] * np.conjugate(combined[:-1]))
 
-    # DC block
+    phase *= sr_ds / (2.0 * np.pi * fm_dev)
+
     if "dc_block" not in state:
         state["dc_block"] = {}
-    freq_dem = _dc_block_singlepole(phase, state["dc_block"])
+    freq_dem = _dc_block_singlepole(phase, state["dc_block"], sr_ds, 30.0)
 
-    # 1) wide LPF
-    if "lpf_wide_taps" not in state:
-        num_taps = 101
-        cutoff_norm = if_cutoff / (sample_rate / 2.0)
-        fir = scipy.signal.firwin(num_taps, cutoff_norm)
-        state["lpf_wide_taps"] = fir
-        state["lpf_wide_zi"] = np.zeros(len(fir) - 1, dtype=np.float32)
-
-    filtered1, state["lpf_wide_zi"] = scipy.signal.lfilter(
-        state["lpf_wide_taps"], [1.0], freq_dem, zi=state["lpf_wide_zi"]
-    )
-
-    # decimate to ~200k
-    intermediate_rate = 200000.0
-    decim_factor1 = max(int(sample_rate // intermediate_rate), 1)
-    decim_signal = filtered1[::decim_factor1]
-    actual_int_rate = sample_rate / decim_factor1
-
-    # 2) simple 75us de-emphasis
-    if "deemph_prev" not in state:
-        state["deemph_prev"] = 0.0
-
-    out_deemph = np.zeros_like(decim_signal, dtype=np.float32)
-    dp = state["deemph_prev"]
-    alpha_deemph = (1.0 / actual_int_rate) / (deemphasis + (1.0 / actual_int_rate))
-
-    for i, x in enumerate(decim_signal):
-        dp += alpha_deemph * (x - dp)
-        out_deemph[i] = dp
-    state["deemph_prev"] = dp
-
-    # 3) final LPF ~15kHz
     if "lpf_audio_taps" not in state:
-        num_taps2 = 101
-        cutoff2 = audio_cutoff / (actual_int_rate / 2.0)
+        num_taps2 = 129
+        cutoff2 = audio_cutoff / (sr_ds / 2.0)
         fir2 = scipy.signal.firwin(num_taps2, cutoff2)
         state["lpf_audio_taps"] = fir2
         state["lpf_audio_zi"] = np.zeros(len(fir2) - 1, dtype=np.float32)
 
     filtered2, state["lpf_audio_zi"] = scipy.signal.lfilter(
-        state["lpf_audio_taps"], [1.0], out_deemph, zi=state["lpf_audio_zi"]
+        state["lpf_audio_taps"], [1.0], freq_dem, zi=state["lpf_audio_zi"]
     )
 
-    # decimate to audio_rate
-    decim_factor2 = max(int(actual_int_rate // audio_rate), 1)
-    audio_decim = filtered2[::decim_factor2]
-    final_rate = actual_int_rate / decim_factor2
+    if "deemph_y" not in state:
+        state["deemph_y"] = 0.0
 
-    # resample if needed
-    audio = _resample_if_needed(audio_decim, final_rate, audio_rate)
-    return audio.astype(np.float32)
+    out_deemph = np.zeros_like(filtered2, dtype=np.float32)
+    y_prev = state["deemph_y"]
+
+    a = math.exp(-1.0 / (sr_ds * deemphasis))
+    for i, x_val in enumerate(filtered2):
+        y_val = a * y_prev + (1.0 - a) * x_val
+        out_deemph[i] = y_val
+        y_prev = y_val
+
+    state["deemph_y"] = y_prev
+
+    audio = _resample_if_needed(out_deemph, sr_ds, ar)
+    return audio
 
 
-def shift_signal(
-    cplx: np.ndarray,
-    sample_rate: float,
-    freq_offset: float,
-    shift_state: Dict[str, float]
+def demodulate_nfm(
+    iq_chunk: np.ndarray,
+    state: Dict[str, Any],
+    sr: float,
+    ar: float,
+    if_cutoff: float = 20000.0,
+    nfm_dev: float = 5000.0
 ) -> np.ndarray:
     """
-    Shift the complex samples by freq_offset so that the signal at freq_offset
-    moves to near DC.
+    Demodulates narrow FM by downsampling IQ, phase demod, voice low-pass,
+    frequency-dependent DC block, and resampling to audio rate.
     """
-    if "acc_phase" not in shift_state:
-        shift_state["acc_phase"] = 0.0
+    inter_sr = 48000.0
+    if "pre_downsample" not in state:
+        state["pre_downsample"] = {}
+    iq_ds, sr_ds = _lpf_resample_cplx(iq_chunk, sr, inter_sr, if_cutoff, state["pre_downsample"])
 
-    acc_phase = shift_state["acc_phase"]
-    n = len(cplx)
-    if n == 0:
-        return cplx
+    if "prev_iq" not in state:
+        state["prev_iq"] = np.complex64(0.0)
 
-    t = np.arange(n) / sample_rate
-    phase = 2.0 * math.pi * freq_offset * t + acc_phase
-    shift_state["acc_phase"] = phase[-1] + 2.0 * math.pi * freq_offset * (1.0 / sample_rate)
+    combined = np.concatenate(([state["prev_iq"]], iq_ds))
+    state["prev_iq"] = iq_ds[-1] if len(iq_ds) else state["prev_iq"]
+    phase = np.angle(combined[1:] * np.conjugate(combined[:-1]))
 
-    return cplx * np.exp(-1j * phase).astype(np.complex64)
+    phase *= sr_ds / (2.0 * np.pi * nfm_dev)
+
+    if "dc_block" not in state:
+        state["dc_block"] = {}
+    freq_dem = _dc_block_singlepole(phase, state["dc_block"], sr_ds, 30.0)
+
+    voice_cutoff = 5000.0
+    if "lpf_voice_taps" not in state:
+        num_taps = 129
+        fir = scipy.signal.firwin(num_taps, voice_cutoff / (sr_ds / 2.0))
+        state["lpf_voice_taps"] = fir
+        state["lpf_voice_zi"] = np.zeros(len(fir) - 1, dtype=np.float32)
+
+    filtered, state["lpf_voice_zi"] = scipy.signal.lfilter(
+        state["lpf_voice_taps"], [1.0], freq_dem, zi=state["lpf_voice_zi"]
+    )
+
+    audio = _resample_if_needed(filtered, sr_ds, ar)
+    return audio
 
 
-def _trim_demod_chunk(cplx: np.ndarray, max_samples: int = 100000) -> np.ndarray:
+def measure_audio_snr(audio: np.ndarray, fs: float, mode: str) -> float:
     """
-    Trim the complex data array to a maximum number of samples to
-    speed up demodulation and analysis.
+    Estimates SNR in the demodulated audio, adapted by mode to reduce naive detection errors.
+    Uses Welch PSD, integrates over a 'signal band' relevant to each mode, and a 'noise band'.
+    Returns an approximate SNR in dB.
     """
-    if len(cplx) > max_samples:
-        return cplx[-max_samples:]
-    return cplx
+    if len(audio) < 512 or fs <= 0:
+        return -999.0
+
+    band_settings = {
+        'am':  (300.0,  5000.0,  7000.0,  10000.0),
+        'fm':  (300.0,  15000.0, 17000.0, 20000.0),
+        'nfm': (300.0,  3000.0,  4000.0,  8000.0),
+        'air': (300.0,  5000.0,  7000.0,  10000.0),
+        'hf':  (300.0,  5000.0,  7000.0,  10000.0),
+        'cb':  (300.0,  5000.0,  7000.0,  10000.0),
+    }
+
+    sig_low, sig_high, noise_low, noise_high = band_settings.get(mode, (300.0, 5000.0, 7000.0, 10000.0))
+
+    f, pxx = scipy.signal.welch(audio, fs=fs, nperseg=512)
+
+    def clamp_ranges(low, high):
+        high = min(high, fs / 2.0)
+        low = max(low, 0.0)
+        if high <= low:
+            return None
+        return (low, high)
+
+    s_region = clamp_ranges(sig_low, sig_high)
+    n_region = clamp_ranges(noise_low, noise_high)
+
+    if not s_region or not n_region:
+        signal_power = np.max(pxx)
+        noise_floor = np.median(pxx) + 1e-12
+        return 10.0 * np.log10(signal_power / noise_floor)
+
+    s_low, s_high = s_region
+    n_low, n_high = n_region
+
+    s_idxs = np.where((f >= s_low) & (f <= s_high))[0]
+    n_idxs = np.where((f >= n_low) & (f <= n_high))[0]
+
+    if len(s_idxs) == 0 or len(n_idxs) == 0:
+        signal_power = np.max(pxx)
+        noise_floor = np.median(pxx) + 1e-12
+        return 10.0 * np.log10(signal_power / noise_floor)
+
+    bin_width = f[1] - f[0] if len(f) > 1 else 1.0
+    signal_power = np.sum(pxx[s_idxs]) * bin_width
+    noise_power = np.sum(pxx[n_idxs]) * bin_width + 1e-12
+
+    if noise_power <= 0:
+        return -999.0
+
+    snr_db = 10.0 * np.log10(signal_power / noise_power)
+    return snr_db
 
 
-def test_all_modes(
-    cplx: np.ndarray,
-    sample_rate: float,
-    candidate_modes: List[str],
-    snr_db: float,
-    min_snr_db: float,
-    min_quality: float
-) -> Tuple[float, Optional[str]]:
+class BaseHackRFListener:
     """
-    Test all candidate modes by demodulating and measuring a simple 'quality' metric.
-    Returns (best_score, best_mode). (0.0, None) if no valid mode found.
+    Base class for HackRF listening with a particular demodulation mode.
+    Responsible for opening/closing device, reading samples, demodulating, and recording audio.
     """
-    if snr_db < min_snr_db:
-        return 0.0, None
 
-    best_local_score = 0.0
-    best_local_mode: Optional[str] = None
+    DEFAULT_SAMPLE_RATE = 2e6
+    DEFAULT_BANDWIDTH = 200e3
+    DEFAULT_SCAN_START = 1.0e6
+    DEFAULT_SCAN_STOP = 2.0e6
+    DEFAULT_SCAN_STEP = 0.1e6
 
-    cplx = _trim_demod_chunk(cplx)
-
-    for md in candidate_modes:
-        demod_state: Dict[str, Any] = {}
-        try:
-            if md == "nfm":
-                audio = demodulate_nfm(cplx, demod_state, sample_rate, 48000, cutoff=12000)
-            elif md == "am":
-                audio = demodulate_am(cplx, demod_state, sample_rate, 48000, cutoff=8000)
-            elif md == "usb":
-                audio = demodulate_ssb(cplx, demod_state, sample_rate, 48000,
-                                       sideband='usb', audio_bw=3000)
-            elif md == "lsb":
-                audio = demodulate_ssb(cplx, demod_state, sample_rate, 48000,
-                                       sideband='lsb', audio_bw=3000)
-            elif md == "wfm":
-                audio = demodulate_wfm(cplx, demod_state, sample_rate, 48000,
-                                       if_cutoff=100000.0, audio_cutoff=15000.0,
-                                       deemphasis=7.5e-5)
-            else:
-                continue
-        except Exception:
-            continue
-
-        rms_val = float(np.sqrt(np.mean(audio**2 + 1e-12)))
-        quality_score = 20.0 * np.log10(rms_val + 1e-9)
-        score = snr_db + quality_score
-
-        if rms_val >= min_quality and score > best_local_score:
-            best_local_score = score
-            best_local_mode = md
-
-    return best_local_score, best_local_mode
-
-
-def get_scan_modes(mode_str: str) -> List[str]:
-    """
-    Return a list of modes to try in scanning/auto-tune, based on a short string:
-      - 'generic' => [nfm, am, usb, lsb, wfm]
-      - 'am' => [am]
-      - 'fm' => [wfm, nfm]
-    """
-    if mode_str == "am":
-        return ["am"]
-    elif mode_str == "fm":
-        return ["wfm", "nfm"]
-    return ["nfm", "am", "usb", "lsb", "wfm"]
-
-
-def find_fft_peaks(
-    cplx: np.ndarray,
-    fft_size: int,
-    threshold_db: float
-) -> Tuple[List[Tuple[int, float]], float]:
-    """
-    Perform FFT on cplx data with a Hanning window, find bins
-    above (noise_floor + threshold_db), and return:
-    (peaks_list, noise_floor_db).
-
-    peaks_list = [(bin_index, power_db), ...]
-    """
-    if len(cplx) < fft_size:
-        return [], -999.0
-
-    window = np.hanning(fft_size)
-    chunk = cplx[-fft_size:] * window  # take the last fft_size samples
-    fft_out = np.fft.fftshift(np.fft.fft(chunk))
-    power_spectrum = 20 * np.log10(np.abs(fft_out) + 1e-9)
-
-    noise_floor_db = float(np.median(power_spectrum))
-    thr_val = noise_floor_db + threshold_db
-
-    # Use find_peaks for local maxima above threshold
-    peak_indices, _ = scipy.signal.find_peaks(power_spectrum, height=thr_val)
-    peaks = [(idx, float(power_spectrum[idx])) for idx in peak_indices]
-    return peaks, noise_floor_db
-
-
-def group_adjacent_peaks(
-    peaks: List[Tuple[int, float]],
-    adjacency: int = 3
-) -> List[Tuple[int, float]]:
-    """
-    Given a sorted list of (bin_index, power_db), merge bins that are within
-    'adjacency' bins into a single peak. We keep only the bin with the highest
-    power in each contiguous group. This drastically reduces the total number
-    of near-duplicate peaks.
-    """
-    if not peaks:
-        return []
-
-    # Sort by bin index
-    peaks_sorted = sorted(peaks, key=lambda x: x[0])
-    grouped: List[Tuple[int, float]] = []
-
-    current_group_bin, current_group_power = peaks_sorted[0]
-
-    for bin_idx, power_db in peaks_sorted[1:]:
-        if bin_idx <= (current_group_bin + adjacency):
-            if power_db > current_group_power:
-                current_group_bin = bin_idx
-                current_group_power = power_db
-        else:
-            grouped.append((current_group_bin, current_group_power))
-            current_group_bin, current_group_power = bin_idx, power_db
-
-    grouped.append((current_group_bin, current_group_power))
-    return grouped
-
-
-def generate_frequency_steps(
-    start_freq: float,
-    end_freq: float,
-    step_hz: float
-) -> List[float]:
-    """
-    Generate a list of frequency values from start_freq to end_freq in increments of step_hz.
-    Ensures at least one value is returned if step_hz <= 0 or range is small.
-    """
-    freqs: List[float] = []
-    if start_freq < 1e4:
-        start_freq = 1e4
-    if step_hz <= 0:
-        step_hz = 1e5
-
-    current = start_freq
-    while current <= end_freq + 1.0:
-        freqs.append(current)
-        current += step_hz
-
-    if not freqs:
-        freqs = [start_freq]
-    return freqs
-
-
-def capture_short_chunk(
-    dev: HackRFDevice,
-    sample_rate: float,
-    chunk_duration: float
-) -> Optional[np.ndarray]:
-    """
-    Capture a short chunk of samples from the HackRF device and return
-    as complex64 ndarray. Returns None if insufficient data.
-    """
-    chunk_bytes_needed = int(sample_rate * 2 * chunk_duration)
-    dev._rx_buffer = bytearray()
-    dev._target_samples = chunk_bytes_needed
-
-    r = _libhackrf.hackrf_start_rx(dev._dev, dev._rx_callback_function, None)
-    if r != HACKRF_SUCCESS:
-        return None
-
-    dev._streaming = True
-    start_t = time.time()
-    while dev._streaming:
-        if len(dev._rx_buffer) >= chunk_bytes_needed:
-            break
-        if (time.time() - start_t) > (chunk_duration * 5.0):
-            break
-        time.sleep(0.01)
-
-    _libhackrf.hackrf_stop_rx(dev._dev)
-    dev._streaming = False
-
-    data = dev._rx_buffer[:chunk_bytes_needed]
-    if len(data) < 2:
-        return None
-
-    iq_u8 = np.frombuffer(data, dtype=np.uint8)
-    iq_f = iq_u8.astype(np.float32) - 128.0
-    i_samples = iq_f[0::2]
-    q_samples = iq_f[1::2]
-    cplx = i_samples + 1j * q_samples
-    return cplx.astype(np.complex64)
-
-
-def compute_snr_db(power_spectrum: np.ndarray) -> Tuple[float, float]:
-    """
-    Compute mean power, noise floor, and return SNR in dB.
-    Also returns the noise floor estimate (linear).
-    """
-    mean_power = np.mean(power_spectrum)
-    noise_floor_est = np.median(power_spectrum)
-    if noise_floor_est <= 0:
-        noise_floor_est = 1e-12
-    snr_db = 10.0 * np.log10(mean_power / noise_floor_est)
-    return float(snr_db), float(noise_floor_est)
-
-
-def auto_tune(
-    device_index: int,
-    base_freq: float,
-    sample_rate: float,
-    bandwidth: float,
-    lna_gain: int,
-    vga_gain: int,
-    amp: bool,
-    tune_range: float,
-    tune_step: float,
-    scan_mode_list: List[str],
-    min_snr_db: float = 5.0,
-    min_quality: float = 0.01
-) -> Tuple[Optional[float], Optional[str]]:
-    """
-    Advanced auto-tune around base_freq ± tune_range in increments of tune_step.
-    Attempts multiple modes from scan_mode_list.
-    """
-    dev = HackRFDevice(device_index)
-    dev.set_sample_rate(sample_rate)
-    dev.set_baseband_filter_bandwidth(bandwidth)
-    dev.set_lna_gain(lna_gain)
-    dev.set_vga_gain(vga_gain)
-    dev.set_amp_enable(amp)
-
-    low_bound = base_freq - tune_range
-    high_bound = base_freq + tune_range
-    if low_bound < 1e4:
-        low_bound = 1e4
-    if high_bound < low_bound:
-        high_bound = low_bound + 1e5
-
-    freq_steps = generate_frequency_steps(low_bound, high_bound, tune_step)
-
-    best_freq = None
-    best_mode = None
-    best_score = 0.0
-
-    try:
-        for freq_test in freq_steps:
-            try:
-                dev.set_freq(freq_test)
-                # Allow hardware to settle briefly
-                time.sleep(0.05)
-            except RuntimeError:
-                logging.debug(f"Failed to set freq={freq_test} Hz; skipping.")
-                continue
-
-            # Capture chunk
-            cplx = capture_short_chunk(dev, sample_rate, chunk_duration=0.1)
-            if cplx is None or len(cplx) < 2:
-                continue
-
-            # (Optional) decimate chunk for quicker analysis
-            decim_factor_scan = int(sample_rate // 200000)
-            if decim_factor_scan >= 2:
-                cplx = cplx[::decim_factor_scan]
-                sr_scan = sample_rate / decim_factor_scan
-            else:
-                sr_scan = sample_rate
-
-            mag = np.abs(cplx)
-            power_spectrum = mag**2
-            snr_db, _ = compute_snr_db(power_spectrum)
-
-            local_score, local_mode = test_all_modes(
-                cplx,
-                sr_scan,
-                scan_mode_list,
-                snr_db,
-                min_snr_db,
-                min_quality
-            )
-
-            logging.debug(
-                f"AutoTune freq={freq_test/1e6:.4f} MHz, local_mode={local_mode}, "
-                f"SNR={snr_db:.2f}, score={local_score:.4f}"
-            )
-
-            if local_mode and local_score > best_score:
-                best_score = local_score
-                best_mode = local_mode
-                best_freq = freq_test
-                # If we found a high enough score, skip remaining steps (95% solution)
-                if best_score > 40.0:
-                    break
-
-    finally:
-        dev.close()
-
-    return best_freq, best_mode
-
-
-def auto_scan(
-    device_index: int,
-    start_freq: float,
-    end_freq: float,
-    sample_rate: float,
-    bandwidth: float,
-    dwell_time: float,
-    threshold_db: float,
-    fft_size: int,
-    lna_gain: int,
-    vga_gain: int,
-    amp: bool,
-    scan_step: float = 50000.0,
-    min_snr_db: float = 5.0,
-    min_quality: float = 0.01,
-    candidate_modes: Optional[List[str]] = None
-) -> Tuple[Optional[float], Optional[str]]:
-    """
-    Advanced FFT-based auto-scan from start_freq to end_freq in increments of scan_step.
-    For each step:
-      1) Center HackRF on freq_test
-      2) Capture samples for dwell_time
-      3) (Optionally downsample) then perform a limited-size FFT
-      4) Find local maxima above threshold
-      5) SHIFT each grouped peak to DC, test all candidate modes
-      6) Keep track of best freq/mode combination, short-circuit if we find a strong signal.
-    """
-    if candidate_modes is None:
-        candidate_modes = ["nfm", "am", "usb", "lsb", "wfm"]
-
-    dev = HackRFDevice(device_index)
-    dev.set_sample_rate(sample_rate)
-    dev.set_baseband_filter_bandwidth(bandwidth)
-    dev.set_lna_gain(lna_gain)
-    dev.set_vga_gain(vga_gain)
-    dev.set_amp_enable(amp)
-
-    if start_freq < 1e4:
-        start_freq = 1e4
-    if end_freq <= start_freq:
-        end_freq = start_freq + 1e6
-
-    freq_list = generate_frequency_steps(start_freq, end_freq, scan_step)
-
-    best_freq = None
-    best_mode = None
-    best_score = 0.0
-
-    try:
-        for ftest in freq_list:
-            try:
-                dev.set_freq(ftest)
-                # Let hardware settle
-                time.sleep(0.05)
-            except RuntimeError:
-                logging.debug(f"Failed to set freq={ftest} Hz; skipping.")
-                continue
-
-            # We'll capture enough samples for dwell_time
-            samples_needed = int(sample_rate * dwell_time * 2)  # in bytes
-            dev._rx_buffer = bytearray()
-            dev._target_samples = samples_needed
-
-            r = _libhackrf.hackrf_start_rx(dev._dev, dev._rx_callback_function, None)
-            if r != HACKRF_SUCCESS:
-                continue
-
-            dev._streaming = True
-            start_t = time.time()
-            while dev._streaming:
-                if (time.time() - start_t) > dwell_time * 2.0:
-                    break
-                if len(dev._rx_buffer) >= samples_needed:
-                    break
-                time.sleep(0.01)
-
-            _libhackrf.hackrf_stop_rx(dev._dev)
-            dev._streaming = False
-
-            data = dev._rx_buffer[:samples_needed]
-            if len(data) < fft_size * 2:
-                logging.debug(f"Insufficient data at freq={ftest/1e6:.3f} MHz.")
-                continue
-
-            iq_u8 = np.frombuffer(data, dtype=np.uint8)
-            iq_f = iq_u8.astype(np.float32) - 128.0
-            i_samples = iq_f[0::2]
-            q_samples = iq_f[1::2]
-            cplx = (i_samples + 1j*q_samples).astype(np.complex64)
-
-            # Downsample before FFT if possible to speed up
-            decim_factor_scan = int(sample_rate // 200000)
-            if decim_factor_scan >= 2:
-                cplx = cplx[::decim_factor_scan]
-                sr_scan = sample_rate / decim_factor_scan
-            else:
-                sr_scan = sample_rate
-
-            # Choose a power-of-two up to a max smaller than old 262144, for speed
-            fft_cap = 1
-            max_fft = max(fft_size, 1024)
-            if max_fft > 32768:
-                max_fft = 32768
-            full_len = len(cplx)
-            while fft_cap < full_len and fft_cap < max_fft:
-                fft_cap <<= 1
-
-            cplx_slice = cplx[-fft_cap:]
-            peaks, noise_floor_db = find_fft_peaks(cplx_slice, fft_cap, threshold_db)
-            if not peaks:
-                continue
-
-            grouped_peaks = group_adjacent_peaks(peaks, adjacency=3)
-            freq_axis = np.linspace(-0.5 * sr_scan, 0.5 * sr_scan,
-                                    fft_cap, endpoint=False)
-
-            for bin_idx, peak_power_db in grouped_peaks:
-                snr_db = peak_power_db - noise_floor_db
-                offset_hz = freq_axis[bin_idx]
-
-                shift_state: Dict[str, float] = {}
-                shifted_data = shift_signal(cplx_slice, sr_scan, offset_hz, shift_state)
-
-                local_score, local_mode = test_all_modes(
-                    shifted_data,
-                    sr_scan,
-                    candidate_modes,
-                    snr_db,
-                    min_snr_db,
-                    min_quality
-                )
-
-                signal_freq = ftest + offset_hz
-                logging.debug(
-                    f"Scan freq={ftest/1e6:.3f}, bin={bin_idx}, "
-                    f"signal_freq={signal_freq/1e6:.3f}, peak_power={peak_power_db:.1f}, "
-                    f"noise_floor_db={noise_floor_db:.1f}, SNR={snr_db:.1f}, "
-                    f"best_local_mode={local_mode}, score={local_score:.3f}"
-                )
-
-                if local_mode and local_score > best_score:
-                    best_score = local_score
-                    best_mode = local_mode
-                    best_freq = signal_freq
-                    # Short-circuit if we find a strong signal
-                    if best_score > 40.0:
-                        break
-
-            # If we already found a sufficiently good signal, skip further freq steps
-            if best_score > 40.0:
-                break
-
-    finally:
-        dev.close()
-
-    return best_freq, best_mode
-
-
-def auto_select_mode(freq_hz: float) -> str:
-    """
-    Attempt to select the best mode automatically based on frequency range.
-      - < 5 MHz => 'lsb'
-      - 5-15 MHz => 'usb'
-      - 15-30 MHz => 'usb'
-      - 88-108 MHz => 'wfm'
-      - else => 'nfm'
-    """
-    if freq_hz < 5e6:
-        return 'lsb'
-    elif freq_hz < 15e6:
-        return 'usb'
-    elif freq_hz < 30e6:
-        return 'usb'
-    elif 88e6 <= freq_hz <= 108e6:
-        return 'wfm'
-    else:
-        return 'nfm'
-
-
-# =========================================================================
-# Main listening/recording
-# =========================================================================
-class HackRFListener:
-    """
-    Class to open HackRF, tune frequency, demodulate to audio, and record to OGG.
-    """
     def __init__(
         self,
+        mode: str,
         freq: float,
-        sample_rate: float,
+        sample_rate: Optional[float],
         audio_rate: float,
-        mode: str = 'wfm',
-        duration: float = 0.0,
-        out_file: str = 'recording.ogg',
-        device_index: int = 0,
-        bandwidth: Optional[float] = None,
-        lna_gain: int = 16,
-        vga_gain: int = 20,
-        amp: bool = False
+        duration: float,
+        out_file: str,
+        device_index: int,
+        bandwidth: Optional[float],
+        lna_gain: int,
+        vga_gain: int,
+        amp: bool
     ) -> None:
+        """
+        Initializes the listener with the given parameters (mode, freq, sample_rate, etc.).
+        """
+        self.mode = mode
         self.freq = freq
-        self.sample_rate = sample_rate
+        self.sample_rate = sample_rate if sample_rate else self.DEFAULT_SAMPLE_RATE
         self.audio_rate = audio_rate
-        self.mode = mode.lower() if mode else 'wfm'
         self.duration = duration
         self.out_file = out_file
         self.device_index = device_index
-        self.bandwidth = bandwidth if bandwidth else sample_rate
+        self.bandwidth = bandwidth if bandwidth else self.DEFAULT_BANDWIDTH
         self.lna_gain = lna_gain
         self.vga_gain = vga_gain
         self.amp = amp
+
         self._dev: Optional[HackRFDevice] = None
         self._demod_state: Dict[str, Any] = {}
 
     def open(self) -> None:
         """
-        Open the HackRF device and configure for the desired frequency, sample rate, etc.
+        Opens and configures the HackRF device according to the stored parameters.
         """
+        if self.freq is not None:
+            validate_frequency(self.freq)
+        validate_sample_rate(self.sample_rate)
+
         self._dev = HackRFDevice(self.device_index)
         self._dev.set_sample_rate(self.sample_rate)
-        self._dev.set_baseband_filter_bandwidth(self.bandwidth)
-        self._dev.set_freq(self.freq)
+        self._dev.set_baseband_filter_bandwidth(self.bandwidth, self.mode)
+        if self.freq is not None:
+            self._dev.set_freq(self.freq)
         self._dev.set_lna_gain(self.lna_gain)
         self._dev.set_vga_gain(self.vga_gain)
         self._dev.set_amp_enable(self.amp)
-        logging.info(
-            f"HackRF opened: freq={self.freq/1e6:.4f} MHz, "
-            f"sample_rate={self.sample_rate} Hz, bandwidth={self.bandwidth} Hz, "
-            f"mode={self.mode}"
-        )
 
     def close(self) -> None:
         """
-        Close the underlying HackRF device.
+        Closes the HackRF device if open.
         """
-        if self._dev:
+        if self._dev is not None:
             self._dev.close()
-            self._dev = None
             logging.info("HackRF device closed.")
+            self._dev = None
 
     def run(self) -> None:
         """
-        Start reading samples from HackRF, demodulating, and writing to the output OGG file.
+        Starts reading samples from the HackRF, processes them,
+        and writes demodulated audio to the output file.
         """
         if not self._dev:
             raise RuntimeError("Device not opened. Call open() first.")
 
-        logging.info(f"Recording to {self.out_file} ... (Ctrl+C to stop if indefinite)")
+        logging.info(f"Recording {self.mode.upper()} to {self.out_file} ... (Ctrl+C to stop)")
+
         with sf.SoundFile(
             self.out_file,
             mode='w',
@@ -1262,117 +835,464 @@ class HackRFListener:
             format='OGG',
             subtype='VORBIS'
         ) as sfh:
-            start_time = time.time()
+            start_t = time.time()
             chunk_size = 8192
 
             try:
+                # Read samples in chunks until duration or user interrupts
                 for raw_chunk in self._dev.read_samples(
                     num_samples=0,
                     duration=self.duration,
                     chunk_size=chunk_size
                 ):
-                    iq_u8 = np.frombuffer(raw_chunk, dtype=np.uint8)
-                    iq_float = (iq_u8.astype(np.float32) - 128.0)
-                    i_samples = iq_float[0::2]
-                    q_samples = iq_float[1::2]
-                    iq_cplx = (i_samples + 1j * q_samples).astype(np.complex64)
-
-                    audio = self._demod(iq_cplx)
+                    audio = self._process_chunk(raw_chunk)
                     sfh.write(audio)
 
                     if self.duration > 0:
-                        if (time.time() - start_time) >= self.duration:
+                        if (time.time() - start_t) >= self.duration:
                             break
 
             except KeyboardInterrupt:
-                logging.warning("KeyboardInterrupt - stopping.")
+                logging.warning("User interrupted. Stopping.")
             except Exception as ex:
                 logging.error(f"Error in streaming: {ex}")
 
-    def _demod(self, iq_chunk: np.ndarray) -> np.ndarray:
+    def _process_chunk(self, raw_chunk: bytes) -> np.ndarray:
         """
-        Internal helper to demodulate an I/Q chunk according to the selected mode.
+        Converts raw byte chunk to complex64, demodulates it, and returns float32 audio samples.
         """
-        if self.mode == 'nfm':
-            return demodulate_nfm(iq_chunk, self._demod_state,
-                                  self.sample_rate, self.audio_rate,
-                                  cutoff=12000)
-        elif self.mode == 'am':
-            return demodulate_am(iq_chunk, self._demod_state,
-                                 self.sample_rate, self.audio_rate,
-                                 cutoff=8000)
-        elif self.mode == 'usb':
-            return demodulate_ssb(iq_chunk, self._demod_state,
-                                  self.sample_rate, self.audio_rate,
-                                  sideband='usb', audio_bw=3000)
-        elif self.mode == 'lsb':
-            return demodulate_ssb(iq_chunk, self._demod_state,
-                                  self.sample_rate, self.audio_rate,
-                                  sideband='lsb', audio_bw=3000)
-        elif self.mode == 'wfm':
-            return demodulate_wfm(iq_chunk, self._demod_state,
-                                  self.sample_rate, self.audio_rate,
-                                  if_cutoff=100000.0,
-                                  audio_cutoff=15000.0,
-                                  deemphasis=7.5e-5)
-        else:
-            logging.debug(f"Auto-selecting demod mode for unknown '{self.mode}' => default WFM.")
-            return demodulate_wfm(iq_chunk, self._demod_state,
-                                  self.sample_rate, self.audio_rate)
+        arr_u8 = np.frombuffer(raw_chunk, dtype=np.uint8)
+        arr_f = (arr_u8.astype(np.float32) - 128.0) / 128.0
+        i_samp = arr_f[0::2]
+        q_samp = arr_f[1::2]
+        cplx = (i_samp + 1j * q_samp).astype(np.complex64)
+        audio = self.demodulate(cplx, self._demod_state)
+        return audio.astype(np.float32)
+
+    def demodulate(self, iq_chunk: np.ndarray, state: Dict[str, Any]) -> np.ndarray:
+        """
+        Abstract method that must be overridden to demodulate a chunk of complex samples.
+        """
+        raise NotImplementedError()
+
+    def validate_frequency(self) -> None:
+        """
+        Validates frequency range for the specific mode. Overridden by subclasses if needed.
+        """
+        pass
+
+    def measure_audio_snr(self, audio: np.ndarray) -> float:
+        """
+        Measures approximate SNR in the demodulated audio for scanning purposes.
+        """
+        return measure_audio_snr(audio, fs=self.audio_rate, mode=self.mode)
+
+    def scan_and_find_best_freq(self, start: float, stop: float, step: float, capture_time: float = 0.1) -> float:
+        """
+        Scans frequencies between start and stop, in increments of step,
+        measuring approximate SNR at each frequency. Returns the best frequency.
+        """
+        if self._dev is None:
+            raise RuntimeError("Device must be open before scanning frequencies.")
+
+        if step <= 0:
+            raise ValueError("scan-step must be > 0.")
+
+        logging.info(f"Scanning {self.mode.upper()} from {start/1e6:.3f} MHz to {stop/1e6:.3f} MHz, step={step/1e6:.3f} MHz ...")
+
+        best_freq = self.freq if self.freq is not None else start
+        best_snr = -999.0
+
+        span = stop - start
+        if span < 0:
+            logging.error(f"scan-start={start} must be < scan-stop={stop}.")
+            raise ValueError("Invalid scanning range: start >= stop.")
+
+        num_steps = int(math.floor(span / step + 0.5))
+        freq_list = []
+        for i in range(num_steps + 1):
+            freq_val = start + i * step
+            if freq_val > stop + 1e-9:
+                break
+            freq_list.append(freq_val)
+
+        for test_freq in freq_list:
+            self._dev.set_freq(test_freq)
+
+            # Flush partial buffers
+            flush_time = 0.2
+            flush_chunk = 8192
+            flush_start = time.time()
+            for _ in self._dev.read_samples(duration=flush_time, chunk_size=flush_chunk):
+                if (time.time() - flush_start) >= flush_time:
+                    break
+
+            local_best_snr = -999.0
+            num_attempts = 3
+            for attempt in range(num_attempts):
+                # Short capture for measuring
+                chunk = bytearray()
+                capture_start = time.time()
+                for raw in self._dev.read_samples(duration=capture_time, chunk_size=8192):
+                    chunk.extend(raw)
+                    if (time.time() - capture_start) >= capture_time:
+                        break
+
+                arr_u8 = np.frombuffer(chunk, dtype=np.uint8)
+                arr_f = (arr_u8.astype(np.float32) - 128.0) / 128.0
+                i_samp = arr_f[0::2]
+                q_samp = arr_f[1::2]
+                cplx = (i_samp + 1j*q_samp).astype(np.complex64)
+
+                # Use a fresh state for measurement
+                local_demod_state: Dict[str, Any] = {}
+                audio = self.demodulate(cplx, local_demod_state)
+                snr = self.measure_audio_snr(audio)
+                logging.debug(f"Freq={test_freq/1e6:.3f} MHz (attempt={attempt+1}/{num_attempts}) => SNR={snr:.2f} dB")
+
+                if snr > local_best_snr:
+                    local_best_snr = snr
+
+            if local_best_snr > best_snr:
+                best_snr = local_best_snr
+                best_freq = test_freq
+
+        logging.info(f"Found best freq={best_freq/1e6:.3f} MHz, SNR={best_snr:.2f} dB")
+
+        # Reset DSP state so scanning doesn't interfere with final demod
+        self._demod_state = {}
+
+        self.freq = best_freq
+        return best_freq
+
+    def auto_scan_frequency(self, scan_start: float, scan_stop: float, scan_step: float) -> float:
+        """
+        Performs scanning to find the best frequency in [scan_start..scan_stop..scan_step].
+        """
+        return self.scan_and_find_best_freq(scan_start, scan_stop, scan_step)
 
 
-# =========================================================================
-# Command-line interface
-# =========================================================================
+class AMListener(BaseHackRFListener):
+    """
+    AM demodulator listener class, with defaults and specialized demod for AM broadcast band.
+    """
+
+    DEFAULT_SAMPLE_RATE = 2e6
+    DEFAULT_BANDWIDTH = 200e3
+    DEFAULT_SCAN_START = 520e3
+    DEFAULT_SCAN_STOP = 1710e3
+    DEFAULT_SCAN_STEP = 100e3
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(mode='am', **kwargs)
+
+    def demodulate(self, iq_chunk: np.ndarray, state: Dict[str, Any]) -> np.ndarray:
+        return demodulate_am(iq_chunk, state, self.sample_rate, self.audio_rate, cutoff=5000.0)
+
+    def validate_frequency(self) -> None:
+        if self.freq is None:
+            return
+        if self.freq < 520e3 or self.freq > 1710e3:
+            logging.warning("Frequency is outside the typical AM broadcast band (520 kHz..1710 kHz).")
+
+
+class FMListener(BaseHackRFListener):
+    """
+    FM demodulator listener class, with defaults and specialized demod for broadcast FM.
+    """
+
+    DEFAULT_SAMPLE_RATE = 2e6
+    DEFAULT_BANDWIDTH = 2e6
+    DEFAULT_SCAN_START = 87.5e6
+    DEFAULT_SCAN_STOP = 108e6
+    DEFAULT_SCAN_STEP = 0.2e6
+
+    def __init__(self, fm_deviation: Optional[float] = None, **kwargs) -> None:
+        super().__init__(mode='fm', **kwargs)
+        self.fm_deviation = fm_deviation if fm_deviation is not None else 75000.0
+        if self.fm_deviation < 30000.0 or self.fm_deviation > 200000.0:
+            logging.warning(
+                f"FM deviation ({self.fm_deviation} Hz) is unusual. "
+                "Typical broadcast FM is around 75 kHz in many regions."
+            )
+
+    def demodulate(self, iq_chunk: np.ndarray, state: Dict[str, Any]) -> np.ndarray:
+        return demodulate_wfm(
+            iq_chunk,
+            state,
+            self.sample_rate,
+            self.audio_rate,
+            if_cutoff=100000.0,
+            audio_cutoff=15000.0,
+            deemphasis=7.5e-5,
+            fm_dev=self.fm_deviation
+        )
+
+    def validate_frequency(self) -> None:
+        if self.freq is None:
+            return
+        if self.freq < 87.5e6 or self.freq > 108e6:
+            logging.warning("Frequency is outside typical FM broadcast band (87.5 MHz..108 MHz).")
+
+
+class NFMListener(BaseHackRFListener):
+    """
+    NFM demodulator listener class, with defaults for typical VHF/UHF narrow FM usage.
+    """
+
+    DEFAULT_SAMPLE_RATE = 2e6
+    DEFAULT_BANDWIDTH = 200e3
+    DEFAULT_SCAN_START = 144e6
+    DEFAULT_SCAN_STOP = 148e6
+    DEFAULT_SCAN_STEP = 25e3
+
+    def __init__(self, nfm_deviation: Optional[float] = None, **kwargs) -> None:
+        super().__init__(mode='nfm', **kwargs)
+        self.nfm_deviation = nfm_deviation if nfm_deviation is not None else 5000.0
+        if self.nfm_deviation < 2000.0 or self.nfm_deviation > 25000.0:
+            logging.warning(
+                f"NFM deviation ({self.nfm_deviation} Hz) is unusual. "
+                "Typical narrow-FM dev is around 2.5kHz to 5kHz."
+            )
+
+    def demodulate(self, iq_chunk: np.ndarray, state: Dict[str, Any]) -> np.ndarray:
+        return demodulate_nfm(
+            iq_chunk,
+            state,
+            self.sample_rate,
+            self.audio_rate,
+            if_cutoff=20000.0,
+            nfm_dev=self.nfm_deviation
+        )
+
+    def validate_frequency(self) -> None:
+        if self.freq is None:
+            return
+        if self.freq < 1e7:
+            logging.warning("Using NFM below ~10 MHz is unusual. Make sure this is correct.")
+
+
+class AirbandAMListener(BaseHackRFListener):
+    """
+    Airband AM demodulator listener class, with defaults for VHF airband.
+    """
+
+    DEFAULT_SAMPLE_RATE = 2e6
+    DEFAULT_BANDWIDTH = 200e3
+    DEFAULT_SCAN_START = 118e6
+    DEFAULT_SCAN_STOP = 136e6
+    DEFAULT_SCAN_STEP = 25e3
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(mode='air', **kwargs)
+
+    def demodulate(self, iq_chunk: np.ndarray, state: Dict[str, Any]) -> np.ndarray:
+        return demodulate_am(iq_chunk, state, self.sample_rate, self.audio_rate, cutoff=6000.0)
+
+    def validate_frequency(self) -> None:
+        if self.freq is None:
+            return
+        if self.freq < 118e6 or self.freq > 136e6:
+            logging.warning("Frequency is outside the typical VHF Air band (118 MHz..136 MHz).")
+
+
+class HFAMListener(BaseHackRFListener):
+    """
+    HF AM demodulator listener class, with defaults for shortwave (HF) broadcast.
+    """
+
+    DEFAULT_SAMPLE_RATE = 2e6
+    DEFAULT_BANDWIDTH = 100e3
+    DEFAULT_SCAN_START = 6.0e6
+    DEFAULT_SCAN_STOP = 10.0e6
+    DEFAULT_SCAN_STEP = 1.0e6
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(mode='hf', **kwargs)
+
+    def demodulate(self, iq_chunk: np.ndarray, state: Dict[str, Any]) -> np.ndarray:
+        return demodulate_am(iq_chunk, state, self.sample_rate, self.audio_rate, cutoff=5000.0)
+
+    def validate_frequency(self) -> None:
+        if self.freq is None:
+            return
+        if self.freq < 2e6 or self.freq > 26e6:
+            logging.warning("Frequency is outside typical shortwave (HF) broadcast range (2 MHz..26 MHz).")
+
+
+class CBListener(BaseHackRFListener):
+    """
+    CB (Citizen's Band) AM demodulator listener class, for ~27 MHz.
+    """
+
+    DEFAULT_SAMPLE_RATE = 2e6
+    DEFAULT_BANDWIDTH = 100e3
+    DEFAULT_SCAN_START = 26.965e6
+    DEFAULT_SCAN_STOP = 27.405e6
+    DEFAULT_SCAN_STEP = 0.1e6
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(mode='cb', **kwargs)
+
+    def demodulate(self, iq_chunk: np.ndarray, state: Dict[str, Any]) -> np.ndarray:
+        return demodulate_am(iq_chunk, state, self.sample_rate, self.audio_rate, cutoff=5000.0)
+
+    def validate_frequency(self) -> None:
+        if self.freq is None:
+            return
+        if self.freq < 26.965e6 or self.freq > 27.405e6:
+            logging.warning("Frequency is outside the standard CB channels (26.965 MHz..27.405 MHz).")
+
+
+def create_listener(
+    mode: str,
+    freq: float,
+    sample_rate: float,
+    audio_rate: float,
+    duration: float,
+    out_file: str,
+    device_index: int,
+    bandwidth: float,
+    lna_gain: int,
+    vga_gain: int,
+    amp: bool,
+    fm_deviation: Optional[float] = None,
+    nfm_deviation: Optional[float] = None
+) -> BaseHackRFListener:
+    """
+    Factory function to create the appropriate listener class for the requested mode.
+    """
+    if mode == 'am':
+        return AMListener(
+            freq=freq,
+            sample_rate=sample_rate,
+            audio_rate=audio_rate,
+            duration=duration,
+            out_file=out_file,
+            device_index=device_index,
+            bandwidth=bandwidth,
+            lna_gain=lna_gain,
+            vga_gain=vga_gain,
+            amp=amp
+        )
+    elif mode == 'fm':
+        return FMListener(
+            freq=freq,
+            sample_rate=sample_rate,
+            audio_rate=audio_rate,
+            duration=duration,
+            out_file=out_file,
+            device_index=device_index,
+            bandwidth=bandwidth,
+            lna_gain=lna_gain,
+            vga_gain=vga_gain,
+            amp=amp,
+            fm_deviation=fm_deviation
+        )
+    elif mode == 'nfm':
+        return NFMListener(
+            freq=freq,
+            sample_rate=sample_rate,
+            audio_rate=audio_rate,
+            duration=duration,
+            out_file=out_file,
+            device_index=device_index,
+            bandwidth=bandwidth,
+            lna_gain=lna_gain,
+            vga_gain=vga_gain,
+            amp=amp,
+            nfm_deviation=nfm_deviation
+        )
+    elif mode == 'air':
+        return AirbandAMListener(
+            freq=freq,
+            sample_rate=sample_rate,
+            audio_rate=audio_rate,
+            duration=duration,
+            out_file=out_file,
+            device_index=device_index,
+            bandwidth=bandwidth,
+            lna_gain=lna_gain,
+            vga_gain=vga_gain,
+            amp=amp
+        )
+    elif mode == 'hf':
+        return HFAMListener(
+            freq=freq,
+            sample_rate=sample_rate,
+            audio_rate=audio_rate,
+            duration=duration,
+            out_file=out_file,
+            device_index=device_index,
+            bandwidth=bandwidth,
+            lna_gain=lna_gain,
+            vga_gain=vga_gain,
+            amp=amp
+        )
+    elif mode == 'cb':
+        return CBListener(
+            freq=freq,
+            sample_rate=sample_rate,
+            audio_rate=audio_rate,
+            duration=duration,
+            out_file=out_file,
+            device_index=device_index,
+            bandwidth=bandwidth,
+            lna_gain=lna_gain,
+            vga_gain=vga_gain,
+            amp=amp
+        )
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
+
 def parse_args() -> argparse.Namespace:
     """
-    Parse command line arguments and return an argparse.Namespace object.
+    Parses command-line arguments for the HackRF listening script.
     """
     parser = argparse.ArgumentParser(
         description=(
-            "Tune HackRF to a frequency (or scan for signals), demodulate "
-            "(NFM/AM/USB/LSB/WFM), and record audio to an OGG file. Also offers "
-            "advanced scanning/tuning for automatic frequency and mode detection."
+            "Unified HackRF script to tune and demodulate AM / FM / NFM / "
+            "AIR / HF / CB, and record the resulting audio to an OGG file."
         ),
         formatter_class=argparse.RawTextHelpFormatter
-    )
-
-    parser.add_argument(
-        "-f", "--freq",
-        type=float,
-        default=None,
-        help="Tuning frequency in Hz (e.g. 100e6). If <300, interpreted as MHz => freq *= 1e6."
     )
     parser.add_argument(
         "-m", "--mode",
         type=str,
+        required=True,
+        choices=["am", "fm", "nfm", "air", "hf", "cb"],
+        help="Demodulation mode: am / fm / nfm / air / hf / cb."
+    )
+    parser.add_argument(
+        "-f", "--freq",
+        type=float,
         default=None,
-        choices=["nfm", "am", "usb", "lsb", "wfm"],
-        help="Demodulation mode. If not specified, auto-detect based on frequency."
+        help="Frequency in Hz (e.g. 1e6 for 1 MHz)."
     )
     parser.add_argument(
         "-s", "--sample-rate",
         type=float,
-        default=2e6,
+        default=None,
         help="HackRF sample rate in Hz."
     )
     parser.add_argument(
         "-b", "--bandwidth",
         type=float,
         default=None,
-        help="Baseband filter bandwidth in Hz (default: same as sample rate)."
+        help="Baseband filter bandwidth in Hz."
     )
     parser.add_argument(
         "-a", "--audio-rate",
         type=float,
         default=48000,
-        help="Output audio sample rate in Hz (default: 48000)."
+        help="Output audio sample rate in Hz."
     )
     parser.add_argument(
         "-d", "--duration",
         type=float,
         default=0.0,
-        help="Duration in seconds. 0 => indefinite until Ctrl+C."
+        help="Duration in seconds (0 => indefinite)."
     )
     parser.add_argument(
         "-o", "--output",
@@ -1390,13 +1310,13 @@ def parse_args() -> argparse.Namespace:
         "-L", "--lna-gain",
         type=int,
         default=16,
-        help="LNA gain in dB (0..40 in steps of 8)."
+        help="LNA gain in dB [0..40 in steps of 8]."
     )
     parser.add_argument(
         "-G", "--vga-gain",
         type=int,
         default=20,
-        help="VGA gain in dB (0..62 in steps of 2)."
+        help="VGA gain in dB [0..62 in steps of 2]."
     )
     parser.add_argument(
         "-P", "--amp",
@@ -1404,100 +1324,59 @@ def parse_args() -> argparse.Namespace:
         help="Enable HackRF internal amplifier."
     )
     parser.add_argument(
-        "-T", "--auto-tune",
-        action='store_true',
-        help="Advanced tune around --freq ± --auto-tune-range in increments of --auto-tune-step."
+        "-F", "--auto-scan",
+        action="store_true",
+        help="Attempt to automatically find the best frequency for the chosen mode."
     )
     parser.add_argument(
-        "-S", "--auto-scan",
-        action='store_true',
-        help="Perform an advanced FFT-based scan over [--freq-start..--freq-end]. "
-             "If --freq is given but no start/end, uses freq ± 0.2 MHz by default."
-    )
-    parser.add_argument(
-        "-X", "--freq-start",
+        "-S", "--scan-start",
         type=float,
         default=None,
-        help="Start frequency (Hz) for auto-scan."
+        help="Start frequency (Hz) for scanning."
     )
     parser.add_argument(
-        "-Y", "--freq-end",
+        "-T", "--scan-stop",
         type=float,
         default=None,
-        help="End frequency (Hz) for auto-scan."
+        help="Stop frequency (Hz) for scanning."
     )
     parser.add_argument(
-        "-H", "--scan-threshold",
+        "-p", "--scan-step",
         type=float,
-        default=5.0,
-        help="Threshold in dB above noise floor for auto-scan."
+        default=None,
+        help="Step in Hz for scanning."
     )
     parser.add_argument(
-        "-Z", "--scan-fft-size",
-        type=int,
-        default=1024,
-        help="FFT size for auto-scan."
-    )
-    parser.add_argument(
-        "-W", "--scan-dwell",
+        "-W", "--fm-deviation",
         type=float,
-        default=0.05,
-        help="Dwell time in seconds for each step in auto-scan."
+        default=None,
+        help="Deviation in Hz for wide-FM demod."
     )
     parser.add_argument(
-        "-R", "--auto-tune-range",
+        "-N", "--nfm-deviation",
         type=float,
-        default=100000.0,
-        help="Range ± around --freq for auto-tune."
-    )
-    parser.add_argument(
-        "-E", "--auto-tune-step",
-        type=float,
-        default=10000.0,
-        help="Step size in Hz for auto-tune."
-    )
-    parser.add_argument(
-        "-U", "--adv-scan-steps",
-        type=float,
-        default=50000.0,
-        help="Frequency step size (Hz) in advanced scanning."
-    )
-    parser.add_argument(
-        "-Q", "--adv-scan-quality",
-        type=float,
-        default=0.01,
-        help="Minimum audio 'quality' threshold in advanced scanning."
-    )
-    parser.add_argument(
-        "-N", "--adv-scan-min-snr",
-        type=float,
-        default=5.0,
-        help="Minimum SNR (dB) for a signal to be considered."
-    )
-    parser.add_argument(
-        "-M", "--scan-modes",
-        type=str,
-        default="generic",
-        choices=["generic", "am", "fm"],
-        help="Which subset of modes to try during auto-scan/auto-tune.\n"
-             "'generic' => [nfm, am, usb, lsb, wfm]\n"
-             "'am' => [am]\n"
-             "'fm' => [wfm, nfm]\n"
-             "(default: generic)"
+        default=None,
+        help="Deviation in Hz for narrow-FM demod."
     )
     parser.add_argument(
         "-v", "--verbose",
-        action="count",
+        action='count',
         default=0,
         help="Increase verbosity: -v => INFO, -vv => DEBUG."
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # Make --freq required only if --auto-scan is NOT used
+    if not args.auto_scan and args.freq is None:
+        parser.error("--freq is required unless --auto-scan is enabled.")
+
+    return args
 
 
 def setup_logging(verbosity: int) -> None:
     """
-    Configure the logging verbosity based on the given level.
+    Sets up logging according to verbosity level.
     """
     if verbosity >= 2:
         level = logging.DEBUG
@@ -1505,144 +1384,66 @@ def setup_logging(verbosity: int) -> None:
         level = logging.INFO
     else:
         level = logging.WARNING
-
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        datefmt='%H:%M:%S'
-    )
+    logging.basicConfig(level=level, format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
 
 
-# =========================================================================
-# Main
-# =========================================================================
 def main() -> None:
     """
-    Entry point for the HackRF listening/recording script with advanced scanning/tuning.
+    Main entry point: parses args, creates listener, optionally scans for best freq, then records.
     """
     args = parse_args()
     setup_logging(args.verbose)
 
-    freq: Optional[float] = args.freq
+    freq = args.freq
 
-    # If freq < 300 => interpret as MHz
-    if freq is not None and freq < 300:
-        logging.info(f"Frequency {freq} < 300, interpreting as MHz => freq *= 1e6.")
-        freq *= 1e6
-
-    # Prepare scanning/tuning mode list
-    scan_mode_list = get_scan_modes(args.scan_modes)
-
-    # Check if advanced auto-scan is requested
-    if args.auto_scan:
-        start_f = args.freq_start
-        end_f = args.freq_end
-        if start_f is None and end_f is None:
-            # default ±0.2 MHz around freq
-            if freq is None:
-                logging.error("auto-scan requires a --freq or --freq-start/--freq-end.")
-                sys.exit(1)
-            start_f = freq - 0.2e6
-            end_f = freq + 0.2e6
-        elif start_f is None or end_f is None:
-            logging.error("--freq-start and --freq-end must both be specified or left unset.")
-            sys.exit(1)
-
-        logging.info(f"Performing advanced FFT-based auto-scan from {start_f/1e6:.3f} MHz "
-                     f"to {end_f/1e6:.3f} MHz with scan modes={args.scan_modes}.")
-        found_freq, found_mode = auto_scan(
-            device_index=args.device_index,
-            start_freq=start_f,
-            end_freq=end_f,
-            sample_rate=args.sample_rate,
-            bandwidth=args.bandwidth if args.bandwidth else args.sample_rate,
-            dwell_time=args.scan_dwell,
-            threshold_db=args.scan_threshold,
-            fft_size=args.scan_fft_size,
-            lna_gain=args.lna_gain,
-            vga_gain=args.vga_gain,
-            amp=args.amp,
-            scan_step=args.adv_scan_steps,
-            min_snr_db=args.adv_scan_min_snr,
-            min_quality=args.adv_scan_quality,
-            candidate_modes=scan_mode_list
-        )
-        if found_freq is None or found_mode is None:
-            logging.warning("No strong signals found by auto-scan. Exiting.")
-            sys.exit(1)
-        freq = found_freq
-        final_mode = found_mode
-        logging.info(f"Auto-scan found best signal at {freq/1e6:.5f} MHz, mode={final_mode}.")
-
-    # Check if advanced auto-tune is requested
-    elif args.auto_tune:
-        if freq is None:
-            logging.error("auto-tune requires an initial --freq.")
-            sys.exit(1)
-
-        logging.info(
-            f"Performing advanced auto-tune around {freq/1e6:.4f} MHz ± "
-            f"{args.auto_tune_range/1e6:.4f} MHz in steps of "
-            f"{args.auto_tune_step/1e3:.1f} kHz with scan modes={args.scan_modes}."
-        )
-        found_freq, found_mode = auto_tune(
-            device_index=args.device_index,
-            base_freq=freq,
-            sample_rate=args.sample_rate,
-            bandwidth=args.bandwidth if args.bandwidth else args.sample_rate,
-            lna_gain=args.lna_gain,
-            vga_gain=args.vga_gain,
-            amp=args.amp,
-            tune_range=args.auto_tune_range,
-            tune_step=args.auto_tune_step,
-            scan_mode_list=scan_mode_list,
-            min_snr_db=args.adv_scan_min_snr,
-            min_quality=args.adv_scan_quality
-        )
-        if found_freq is None or found_mode is None:
-            logging.warning("No strong signals found by auto-tune. Exiting.")
-            sys.exit(1)
-        freq = found_freq
-        final_mode = found_mode
-        logging.info(f"Auto-tune found best signal at {freq/1e6:.5f} MHz, mode={final_mode}.")
-
-    else:
-        # Normal operation (no advanced scanning/tuning)
-        if freq is None:
-            logging.error("No frequency specified. Use --auto-scan or --freq.")
-            sys.exit(1)
-
-        if args.mode:
-            final_mode = args.mode
-        else:
-            final_mode = auto_select_mode(freq)
-            logging.info(f"No mode specified; auto-selected mode={final_mode} based on freq={freq/1e6:.3f} MHz.")
-
-    if freq is None:
-        logging.error("No valid frequency found. Exiting.")
-        sys.exit(1)
-
-    listener = HackRFListener(
+    listener = create_listener(
+        mode=args.mode.lower(),
         freq=freq,
         sample_rate=args.sample_rate,
         audio_rate=args.audio_rate,
-        mode=final_mode,
         duration=args.duration,
         out_file=args.output,
         device_index=args.device_index,
         bandwidth=args.bandwidth,
         lna_gain=args.lna_gain,
         vga_gain=args.vga_gain,
-        amp=args.amp
+        amp=args.amp,
+        fm_deviation=args.fm_deviation,
+        nfm_deviation=args.nfm_deviation
     )
+
+    listener.validate_frequency()
+
+    scan_start = args.scan_start
+    scan_stop = args.scan_stop
+    scan_step = args.scan_step
+
+    if args.auto_scan:
+        if scan_start is None:
+            scan_start = listener.DEFAULT_SCAN_START
+        if scan_stop is None:
+            scan_stop = listener.DEFAULT_SCAN_STOP
+        if scan_step is None:
+            scan_step = listener.DEFAULT_SCAN_STEP
+
+        listener.open()
+        try:
+            best_freq = listener.auto_scan_frequency(scan_start, scan_stop, scan_step)
+            listener.close()
+            logging.info(f"Re-opening at best freq={best_freq/1e6:.3f} MHz.")
+            listener.freq = best_freq
+        except Exception as ex:
+            listener.close()
+            logging.error(f"Error during frequency scanning: {ex}")
+            return
 
     try:
         listener.open()
         listener.run()
     except KeyboardInterrupt:
-        logging.warning("User interrupted. Stopping.")
-    except Exception as e:
-        logging.error(f"Error: {e}")
+        logging.warning("User interrupted.")
+    except Exception as ex:
+        logging.error(f"Error: {ex}")
     finally:
         listener.close()
 
