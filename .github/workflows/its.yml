@@ -19,12 +19,27 @@ jobs:
         with:
           fetch-depth: 0  # Ensures full history for accurate diffs
 
+      - name: Check if commit message includes [skip-ci]
+        id: check_skip
+        run: |
+          # Get the last commit message from the checked out code
+          COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+          echo "Last commit message: $COMMIT_MESSAGE"
+          # If it contains [skip-ci], set skip=true
+          if [[ "$COMMIT_MESSAGE" == *"[skip-ci]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Python 3.10
+        if: steps.check_skip.outputs.skip == 'false'
         uses: actions/setup-python@v3
         with:
           python-version: "3.10"
 
       - name: Get list of changed Python files
+        if: steps.check_skip.outputs.skip == 'false'
         id: changed_files
         run: |
           echo "GITHUB_EVENT_NAME: $GITHUB_EVENT_NAME"
@@ -51,10 +66,14 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Run the changed scripts
-        if: steps.changed_files.outputs.files != ''
+        if: steps.check_skip.outputs.skip == 'false' && steps.changed_files.outputs.files != ''
         run: |
           echo "${{ steps.changed_files.outputs.files }}" | while IFS= read -r file; do
             echo "Running tests for \"$file\""
             python3 docker.py --test "$file" -v
           done
         shell: bash
+
+      - name: Skip message
+        if: steps.check_skip.outputs.skip == 'true'
+        run: echo "Skipping tests because [skip-ci] was found in the commit message."
