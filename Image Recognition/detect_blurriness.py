@@ -52,46 +52,46 @@ def parse_arguments():
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Detect blurry images using various methods.'
+        description="Detect blurry images using various methods."
     )
     parser.add_argument(
-        'image_path',
+        "image_path",
         type=str,
-        help='The path to the input image file or directory (use --batch for directories).'
+        help="The path to the input image file or directory (use --batch for directories).",
     )
     parser.add_argument(
-        '-t',
-        '--threshold',
+        "-t",
+        "--threshold",
         type=float,
-        help='Threshold for blurriness detection (default depends on method).'
+        help="Threshold for blurriness detection (default depends on method).",
     )
     parser.add_argument(
-        '--batch',
-        action='store_true',
-        help='Process a batch of images in a directory.'
+        "--batch",
+        action="store_true",
+        help="Process a batch of images in a directory.",
     )
     parser.add_argument(
-        '--method',
+        "--method",
         type=str,
-        default='laplacian',
-        choices=['laplacian', 'sobel', 'tenengrad'],
-        help='Method to use for blurriness detection (default: laplacian).'
+        default="laplacian",
+        choices=["laplacian", "sobel", "tenengrad"],
+        help="Method to use for blurriness detection (default: laplacian).",
     )
     parser.add_argument(
-        '-o',
-        '--output',
+        "-o",
+        "--output",
         type=str,
-        help='Output file to save the results.'
+        help="Output file to save the results.",
     )
     args = parser.parse_args()
 
     # Set default thresholds based on the method if not provided
     if args.threshold is None:
-        if args.method == 'laplacian':
+        if args.method == "laplacian":
             args.threshold = 100.0
-        elif args.method == 'sobel':
+        elif args.method == "sobel":
             args.threshold = 100.0
-        elif args.method == 'tenengrad':
+        elif args.method == "tenengrad":
             args.threshold = 300.0  # Tenengrad usually has higher variance values
 
     return args
@@ -101,7 +101,7 @@ def setup_logging():
     """
     Sets up the logging configuration.
     """
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 def calculate_laplacian_variance(gray_image):
@@ -131,8 +131,8 @@ def calculate_tenengrad_variance(gray_image):
     # Use Sobel operator with ksize=3
     gx = cv2.Sobel(gray_image, cv2.CV_64F, 1, 0, ksize=3)
     gy = cv2.Sobel(gray_image, cv2.CV_64F, 0, 1, ksize=3)
-    gradient_magnitude = np.sqrt(gx ** 2 + gy ** 2)
-    variance = np.mean(gradient_magnitude ** 2)
+    gradient_magnitude = np.sqrt(gx**2 + gy**2)
+    variance = np.mean(gradient_magnitude**2)
     return variance
 
 
@@ -147,11 +147,11 @@ def is_image_blurry(image_path, threshold, method):
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    if method == 'laplacian':
+    if method == "laplacian":
         score = calculate_laplacian_variance(gray)
-    elif method == 'sobel':
+    elif method == "sobel":
         score = calculate_sobel_variance(gray)
-    elif method == 'tenengrad':
+    elif method == "tenengrad":
         score = calculate_tenengrad_variance(gray)
     else:
         logging.error(f"Unknown method '{method}'.")
@@ -169,14 +169,12 @@ def process_image(image_path, threshold, method):
     if is_blurry is None:
         return None
 
-    result = {
-        'image': image_path,
-        'score': score,
-        'blurry': is_blurry
-    }
+    result = {"image": image_path, "score": score, "blurry": is_blurry}
 
-    status = 'blurry' if is_blurry else 'sharp'
-    logging.info(f"Image '{image_path}' is {status}. (Score: {score:.2f}, Threshold: {threshold}, Method: {method})")
+    status = "blurry" if is_blurry else "sharp"
+    logging.info(
+        f"Image '{image_path}' is {status}. (Score: {score:.2f}, Threshold: {threshold}, Method: {method})"
+    )
     return result
 
 
@@ -194,8 +192,9 @@ def main():
             logging.error(f"Input path '{image_path}' is not a directory.")
             sys.exit(1)
         image_files = [
-            os.path.join(image_path, f) for f in os.listdir(image_path)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp'))
+            os.path.join(image_path, f)
+            for f in os.listdir(image_path)
+            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp"))
         ]
         if not image_files:
             logging.error(f"No image files found in directory '{image_path}'.")
@@ -213,15 +212,15 @@ def main():
         result = process_image(img_file, threshold, method)
         if result:
             results.append(result)
-            if result['blurry']:
+            if result["blurry"]:
                 any_blurry = True
 
     # Save results to output file if specified
     if output_file:
         try:
-            with open(output_file, 'w') as f:
+            with open(output_file, "w") as f:
                 for res in results:
-                    status = 'blurry' if res['blurry'] else 'sharp'
+                    status = "blurry" if res["blurry"] else "sharp"
                     f.write(f"{res['image']},{res['score']:.2f},{status}\n")
             logging.info(f"Results saved to '{output_file}'.")
         except Exception as e:
@@ -231,5 +230,5 @@ def main():
     sys.exit(1 if any_blurry else 0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

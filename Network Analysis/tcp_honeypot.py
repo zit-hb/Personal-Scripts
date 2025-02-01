@@ -68,6 +68,7 @@ except ImportError:
 @dataclass
 class ConnectionInfo:
     """Data class holding information about each connection."""
+
     timestamp: datetime
     ip: str
     input_port: int
@@ -88,8 +89,10 @@ class StdoutNotifier(Notifier):
     """Notifier that prints the connection info to stdout."""
 
     def notify(self, info: ConnectionInfo) -> None:
-        print(f"[{info.timestamp}] Connection from {info.ip}:{info.output_port} "
-              f"to {info.input_port} (rDNS: {info.reverse_dns or 'N/A'})")
+        print(
+            f"[{info.timestamp}] Connection from {info.ip}:{info.output_port} "
+            f"to {info.input_port} (rDNS: {info.reverse_dns or 'N/A'})"
+        )
 
 
 class EmailNotifier(Notifier):
@@ -141,9 +144,9 @@ class EmailNotifier(Notifier):
         )
 
         msg = MIMEText(message_body)
-        msg['Subject'] = "Honeypot Connection Alert"
-        msg['From'] = self.smtp_sender
-        msg['To'] = self.recipient_email
+        msg["Subject"] = "Honeypot Connection Alert"
+        msg["From"] = self.smtp_sender
+        msg["To"] = self.recipient_email
 
         try:
             if self.use_ssl:
@@ -213,7 +216,7 @@ class Honeypot:
         notifiers: List[Notifier],
         perform_rdns: bool = False,
         flood_limit: int = 10,
-        flood_interval: int = 300
+        flood_interval: int = 300,
     ) -> None:
         """
         :param ports: List of TCP ports to listen on.
@@ -241,9 +244,7 @@ class Honeypot:
         """Start the honeypot by binding to each port in a separate thread."""
         for port in self.ports:
             thread = threading.Thread(
-                target=self._listen_on_port,
-                args=(port,),
-                daemon=True
+                target=self._listen_on_port, args=(port,), daemon=True
             )
             thread.start()
             self._threads.append(thread)
@@ -269,7 +270,7 @@ class Honeypot:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(('0.0.0.0', port))
+            s.bind(("0.0.0.0", port))
             s.listen(5)
             logging.debug(f"Socket bound to 0.0.0.0:{port}")
         except Exception as e:
@@ -301,7 +302,7 @@ class Honeypot:
                 ip=ip,
                 input_port=port,
                 output_port=src_port,
-                reverse_dns=reverse_dns
+                reverse_dns=reverse_dns,
             )
 
             # Immediately close the connection
@@ -339,8 +340,7 @@ class Honeypot:
 
         now = time.time()
         data = self._ip_notify_count.setdefault(
-            ip,
-            {"count": 0, "reset_time": now + self.flood_interval}
+            ip, {"count": 0, "reset_time": now + self.flood_interval}
         )
 
         # If current time is beyond the reset_time, reset the count and reset_time.
@@ -363,8 +363,8 @@ def parse_port_or_range(port_str: str) -> List[int]:
     e.g. "80" -> [80], "1000-1003" -> [1000, 1001, 1002, 1003].
     """
     ports = []
-    if '-' in port_str:
-        start, end = port_str.split('-', 1)
+    if "-" in port_str:
+        start, end = port_str.split("-", 1)
         try:
             start_port = int(start)
             end_port = int(end)
@@ -383,109 +383,120 @@ def parse_arguments() -> argparse.Namespace:
     """Parses command-line arguments (with short aliases and multiple --port usage)."""
     parser = argparse.ArgumentParser(
         description="A robust honeypot that sends detailed notifications.",
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
     # Ports and features
     parser.add_argument(
-        '-p', '--port',
-        action='append',
+        "-p",
+        "--port",
+        action="append",
         type=str,
-        help='TCP port or port range to bind. Can be specified multiple times.'
+        help="TCP port or port range to bind. Can be specified multiple times.",
     )
     parser.add_argument(
-        '-r', '--reverse-dns',
-        action='store_true',
-        help='Attempt reverse DNS lookup for each connection.'
+        "-r",
+        "--reverse-dns",
+        action="store_true",
+        help="Attempt reverse DNS lookup for each connection.",
     )
 
     # Email
     parser.add_argument(
-        '-e', '--email',
+        "-e",
+        "--email",
         type=str,
-        help='Send email notification to the given address.'
+        help="Send email notification to the given address.",
     )
     parser.add_argument(
-        '-H', '--smtp-server',
+        "-H",
+        "--smtp-server",
         type=str,
-        default='localhost',
-        help='SMTP server hostname or IP.'
+        default="localhost",
+        help="SMTP server hostname or IP.",
     )
     parser.add_argument(
-        '-O', '--smtp-port',
+        "-O",
+        "--smtp-port",
         type=int,
         default=25,
-        help='SMTP server port (default: 25).'
+        help="SMTP server port (default: 25).",
     )
     parser.add_argument(
-        '-u', '--smtp-user',
+        "-u",
+        "--smtp-user",
         type=str,
         default=None,
-        help='SMTP username for authentication.'
+        help="SMTP username for authentication.",
     )
     parser.add_argument(
-        '-a', '--smtp-password',
+        "-a",
+        "--smtp-password",
         type=str,
         default=None,
-        help='SMTP password for authentication.'
+        help="SMTP password for authentication.",
     )
     parser.add_argument(
-        '-f', '--smtp-sender',
+        "-f",
+        "--smtp-sender",
         type=str,
-        default='hendrik@example.com',
-        help='Email sender address.'
+        default="hendrik@example.com",
+        help="Email sender address.",
     )
     parser.add_argument(
-        '-t', '--smtp-tls',
-        action='store_true',
-        help='Use STARTTLS for SMTP.'
+        "-t",
+        "--smtp-tls",
+        action="store_true",
+        help="Use STARTTLS for SMTP.",
     )
     parser.add_argument(
-        '-x', '--smtp-ssl',
-        action='store_true',
-        help='Use SSL/TLS for the entire SMTP connection.'
+        "-x",
+        "--smtp-ssl",
+        action="store_true",
+        help="Use SSL/TLS for the entire SMTP connection.",
     )
 
     # Webhook
     parser.add_argument(
-        '-b', '--webhook',
-        type=str,
-        help='Send webhook notification to the given URL.'
+        "-b", "--webhook", type=str, help="Send webhook notification to the given URL."
     )
 
     # Stdout
     parser.add_argument(
-        '-o', '--stdout',
-        action='store_true',
-        help='Print a message to stdout for every connection.'
+        "-o",
+        "--stdout",
+        action="store_true",
+        help="Print a message to stdout for every connection.",
     )
 
     # Flood protection
     parser.add_argument(
-        '-L', '--flood-limit',
+        "-L",
+        "--flood-limit",
         type=int,
         default=10,
-        help=(
-            "Number of notifications per IP within the flood interval."
-        )
+        help=("Number of notifications per IP within the flood interval."),
     )
     parser.add_argument(
-        '-I', '--flood-interval',
+        "-I",
+        "--flood-interval",
         type=int,
         default=300,
-        help="Flood protection interval in seconds."
+        help="Flood protection interval in seconds.",
     )
 
     # Logging
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv', '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
 
     return parser.parse_args()
@@ -502,8 +513,8 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
 
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
@@ -517,9 +528,12 @@ def resolve_smtp_config(args: argparse.Namespace) -> Dict[str, any]:
         "smtp_port": args.smtp_port or int(os.getenv("HB_SMTP_PORT", "25")),
         "smtp_user": args.smtp_user or os.getenv("HB_SMTP_USER"),
         "smtp_password": args.smtp_password or os.getenv("HB_SMTP_PASSWORD"),
-        "smtp_sender": args.smtp_sender or os.getenv("HB_SMTP_SENDER", "hendrik@example.com"),
-        "use_tls": args.smtp_tls or (os.getenv("HB_SMTP_TLS", "false").lower() == "true"),
-        "use_ssl": args.smtp_ssl or (os.getenv("HB_SMTP_SSL", "false").lower() == "true"),
+        "smtp_sender": args.smtp_sender
+        or os.getenv("HB_SMTP_SENDER", "hendrik@example.com"),
+        "use_tls": args.smtp_tls
+        or (os.getenv("HB_SMTP_TLS", "false").lower() == "true"),
+        "use_ssl": args.smtp_ssl
+        or (os.getenv("HB_SMTP_SSL", "false").lower() == "true"),
     }
 
     # If environment has set a custom recipient, allow it to override:
@@ -564,16 +578,18 @@ def main():
 
     # Email Notifier
     if smtp_config["recipient_email"]:
-        notifiers.append(EmailNotifier(
-            recipient_email=smtp_config["recipient_email"],
-            smtp_server=smtp_config["smtp_server"],
-            smtp_port=smtp_config["smtp_port"],
-            smtp_user=smtp_config["smtp_user"],
-            smtp_password=smtp_config["smtp_password"],
-            smtp_sender=smtp_config["smtp_sender"],
-            use_tls=smtp_config["use_tls"],
-            use_ssl=smtp_config["use_ssl"],
-        ))
+        notifiers.append(
+            EmailNotifier(
+                recipient_email=smtp_config["recipient_email"],
+                smtp_server=smtp_config["smtp_server"],
+                smtp_port=smtp_config["smtp_port"],
+                smtp_user=smtp_config["smtp_user"],
+                smtp_password=smtp_config["smtp_password"],
+                smtp_sender=smtp_config["smtp_sender"],
+                use_tls=smtp_config["use_tls"],
+                use_ssl=smtp_config["use_ssl"],
+            )
+        )
 
     # Webhook Notifier
     if args.webhook:
@@ -588,7 +604,7 @@ def main():
         notifiers=notifiers,
         perform_rdns=args.reverse_dns,
         flood_limit=args.flood_limit,
-        flood_interval=args.flood_interval
+        flood_interval=args.flood_interval,
     )
     honeypot.start()
 

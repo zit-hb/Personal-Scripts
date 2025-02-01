@@ -37,109 +37,120 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments using sub-commands.
     """
     parser = argparse.ArgumentParser(
-        description='Modify text files using various commands.'
+        description="Modify text files using various commands."
     )
-    subparsers = parser.add_subparsers(dest='command', required=True, help='Available commands')
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, help="Available commands"
+    )
 
     # Sub-command: mod
     parser_mod = subparsers.add_parser(
-        'mod',
-        help='Modify first lines of text files corresponding to images.'
+        "mod",
+        help="Modify first lines of text files corresponding to images.",
     )
     parser_mod.add_argument(
-        'images_directory',
+        "images_directory",
         type=str,
-        help='The path to the directory containing images.'
+        help="The path to the directory containing images.",
     )
     parser_mod.add_argument(
-        'texts_directory',
+        "texts_directory",
         type=str,
-        help='The path to the directory containing text files.'
+        help="The path to the directory containing text files.",
     )
-    group_mod = parser_mod.add_argument_group('Modification options')
+    group_mod = parser_mod.add_argument_group("Modification options")
     group_mod.add_argument(
-        '-p', '--prepend',
+        "-p",
+        "--prepend",
         type=str,
-        help='String to prepend to the first line of the text files.'
+        help="String to prepend to the first line of the text files.",
     )
     group_mod.add_argument(
-        '-a', '--append',
+        "-a",
+        "--append",
         type=str,
-        help='String to append to the first line of the text files.'
+        help="String to append to the first line of the text files.",
     )
 
     # Sub-command: remove
     parser_remove = subparsers.add_parser(
-        'remove',
-        help='Remove specific tags from text files.'
+        "remove",
+        help="Remove specific tags from text files.",
     )
     parser_remove.add_argument(
-        'texts_directory',
+        "texts_directory",
         type=str,
-        help='The path to the directory containing text files.'
+        help="The path to the directory containing text files.",
     )
     parser_remove.add_argument(
-        '-t', '--tag',
+        "-t",
+        "--tag",
         type=str,
-        action='append',
+        action="append",
         required=True,
-        help='Tag to remove from the text files. Can be specified multiple times.'
+        help="Tag to remove from the text files. Can be specified multiple times.",
     )
 
     # Sub-command: unique
     parser_unique = subparsers.add_parser(
-        'unique',
-        help='Ensure all tags in text files are unique.'
+        "unique",
+        help="Ensure all tags in text files are unique.",
     )
     parser_unique.add_argument(
-        'texts_directory',
+        "texts_directory",
         type=str,
-        help='The path to the directory containing text files.'
+        help="The path to the directory containing text files.",
     )
 
     # Sub-command: name
     parser_name = subparsers.add_parser(
-        'name',
-        help='Extract name labels from image filenames and add them to text files.'
+        "name",
+        help="Extract name labels from image filenames and add them to text files.",
     )
     parser_name.add_argument(
-        'images_directory',
+        "images_directory",
         type=str,
-        help='Directory containing images. By default, caption files are assumed to be in the same directory.'
+        help="Directory containing images. By default, caption files are assumed to be in the same directory.",
     )
     parser_name.add_argument(
-        '-t', '--texts_directory',
+        "-t",
+        "--texts_directory",
         type=str,
         default=None,
-        help='Directory containing text files if different from images directory.'
+        help="Directory containing text files if different from images directory.",
     )
     parser_name.add_argument(
-        '-c', '--create-missing',
-        action='store_true',
-        help='Create the text file if it does not exist.'
+        "-c",
+        "--create-missing",
+        action="store_true",
+        help="Create the text file if it does not exist.",
     )
-    group_name = parser_name.add_argument_group('Name label options')
+    group_name = parser_name.add_argument_group("Name label options")
     group_name.add_argument(
-        '-p', '--prepend',
-        action='store_true',
-        help='Prepend the extracted filename label to the first line of the text file.'
-    )
-    group_name.add_argument(
-        '-a', '--append',
-        action='store_true',
-        help='Append the extracted filename label to the first line of the text file (default).'
+        "-p",
+        "--prepend",
+        action="store_true",
+        help="Prepend the extracted filename label to the first line of the text file.",
     )
     group_name.add_argument(
-        '-r', '--regex',
+        "-a",
+        "--append",
+        action="store_true",
+        help="Append the extracted filename label to the first line of the text file (default).",
+    )
+    group_name.add_argument(
+        "-r",
+        "--regex",
         type=str,
         default=None,
-        help='Regex pattern to extract only a specific part of the filename (without extension).'
+        help="Regex pattern to extract only a specific part of the filename (without extension).",
     )
     group_name.add_argument(
-        '-R', '--replace',
+        "-R",
+        "--replace",
         type=str,
         default=None,
-        help='Regex pattern to replace with spaces in the extracted filename label.'
+        help="Regex pattern to replace with spaces in the extracted filename label.",
     )
 
     args = parser.parse_args()
@@ -150,23 +161,27 @@ def setup_logging() -> None:
     """
     Sets up the logging configuration.
     """
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
-def modify_text_file(text_file_path: str, prepend_str: Optional[str] = None, append_str: Optional[str] = None) -> None:
+def modify_text_file(
+    text_file_path: str,
+    prepend_str: Optional[str] = None,
+    append_str: Optional[str] = None,
+) -> None:
     """
     Modifies the first line of the text file by prepending and/or appending strings.
     """
     try:
-        with open(text_file_path, 'r+', encoding='utf-8') as f:
+        with open(text_file_path, "r+", encoding="utf-8") as f:
             lines = f.readlines()
             if lines:
-                first_line = lines[0].rstrip('\n')
+                first_line = lines[0].rstrip("\n")
                 if prepend_str:
                     first_line = prepend_str + first_line
                 if append_str:
                     first_line = first_line + append_str
-                lines[0] = first_line + '\n'
+                lines[0] = first_line + "\n"
                 f.seek(0)
                 f.writelines(lines)
                 f.truncate()
@@ -181,18 +196,18 @@ def remove_tags_from_file(text_file_path: str, remove_tags: List[str]) -> None:
     Removes specific tags from the first line of the text file.
     """
     try:
-        with open(text_file_path, 'r+', encoding='utf-8') as f:
+        with open(text_file_path, "r+", encoding="utf-8") as f:
             lines = f.readlines()
             if lines:
-                first_line = lines[0].rstrip('\n').strip()
-                tags = [tag.strip() for tag in first_line.split(',')]
+                first_line = lines[0].rstrip("\n").strip()
+                tags = [tag.strip() for tag in first_line.split(",")]
                 original_tags = tags.copy()
                 for tag in remove_tags:
                     if tag in tags:
                         tags.remove(tag)
                 if len(tags) != len(original_tags):
-                    new_first_line = ', '.join(tags)
-                    lines[0] = new_first_line + '\n'
+                    new_first_line = ", ".join(tags)
+                    lines[0] = new_first_line + "\n"
                     f.seek(0)
                     f.writelines(lines)
                     f.truncate()
@@ -210,11 +225,11 @@ def ensure_unique_tags_in_file(text_file_path: str) -> None:
     Ensures that all tags in the first line of the text file are unique.
     """
     try:
-        with open(text_file_path, 'r+', encoding='utf-8') as f:
+        with open(text_file_path, "r+", encoding="utf-8") as f:
             lines = f.readlines()
             if lines:
-                first_line = lines[0].rstrip('\n').strip()
-                tags = [tag.strip() for tag in first_line.split(',')]
+                first_line = lines[0].rstrip("\n").strip()
+                tags = [tag.strip() for tag in first_line.split(",")]
                 unique_tags: List[str] = []
                 seen_tags: Set[str] = set()
                 for tag in tags:
@@ -222,8 +237,8 @@ def ensure_unique_tags_in_file(text_file_path: str) -> None:
                         unique_tags.append(tag)
                         seen_tags.add(tag)
                 if len(unique_tags) != len(tags):
-                    new_first_line = ', '.join(unique_tags)
-                    lines[0] = new_first_line + '\n'
+                    new_first_line = ", ".join(unique_tags)
+                    lines[0] = new_first_line + "\n"
                     f.seek(0)
                     f.writelines(lines)
                     f.truncate()
@@ -233,13 +248,15 @@ def ensure_unique_tags_in_file(text_file_path: str) -> None:
             else:
                 logging.warning(f"Text file '{text_file_path}' is empty.")
     except Exception as e:
-        logging.error(f"Failed to ensure unique tags in text file '{text_file_path}': {e}")
+        logging.error(
+            f"Failed to ensure unique tags in text file '{text_file_path}': {e}"
+        )
 
 
 def extract_label_from_filename(
     filename: str,
     regex_pattern: Optional[str] = None,
-    replace_pattern: Optional[str] = None
+    replace_pattern: Optional[str] = None,
 ) -> str:
     """
     Extracts a label from the base name of the filename, optionally using a regex to pick a part,
@@ -264,7 +281,7 @@ def extract_label_from_filename(
 
     # If a replace pattern is given, replace those occurrences with space.
     if replace_pattern:
-        extracted = re.sub(replace_pattern, ' ', extracted)
+        extracted = re.sub(replace_pattern, " ", extracted)
 
     # Strip the extracted label
     return extracted.strip()
@@ -280,20 +297,24 @@ def handle_mod_command(args: argparse.Namespace) -> None:
     append_str: Optional[str] = args.append
 
     if not os.path.isdir(images_directory):
-        logging.error(f"Directory '{images_directory}' does not exist or is not a directory.")
+        logging.error(
+            f"Directory '{images_directory}' does not exist or is not a directory."
+        )
         sys.exit(1)
 
     if not os.path.isdir(texts_directory):
-        logging.error(f"Directory '{texts_directory}' does not exist or is not a directory.")
+        logging.error(
+            f"Directory '{texts_directory}' does not exist or is not a directory."
+        )
         sys.exit(1)
 
-    image_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')
+    image_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")
     files_in_images_dir = os.listdir(images_directory)
 
     for filename in files_in_images_dir:
         if filename.lower().endswith(image_extensions):
             base_name = os.path.splitext(filename)[0]
-            text_file_name = base_name + '.txt'
+            text_file_name = base_name + ".txt"
             text_file_path = os.path.join(texts_directory, text_file_name)
             if os.path.isfile(text_file_path):
                 logging.info(f"Modifying text file '{text_file_path}'.")
@@ -312,10 +333,12 @@ def handle_remove_command(args: argparse.Namespace) -> None:
     remove_tags: List[str] = args.tag  # This is a list of tags
 
     if not os.path.isdir(texts_directory):
-        logging.error(f"Directory '{texts_directory}' does not exist or is not a directory.")
+        logging.error(
+            f"Directory '{texts_directory}' does not exist or is not a directory."
+        )
         sys.exit(1)
 
-    text_files = [f for f in os.listdir(texts_directory) if f.lower().endswith('.txt')]
+    text_files = [f for f in os.listdir(texts_directory) if f.lower().endswith(".txt")]
 
     for text_file in text_files:
         text_file_path = os.path.join(texts_directory, text_file)
@@ -330,10 +353,12 @@ def handle_unique_command(args: argparse.Namespace) -> None:
     texts_directory: str = args.texts_directory
 
     if not os.path.isdir(texts_directory):
-        logging.error(f"Directory '{texts_directory}' does not exist or is not a directory.")
+        logging.error(
+            f"Directory '{texts_directory}' does not exist or is not a directory."
+        )
         sys.exit(1)
 
-    text_files = [f for f in os.listdir(texts_directory) if f.lower().endswith('.txt')]
+    text_files = [f for f in os.listdir(texts_directory) if f.lower().endswith(".txt")]
 
     for text_file in text_files:
         text_file_path = os.path.join(texts_directory, text_file)
@@ -354,7 +379,9 @@ def handle_name_command(args: argparse.Namespace) -> None:
     replace_pattern: Optional[str] = args.replace
 
     if not os.path.isdir(images_directory):
-        logging.error(f"Directory '{images_directory}' does not exist or is not a directory.")
+        logging.error(
+            f"Directory '{images_directory}' does not exist or is not a directory."
+        )
         sys.exit(1)
 
     # If no texts_directory is specified, we assume it's the same as images_directory
@@ -362,10 +389,12 @@ def handle_name_command(args: argparse.Namespace) -> None:
         texts_directory = images_directory
 
     if not os.path.isdir(texts_directory):
-        logging.error(f"Directory '{texts_directory}' does not exist or is not a directory.")
+        logging.error(
+            f"Directory '{texts_directory}' does not exist or is not a directory."
+        )
         sys.exit(1)
 
-    image_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')
+    image_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")
     files_in_images_dir = os.listdir(images_directory)
 
     # Default to append if neither prepend nor append is specified
@@ -375,7 +404,9 @@ def handle_name_command(args: argparse.Namespace) -> None:
     for filename in files_in_images_dir:
         if filename.lower().endswith(image_extensions):
             # Extract the label from the filename
-            label = extract_label_from_filename(filename, regex_pattern, replace_pattern)
+            label = extract_label_from_filename(
+                filename, regex_pattern, replace_pattern
+            )
 
             # If label is empty, skip
             if not label:
@@ -383,27 +414,33 @@ def handle_name_command(args: argparse.Namespace) -> None:
                 continue
 
             base_name = os.path.splitext(filename)[0]
-            text_file_name = base_name + '.txt'
+            text_file_name = base_name + ".txt"
             text_file_path = os.path.join(texts_directory, text_file_name)
 
             if not os.path.isfile(text_file_path):
                 if create_missing:
                     logging.info(f"Creating missing text file '{text_file_path}'.")
-                    with open(text_file_path, 'w', encoding='utf-8') as f:
+                    with open(text_file_path, "w", encoding="utf-8") as f:
                         # Write label if we want to treat it as "append" or "prepend" on empty file
                         # but let's keep it blank for consistency, the loop will handle it.
-                        f.write('')
+                        f.write("")
                 else:
-                    logging.info(f"No caption file for '{filename}' and creation not requested. Skipping.")
+                    logging.info(
+                        f"No caption file for '{filename}' and creation not requested. Skipping."
+                    )
                     continue
 
             # Now read the file, parse first line, add label
             try:
-                with open(text_file_path, 'r+', encoding='utf-8') as f:
+                with open(text_file_path, "r+", encoding="utf-8") as f:
                     lines = f.readlines()
                     if lines:
-                        first_line = lines[0].rstrip('\n').strip()
-                        tags = [t.strip() for t in first_line.split(',')] if first_line else []
+                        first_line = lines[0].rstrip("\n").strip()
+                        tags = (
+                            [t.strip() for t in first_line.split(",")]
+                            if first_line
+                            else []
+                        )
                     else:
                         tags = []
 
@@ -414,8 +451,8 @@ def handle_name_command(args: argparse.Namespace) -> None:
                         tags.append(label)
 
                     # Join them back
-                    new_first_line = ', '.join([t for t in tags if t])
-                    lines[0:1] = [new_first_line + '\n']  # replace the first line
+                    new_first_line = ", ".join([t for t in tags if t])
+                    lines[0:1] = [new_first_line + "\n"]  # replace the first line
 
                     f.seek(0)
                     f.writelines(lines)
@@ -435,18 +472,18 @@ def main() -> None:
     args = parse_arguments()
     setup_logging()
 
-    if args.command == 'mod':
+    if args.command == "mod":
         handle_mod_command(args)
-    elif args.command == 'remove':
+    elif args.command == "remove":
         handle_remove_command(args)
-    elif args.command == 'unique':
+    elif args.command == "unique":
         handle_unique_command(args)
-    elif args.command == 'name':
+    elif args.command == "name":
         handle_name_command(args)
     else:
         logging.error("Unknown command.")
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

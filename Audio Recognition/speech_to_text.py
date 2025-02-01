@@ -55,17 +55,28 @@ from typing import List, Optional
 import json
 
 import warnings
-warnings.filterwarnings('ignore', category=FutureWarning, module='whisper')
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="whisper")
 
 # Optional: Load environment variables from a .env file if present
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
 
 # Supported audio file extensions
-SUPPORTED_EXTENSIONS = ('.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm', '.ogg')
+SUPPORTED_EXTENSIONS = (
+    ".mp3",
+    ".mp4",
+    ".mpeg",
+    ".mpga",
+    ".m4a",
+    ".wav",
+    ".webm",
+    ".ogg",
+)
 
 # Global variables for providers
 openai_client = None
@@ -78,97 +89,97 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Convert speech from audio files into text using a local model or OpenAI\'s speech-to-text API.'
+        description="Convert speech from audio files into text using a local model or OpenAI's speech-to-text API."
     )
     parser.add_argument(
-        'input_path',
+        "input_path",
         type=str,
-        help='The path to the input audio file or directory.'
+        help="The path to the input audio file or directory.",
     )
     parser.add_argument(
-        '-p',
-        '--provider',
+        "-p",
+        "--provider",
         type=str,
-        default='local',
-        choices=['local', 'openai'],
-        help='Speech-to-text provider. Choices: "local", "openai". (default: "local")'
+        default="local",
+        choices=["local", "openai"],
+        help='Speech-to-text provider. Choices: "local", "openai". (default: "local")',
     )
     parser.add_argument(
-        '-r',
-        '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parser.add_argument(
-        '-o',
-        '--output-dir',
+        "-o",
+        "--output-dir",
         type=str,
-        default='.',
-        help='Directory to save transcription files. (default: current directory)'
+        default=".",
+        help="Directory to save transcription files. (default: current directory)",
     )
     parser.add_argument(
-        '-f',
-        '--format',
+        "-f",
+        "--format",
         type=str,
-        default='txt',
-        choices=['txt', 'json'],
-        help='Output format for transcriptions. Choices: "txt", "json". (default: "txt")'
+        default="txt",
+        choices=["txt", "json"],
+        help='Output format for transcriptions. Choices: "txt", "json". (default: "txt")',
     )
     parser.add_argument(
-        '-l',
-        '--language',
+        "-l",
+        "--language",
         type=str,
-        help='Language of the audio (e.g., "en", "es", "fr"). If not specified, the model will attempt to detect it.'
+        help='Language of the audio (e.g., "en", "es", "fr"). If not specified, the model will attempt to detect it.',
     )
     parser.add_argument(
-        '-k',
-        '--api-key',
+        "-k",
+        "--api-key",
         type=str,
-        help='OpenAI API key. Required for OpenAI provider. Can also be set via the OPENAI_API_KEY environment variable.'
+        help="OpenAI API key. Required for OpenAI provider. Can also be set via the OPENAI_API_KEY environment variable.",
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv',
-        '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
     parser.add_argument(
-        '-w',
-        '--overwrite',
-        action='store_true',
-        help='Overwrite existing transcription files if they exist.'
+        "-w",
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing transcription files if they exist.",
     )
     parser.add_argument(
-        '-c',
-        '--chunk-size',
+        "-c",
+        "--chunk-size",
         type=int,
         default=25,
-        help='Maximum size (in MB) for each audio chunk when processing large files. (default: 25)'
+        help="Maximum size (in MB) for each audio chunk when processing large files. (default: 25)",
     )
     parser.add_argument(
-        '-b',
-        '--batch',
-        action='store_true',
-        help='Enable batch processing mode. Transcriptions will be saved to files.'
+        "-b",
+        "--batch",
+        action="store_true",
+        help="Enable batch processing mode. Transcriptions will be saved to files.",
     )
     parser.add_argument(
-        '-m',
-        '--model',
+        "-m",
+        "--model",
         type=str,
-        default='base',
-        help='Name of the local model to use (e.g., "tiny", "base", "small", "medium", "large"). (default: "base")'
+        default="base",
+        help='Name of the local model to use (e.g., "tiny", "base", "small", "medium", "large"). (default: "base")',
     )
     args = parser.parse_args()
 
     # Validate chunk size
     if args.chunk_size <= 0:
-        parser.error('--chunk-size must be a positive integer.')
+        parser.error("--chunk-size must be a positive integer.")
 
     return args
 
@@ -184,7 +195,7 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     else:
         level = logging.ERROR
 
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def collect_audio_files(input_path: str, recursive: bool) -> List[Path]:
@@ -202,14 +213,16 @@ def collect_audio_files(input_path: str, recursive: bool) -> List[Path]:
             logging.error(f"File '{path}' is not a supported audio format.")
     elif path.is_dir():
         if recursive:
-            files = list(path.rglob('*'))
+            files = list(path.rglob("*"))
         else:
-            files = list(path.glob('*'))
+            files = list(path.glob("*"))
         for file in files:
             if file.is_file() and file.suffix.lower() in SUPPORTED_EXTENSIONS:
                 audio_files.append(file)
         if recursive:
-            logging.info(f"Found {len(audio_files)} audio files in '{input_path}' (recursive).")
+            logging.info(
+                f"Found {len(audio_files)} audio files in '{input_path}' (recursive)."
+            )
         else:
             logging.info(f"Found {len(audio_files)} audio files in '{input_path}'.")
     else:
@@ -229,14 +242,18 @@ def get_api_key(provided_key: Optional[str]) -> str:
     """
     if provided_key:
         return provided_key
-    api_key = os.getenv('OPENAI_API_KEY')
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        logging.error('OpenAI API key not provided. Use the -k/--api-key option or set the OPENAI_API_KEY environment variable.')
+        logging.error(
+            "OpenAI API key not provided. Use the -k/--api-key option or set the OPENAI_API_KEY environment variable."
+        )
         sys.exit(1)
     return api_key
 
 
-def transcribe_audio_openai(file_path: Path, language: Optional[str], chunk_size: int) -> dict:
+def transcribe_audio_openai(
+    file_path: Path, language: Optional[str], chunk_size: int
+) -> dict:
     """
     Transcribes the given audio file using OpenAI's Speech-to-Text API.
     If the file size exceeds the chunk size, it will be split accordingly.
@@ -245,16 +262,16 @@ def transcribe_audio_openai(file_path: Path, language: Optional[str], chunk_size
     logging.debug(f"Processing '{file_path}' of size {file_size_mb:.2f} MB.")
 
     if file_size_mb > chunk_size:
-        logging.warning(f"File '{file_path}' exceeds chunk size of {chunk_size} MB. Splitting is not implemented.")
+        logging.warning(
+            f"File '{file_path}' exceeds chunk size of {chunk_size} MB. Splitting is not implemented."
+        )
         # Placeholder for splitting logic if needed
         # For simplicity, we proceed without splitting
     try:
-        with open(file_path, 'rb') as audio_file:
+        with open(file_path, "rb") as audio_file:
             logging.debug(f"Sending '{file_path}' to OpenAI API for transcription.")
             transcription = openai_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language=language
+                model="whisper-1", file=audio_file, language=language
             )
         return transcription.to_dict()
     except OpenAIError as e:
@@ -265,21 +282,24 @@ def transcribe_audio_openai(file_path: Path, language: Optional[str], chunk_size
         return {}
 
 
-def transcribe_audio_local(file_path: Path, language: Optional[str], model_name: str) -> dict:
+def transcribe_audio_local(
+    file_path: Path, language: Optional[str], model_name: str
+) -> dict:
     """
     Transcribes the given audio file using a local speech-to-text model.
     """
     try:
         import torch  # Import torch to check for CUDA availability
+
         global local_model
         global whisper
 
         # Automatically select device
         if torch.cuda.is_available():
-            device = 'cuda'
+            device = "cuda"
             logging.info("CUDA is available. Using GPU for inference.")
         else:
-            device = 'cpu'
+            device = "cpu"
             logging.info("CUDA is not available. Using CPU for inference.")
 
         logging.debug(f"Loading local model '{model_name}' on device '{device}'.")
@@ -289,7 +309,7 @@ def transcribe_audio_local(file_path: Path, language: Optional[str], model_name:
         transcription = local_model.transcribe(
             str(file_path),
             language=language,
-            fp16=False  # Prevent FP16 warning on CPU
+            fp16=False,  # Prevent FP16 warning on CPU
         )
         return transcription
     except Exception as e:
@@ -306,14 +326,16 @@ def save_transcription(transcription: dict, output_path: Path, format: str) -> N
         return
 
     try:
-        if format == 'txt':
-            text = transcription.get('text', '')
-            with open(output_path.with_suffix('.txt'), 'w', encoding='utf-8') as f:
+        if format == "txt":
+            text = transcription.get("text", "")
+            with open(output_path.with_suffix(".txt"), "w", encoding="utf-8") as f:
                 f.write(text)
-        elif format == 'json':
-            with open(output_path.with_suffix('.json'), 'w', encoding='utf-8') as f:
+        elif format == "json":
+            with open(output_path.with_suffix(".json"), "w", encoding="utf-8") as f:
                 json.dump(transcription, f, ensure_ascii=False, indent=4)
-        logging.info(f"Transcription saved to '{output_path.with_suffix('.' + format)}'.")
+        logging.info(
+            f"Transcription saved to '{output_path.with_suffix('.' + format)}'."
+        )
     except Exception as e:
         logging.error(f"Failed to save transcription to '{output_path}': {e}")
 
@@ -322,9 +344,11 @@ def process_file(audio_file: Path, args: argparse.Namespace) -> None:
     """
     Processes a single audio file: transcribes and outputs the result.
     """
-    if args.provider == 'openai':
-        transcription = transcribe_audio_openai(audio_file, args.language, args.chunk_size)
-    elif args.provider == 'local':
+    if args.provider == "openai":
+        transcription = transcribe_audio_openai(
+            audio_file, args.language, args.chunk_size
+        )
+    elif args.provider == "local":
         transcription = transcribe_audio_local(audio_file, args.language, args.model)
     else:
         logging.error(f"Unknown provider '{args.provider}'.")
@@ -341,7 +365,9 @@ def process_file(audio_file: Path, args: argparse.Namespace) -> None:
         # Check if transcription already exists
         existing_files = list(output_dir.glob(f"{audio_file.stem}.*"))
         if existing_files and not args.overwrite:
-            logging.warning(f"Transcription for '{audio_file.name}' already exists. Skipping. Use -w to overwrite.")
+            logging.warning(
+                f"Transcription for '{audio_file.name}' already exists. Skipping. Use -w to overwrite."
+            )
             return
 
         # Save transcription
@@ -349,10 +375,10 @@ def process_file(audio_file: Path, args: argparse.Namespace) -> None:
     else:
         # Print transcription to stdout
         if transcription:
-            if args.format == 'txt':
+            if args.format == "txt":
                 logging.info(f"Transcription for '{audio_file}'.")
-                print(transcription.get('text', ''))
-            elif args.format == 'json':
+                print(transcription.get("text", ""))
+            elif args.format == "json":
                 logging.info(f"Transcription for '{audio_file}'.")
                 print(json.dumps(transcription, ensure_ascii=False, indent=4))
         else:
@@ -368,18 +394,24 @@ def main() -> None:
     logging.info("Starting Speech-to-Text Transcription Script.")
 
     # Initialize provider
-    if args.provider == 'openai':
+    if args.provider == "openai":
         # Set OpenAI API key
         global openai_client
-        from openai import OpenAI, OpenAIError  # Imported here to avoid issues if not using OpenAI
+        from openai import (
+            OpenAI,
+            OpenAIError,
+        )  # Imported here to avoid issues if not using OpenAI
+
         openai_client = OpenAI(api_key=get_api_key(args.api_key))
-    elif args.provider == 'local':
+    elif args.provider == "local":
         # Import whisper module for local provider at the top level
         global whisper
         try:
             import whisper
         except ImportError:
-            logging.error("The 'whisper' module is not installed. Install it using 'pip install -U openai-whisper'.")
+            logging.error(
+                "The 'whisper' module is not installed. Install it using 'pip install -U openai-whisper'."
+            )
             sys.exit(1)
     else:
         logging.error(f"Unknown provider '{args.provider}'.")
@@ -388,7 +420,9 @@ def main() -> None:
     # Collect audio files
     audio_files = collect_audio_files(args.input_path, args.recursive)
 
-    logging.info(f"Transcribing {len(audio_files)} file(s) using provider '{args.provider}'.")
+    logging.info(
+        f"Transcribing {len(audio_files)} file(s) using provider '{args.provider}'."
+    )
 
     # Process each audio file
     for audio_file in audio_files:
@@ -397,5 +431,5 @@ def main() -> None:
     logging.info("Transcription process completed successfully.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

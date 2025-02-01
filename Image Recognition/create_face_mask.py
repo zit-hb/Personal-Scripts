@@ -53,10 +53,10 @@ from typing import List, Tuple
 
 # Constants
 DEFAULT_CONFIDENCE = 0.5
-SHAPE_PREDICTOR_URL = 'http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2'
-CACHE_DIR = Path.home() / '.cache' / 'create_face_mask'
+SHAPE_PREDICTOR_URL = "http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2"
+CACHE_DIR = Path.home() / ".cache" / "create_face_mask"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
-PREDICTOR_PATH = CACHE_DIR / 'shape_predictor_68_face_landmarks.dat'
+PREDICTOR_PATH = CACHE_DIR / "shape_predictor_68_face_landmarks.dat"
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -64,42 +64,42 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Create a binary face mask from an image using Dlib face detection.'
+        description="Create a binary face mask from an image using Dlib face detection."
     )
     parser.add_argument(
-        'input_path',
+        "input_path",
         type=str,
-        help='The path to the input image file.'
+        help="The path to the input image file.",
     )
     parser.add_argument(
-        'output_path',
+        "output_path",
         type=str,
-        help='The path to save the output mask image.'
+        help="The path to save the output mask image.",
     )
     parser.add_argument(
-        '-c',
-        '--confidence',
+        "-c",
+        "--confidence",
         type=float,
         default=DEFAULT_CONFIDENCE,
-        help='Minimum confidence for face detection (default: 0.5).'
+        help="Minimum confidence for face detection (default: 0.5).",
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv',
-        '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
     parser.add_argument(
-        '-d',
-        '--debug-image',
-        action='store_true',
-        help='Save a debug image showing face contours and landmarks.'
+        "-d",
+        "--debug-image",
+        action="store_true",
+        help="Save a debug image showing face contours and landmarks.",
     )
     args = parser.parse_args()
 
@@ -121,10 +121,7 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     else:
         level = logging.ERROR
 
-    logging.basicConfig(
-        level=level,
-        format='%(levelname)s: %(message)s'
-    )
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def download_and_extract_shape_predictor(destination: Path) -> None:
@@ -132,48 +129,48 @@ def download_and_extract_shape_predictor(destination: Path) -> None:
     Download and extract the shape predictor file if not present.
     """
     if destination.is_file():
-        logging.info(f'Shape predictor already available at {destination}.')
+        logging.info(f"Shape predictor already available at {destination}.")
         return
 
-    logging.info(f'Downloading shape predictor from {SHAPE_PREDICTOR_URL}.')
+    logging.info(f"Downloading shape predictor from {SHAPE_PREDICTOR_URL}.")
     try:
         response = requests.get(SHAPE_PREDICTOR_URL, stream=True)
         response.raise_for_status()
-        compressed_path = destination.with_suffix('.dat.bz2')
+        compressed_path = destination.with_suffix(".dat.bz2")
 
-        with open(compressed_path, 'wb') as f:
+        with open(compressed_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
-        logging.info(f'Downloaded compressed shape predictor to {compressed_path}.')
+        logging.info(f"Downloaded compressed shape predictor to {compressed_path}.")
 
         # Extract bz2 file
-        logging.info('Extracting shape predictor file.')
-        with bz2.open(compressed_path, 'rb') as f_in, open(destination, 'wb') as f_out:
+        logging.info("Extracting shape predictor file.")
+        with bz2.open(compressed_path, "rb") as f_in, open(destination, "wb") as f_out:
             shutil.copyfileobj(f_in, f_out)
 
-        logging.info(f'Shape predictor file extracted to {destination}.')
+        logging.info(f"Shape predictor file extracted to {destination}.")
         compressed_path.unlink()
 
     except Exception as e:
-        logging.error(f'Failed to download or extract shape predictor: {e}')
+        logging.error(f"Failed to download or extract shape predictor: {e}")
         sys.exit(1)
 
 
-def load_dlib_models(predictor_path: Path) -> Tuple[dlib.fhog_object_detector, dlib.shape_predictor]:
+def load_dlib_models(
+    predictor_path: Path,
+) -> Tuple[dlib.fhog_object_detector, dlib.shape_predictor]:
     """
     Load the Dlib face detector and shape predictor models.
     """
-    logging.info('Loading Dlib models...')
+    logging.info("Loading Dlib models...")
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor(str(predictor_path))
-    logging.info('Dlib models loaded successfully.')
+    logging.info("Dlib models loaded successfully.")
     return detector, predictor
 
 
 def detect_faces(
-    image: np.ndarray,
-    detector: dlib.fhog_object_detector,
-    confidence_threshold: float
+    image: np.ndarray, detector: dlib.fhog_object_detector, confidence_threshold: float
 ) -> Tuple[List[dlib.rectangle], List[float]]:
     """
     Detect faces in an image using Dlib's get_frontal_face_detector.
@@ -189,14 +186,14 @@ def detect_faces(
             filtered_faces.append(face)
             filtered_scores.append(score)
 
-    logging.debug(f'Detected {len(filtered_faces)} faces above confidence {confidence_threshold}.')
+    logging.debug(
+        f"Detected {len(filtered_faces)} faces above confidence {confidence_threshold}."
+    )
     return filtered_faces, filtered_scores
 
 
 def get_face_landmarks(
-    image: np.ndarray,
-    predictor: dlib.shape_predictor,
-    face_rect: dlib.rectangle
+    image: np.ndarray, predictor: dlib.shape_predictor, face_rect: dlib.rectangle
 ) -> List[Tuple[int, int]]:
     """
     Get the 68-point facial landmarks for a given face rectangle using the predictor.
@@ -208,15 +205,14 @@ def get_face_landmarks(
 
 
 def create_mask(
-    image_shape: Tuple[int, int],
-    all_points: List[List[Tuple[int, int]]]
+    image_shape: Tuple[int, int], all_points: List[List[Tuple[int, int]]]
 ) -> np.ndarray:
     """
     Create a mask with faces filled in black and the background white.
     all_points is a list of lists of (x,y) landmarks for each face.
     """
     (h, w) = image_shape
-    mask = (255 * (np.ones((h, w), dtype='uint8'))).copy()
+    mask = (255 * (np.ones((h, w), dtype="uint8"))).copy()
     for points in all_points:
         hull = cv2.convexHull(np.array(points))
         cv2.fillConvexPoly(mask, hull, 0)
@@ -227,7 +223,7 @@ def create_debug_image(
     original_image: np.ndarray,
     faces: List[dlib.rectangle],
     scores: List[float],
-    all_points: List[List[Tuple[int, int]]]
+    all_points: List[List[Tuple[int, int]]],
 ) -> np.ndarray:
     """
     Create a debug image with bounding boxes, confidence values, face contours,
@@ -241,10 +237,11 @@ def create_debug_image(
             debug_img,
             (face.left(), face.top()),
             (face.right(), face.bottom()),
-            (0, 255, 0), 2
+            (0, 255, 0),
+            2,
         )
         # Draw confidence text
-        text = f'{score*100:.1f}%'
+        text = f"{score * 100:.1f}%"
         cv2.putText(
             debug_img,
             text,
@@ -253,14 +250,14 @@ def create_debug_image(
             0.5,
             (0, 255, 0),
             1,
-            cv2.LINE_AA
+            cv2.LINE_AA,
         )
         # Draw face contour
         hull = cv2.convexHull(np.array(points))
         cv2.polylines(debug_img, [hull], True, (255, 0, 0), 2)
 
         # Draw landmark points
-        for (x, y) in points:
+        for x, y in points:
             cv2.circle(debug_img, (x, y), 1, (0, 0, 255), -1)
 
     return debug_img
@@ -272,7 +269,7 @@ def main() -> None:
     """
     args = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
-    logging.info('Starting face mask creation.')
+    logging.info("Starting face mask creation.")
 
     # Ensure shape predictor file is available
     download_and_extract_shape_predictor(PREDICTOR_PATH)
@@ -297,12 +294,14 @@ def main() -> None:
             # If debug_image is enabled, just produce a debug image with no faces.
             # The debug image in this case would look like the original image as there are no faces.
             cv2.imwrite(args.output_path, image)
-            logging.info(f'No faces detected. Debug image saved to "{args.output_path}"')
+            logging.info(
+                f'No faces detected. Debug image saved to "{args.output_path}"'
+            )
         else:
             # Otherwise, produce a white mask
-            mask = 255 * np.ones((h, w), dtype='uint8')
+            mask = 255 * np.ones((h, w), dtype="uint8")
             cv2.imwrite(args.output_path, mask)
-            logging.info('No faces detected. Saved a white mask.')
+            logging.info("No faces detected. Saved a white mask.")
         sys.exit(0)
 
     # Extract face landmarks
@@ -320,5 +319,5 @@ def main() -> None:
         logging.info(f'Mask saved to "{args.output_path}"')
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

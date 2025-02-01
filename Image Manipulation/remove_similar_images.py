@@ -44,42 +44,47 @@ import imagehash
 def parse_arguments() -> argparse.Namespace:
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='This script searches for images and removes those that are '
-                    'extremely visually similar, keeping only one copy.',
-        formatter_class=argparse.RawTextHelpFormatter
+        description="This script searches for images and removes those that are "
+        "extremely visually similar, keeping only one copy.",
+        formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        'paths',
-        nargs='+',
-        help='The image or directory to scan for images.'
+        "paths",
+        nargs="+",
+        help="The image or directory to scan for images.",
     )
     parser.add_argument(
-        '-t', '--threshold',
+        "-t",
+        "--threshold",
         type=int,
         default=5,
-        help='The similarity threshold for comparison. Lower values = stricter comparison.'
+        help="The similarity threshold for comparison. Lower values = stricter comparison.",
     )
     parser.add_argument(
-        '-d', '--directory-only',
-        action='store_true',
-        help='Limit comparisons to images within the same directory.'
+        "-d",
+        "--directory-only",
+        action="store_true",
+        help="Limit comparisons to images within the same directory.",
     )
     parser.add_argument(
-        '-n', '--dry-run',
-        action='store_true',
-        help='Show what would be done without making any changes.'
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making any changes.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        '-k', '--keep',
+        "-k",
+        "--keep",
         type=str,
-        default='biggest',
-        choices=['oldest', 'newest', 'biggest', 'smallest'],
-        help='Criteria for keeping a file.'
+        default="biggest",
+        choices=["oldest", "newest", "biggest", "smallest"],
+        help="Criteria for keeping a file.",
     )
     return parser.parse_args()
 
@@ -87,7 +92,16 @@ def parse_arguments() -> argparse.Namespace:
 def collect_images(paths: List[str]) -> List[str]:
     """Collects image files from the specified paths."""
     images = []
-    supported_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.JPG', '.JPEG', '.PNG', '.WEBP')
+    supported_extensions = (
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".JPG",
+        ".JPEG",
+        ".PNG",
+        ".WEBP",
+    )
     for path in paths:
         if os.path.isdir(path):
             for root, _, files in os.walk(path):
@@ -125,19 +139,19 @@ def compute_image_hash(image_path: str) -> Optional[imagehash.ImageHash]:
 
 def select_image_to_keep(image1: str, image2: str, criteria: str) -> str:
     """Selects one image to keep from two images based on the specified criteria."""
-    if criteria == 'oldest':
+    if criteria == "oldest":
         time1 = os.path.getmtime(image1)
         time2 = os.path.getmtime(image2)
         return image1 if time1 < time2 else image2
-    elif criteria == 'newest':
+    elif criteria == "newest":
         time1 = os.path.getmtime(image1)
         time2 = os.path.getmtime(image2)
         return image1 if time1 > time2 else image2
-    elif criteria == 'biggest':
+    elif criteria == "biggest":
         size1 = os.path.getsize(image1)
         size2 = os.path.getsize(image2)
         return image1 if size1 > size2 else image2
-    elif criteria == 'smallest':
+    elif criteria == "smallest":
         size1 = os.path.getsize(image1)
         size2 = os.path.getsize(image2)
         return image1 if size1 < size2 else image2
@@ -166,7 +180,9 @@ def compare_and_remove_images(images: List[str], args: argparse.Namespace) -> No
                 image_to_keep = select_image_to_keep(image, existing_image, args.keep)
                 image_to_remove = existing_image if image_to_keep == image else image
                 if args.verbose or args.dry_run:
-                    print(f"Removing similar image: '{image_to_remove}' (Difference: {difference})")
+                    print(
+                        f"Removing similar image: '{image_to_remove}' (Difference: {difference})"
+                    )
                 if not args.dry_run:
                     try:
                         os.remove(image_to_remove)

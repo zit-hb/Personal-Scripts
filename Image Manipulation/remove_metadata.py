@@ -54,52 +54,57 @@ import piexif
 
 # A simple map from forced format strings to recommended extensions
 FORMAT_EXTENSION_MAP = {
-    'jpg': '.jpg',
-    'jpeg': '.jpeg',
-    'png': '.png',
-    'tiff': '.tiff',
-    'bmp': '.bmp',
-    'gif': '.gif',
-    'webp': '.webp'
+    "jpg": ".jpg",
+    "jpeg": ".jpeg",
+    "png": ".png",
+    "tiff": ".tiff",
+    "bmp": ".bmp",
+    "gif": ".gif",
+    "webp": ".webp",
 }
 
 
 def parse_arguments():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Remove (almost) all metadata from images, optionally also reducing watermarks.'
+        description="Remove (almost) all metadata from images, optionally also reducing watermarks."
     )
 
     parser.add_argument(
-        '-o', '--output-dir',
+        "-o",
+        "--output-dir",
         type=str,
-        help='Output directory for images with metadata removed.'
+        help="Output directory for images with metadata removed.",
     )
     parser.add_argument(
-        '-r', '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parser.add_argument(
-        '-w', '--remove-watermark',
-        action='store_true',
-        help='Attempt to remove/reduce embedded watermarks with minimal visible changes.'
+        "-w",
+        "--remove-watermark",
+        action="store_true",
+        help="Attempt to remove/reduce embedded watermarks with minimal visible changes.",
     )
     parser.add_argument(
-        '-f', '--format',
+        "-f",
+        "--format",
         type=str,
-        help='Force output image format (e.g., png, jpeg, tiff, ...). '
-             'If not specified, use the original file extension.'
+        help="Force output image format (e.g., png, jpeg, tiff, ...). "
+        "If not specified, use the original file extension.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        'paths',
-        nargs='+',
-        help='Path(s) to image(s) or directory(ies) to process.'
+        "paths",
+        nargs="+",
+        help="Path(s) to image(s) or directory(ies) to process.",
     )
     return parser.parse_args()
 
@@ -107,7 +112,7 @@ def parse_arguments():
 def setup_logging(verbose: bool):
     """Sets up the logging configuration."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def collect_images(paths: List[str], recursive: bool) -> List[str]:
@@ -116,7 +121,7 @@ def collect_images(paths: List[str], recursive: bool) -> List[str]:
     If a path is a directory and recursive is True,
     it will traverse the directory structure.
     """
-    supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', '.webp')
+    supported_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif", ".webp")
     image_files = []
 
     for path in paths:
@@ -124,7 +129,9 @@ def collect_images(paths: List[str], recursive: bool) -> List[str]:
             if path.lower().endswith(supported_extensions):
                 image_files.append(path)
             else:
-                logging.warning(f"File '{path}' is not a supported image format, skipping.")
+                logging.warning(
+                    f"File '{path}' is not a supported image format, skipping."
+                )
         elif os.path.isdir(path):
             if recursive:
                 for root, _, files in os.walk(path):
@@ -136,7 +143,9 @@ def collect_images(paths: List[str], recursive: bool) -> List[str]:
                     if file.lower().endswith(supported_extensions):
                         image_files.append(os.path.join(path, file))
         else:
-            logging.warning(f"Path '{path}' is neither a file nor a directory, skipping.")
+            logging.warning(
+                f"Path '{path}' is neither a file nor a directory, skipping."
+            )
 
     if not image_files:
         logging.error("No image files found in the specified path(s).")
@@ -164,8 +173,14 @@ def remove_metadata(img: Image.Image, img_path: str, verbose: bool) -> Image.Ima
                 for ifd_name in exif_dict:
                     if isinstance(exif_dict[ifd_name], dict):
                         for tag_id, value in exif_dict[ifd_name].items():
-                            tag_name = piexif.TAGS[ifd_name].get(tag_id, {}).get('name', tag_id)
-                            logging.debug(f"EXIF Tag [{ifd_name}]: {tag_name} -> {value}")
+                            tag_name = (
+                                piexif.TAGS[ifd_name]
+                                .get(tag_id, {})
+                                .get("name", tag_id)
+                            )
+                            logging.debug(
+                                f"EXIF Tag [{ifd_name}]: {tag_name} -> {value}"
+                            )
             except Exception as e:
                 logging.debug(f"Could not parse EXIF data for '{img_path}': {e}")
 
@@ -186,16 +201,15 @@ def remove_embedded_watermark(img: Image.Image, verbose: bool) -> Image.Image:
     to the entire image to blur out subtle text or lines.
     """
     if verbose:
-        logging.debug("Applying a minimal median filter (size=3) to reduce potential watermarks.")
+        logging.debug(
+            "Applying a minimal median filter (size=3) to reduce potential watermarks."
+        )
     filtered_img = img.filter(ImageFilter.MedianFilter(size=3))
     return filtered_img
 
 
 def determine_output_path(
-    img_path: str,
-    output_dir: str,
-    force_format: str,
-    verbose: bool
+    img_path: str, output_dir: str, force_format: str, verbose: bool
 ) -> str:
     """
     Determine the output file path based on whether a format is forced
@@ -211,7 +225,7 @@ def determine_output_path(
     # Decide on extension
     if force_format:
         # Use the extension map, or fallback if unknown
-        ext = FORMAT_EXTENSION_MAP.get(force_format.lower(), '.' + force_format.lower())
+        ext = FORMAT_EXTENSION_MAP.get(force_format.lower(), "." + force_format.lower())
     else:
         # Keep exactly the same extension
         ext = original_ext
@@ -242,7 +256,7 @@ def process_image(
     output_dir: str,
     force_format: str,
     remove_watermark_flag: bool,
-    verbose: bool
+    verbose: bool,
 ):
     """
     Process a single image: remove metadata (and optionally watermarks),
@@ -266,22 +280,22 @@ def process_image(
                 save_format = force_format.upper()
             else:
                 # Use original format (as recognized by Pillow) if available, else default 'PNG'
-                save_format = (original_format or 'PNG').upper()
+                save_format = (original_format or "PNG").upper()
 
             # Determine the output path (might overwrite the original)
             output_path = determine_output_path(
                 img_path=img_path,
                 output_dir=output_dir,
                 force_format=force_format,
-                verbose=verbose
+                verbose=verbose,
             )
 
             # Provide an empty EXIF block to ensure old EXIF isn't preserved
             exif_bytes = piexif.dump({})
-            
+
             # If saving as JPEG, we may need to ensure 'RGB' mode to avoid errors with 'RGBA' or 'P'
-            if save_format in ['JPEG', 'JPG'] and clean_img.mode not in ['RGB', 'L']:
-                clean_img = clean_img.convert('RGB')
+            if save_format in ["JPEG", "JPG"] and clean_img.mode not in ["RGB", "L"]:
+                clean_img = clean_img.convert("RGB")
 
             # Save the final image
             clean_img.save(output_path, format=save_format, exif=exif_bytes)
@@ -307,9 +321,9 @@ def main():
             output_dir=args.output_dir,
             force_format=args.format,
             remove_watermark_flag=args.remove_watermark,
-            verbose=args.verbose
+            verbose=args.verbose,
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

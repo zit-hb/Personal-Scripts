@@ -56,63 +56,65 @@ def parse_arguments():
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Intelligently merge multiple images into a single image with alignment and advanced blending.'
+        description="Intelligently merge multiple images into a single image with alignment and advanced blending."
     )
     parser.add_argument(
-        'input_path',
+        "input_path",
         type=str,
-        help='The path to the input image file or directory.'
+        help="The path to the input image file or directory.",
     )
     parser.add_argument(
-        '-r',
-        '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parser.add_argument(
-        '--blend-mode',
+        "--blend-mode",
         type=str,
-        default='average',
-        choices=['average', 'median', 'max', 'min'],
-        help='Mode to blend images (default: average).'
+        default="average",
+        choices=["average", "median", "max", "min"],
+        help="Mode to blend images (default: average).",
     )
     parser.add_argument(
-        '--alignment-method',
+        "--alignment-method",
         type=str,
-        default='ORB',
-        choices=['ORB', 'SIFT', 'SURF'],
-        help='Feature detection method for alignment (default: ORB).'
+        default="ORB",
+        choices=["ORB", "SIFT", "SURF"],
+        help="Feature detection method for alignment (default: ORB).",
     )
     parser.add_argument(
-        '--resolution-mode',
+        "--resolution-mode",
         type=str,
-        default='middle',
-        choices=['smallest', 'biggest', 'middle', 'custom'],
-        help='Mode to determine output image resolution (default: middle).'
+        default="middle",
+        choices=["smallest", "biggest", "middle", "custom"],
+        help="Mode to determine output image resolution (default: middle).",
     )
     parser.add_argument(
-        '--width',
+        "--width",
         type=int,
-        help='Custom width for the output image (required if resolution-mode is "custom").'
+        help='Custom width for the output image (required if resolution-mode is "custom").',
     )
     parser.add_argument(
-        '--height',
+        "--height",
         type=int,
-        help='Custom height for the output image (required if resolution-mode is "custom").'
+        help='Custom height for the output image (required if resolution-mode is "custom").',
     )
     parser.add_argument(
-        '-o',
-        '--output',
+        "-o",
+        "--output",
         type=str,
-        default='merged_image_advanced.png',
-        help='Output file name for the merged image (default: merged_image_advanced.png).'
+        default="merged_image_advanced.png",
+        help="Output file name for the merged image (default: merged_image_advanced.png).",
     )
     args = parser.parse_args()
 
     # Validate custom resolution arguments
-    if args.resolution_mode == 'custom':
+    if args.resolution_mode == "custom":
         if args.width is None or args.height is None:
-            parser.error('--width and --height must be specified when resolution-mode is "custom".')
+            parser.error(
+                '--width and --height must be specified when resolution-mode is "custom".'
+            )
 
     return args
 
@@ -121,14 +123,14 @@ def setup_logging():
     """
     Sets up the logging configuration.
     """
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 def collect_images(input_path, recursive):
     """
     Collects all image files from the input path.
     """
-    supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')
+    supported_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")
     image_files = []
 
     if os.path.isfile(input_path):
@@ -158,7 +160,9 @@ def collect_images(input_path, recursive):
     return image_files
 
 
-def determine_output_size(image_files, resolution_mode, custom_width=None, custom_height=None):
+def determine_output_size(
+    image_files, resolution_mode, custom_width=None, custom_height=None
+):
     """
     Determines the output image size based on the resolution mode.
     """
@@ -171,18 +175,18 @@ def determine_output_size(image_files, resolution_mode, custom_width=None, custo
             logging.error(f"Failed to open image '{img_path}': {e}")
             sys.exit(1)
 
-    if resolution_mode == 'smallest':
+    if resolution_mode == "smallest":
         width = min(size[0] for size in sizes)
         height = min(size[1] for size in sizes)
-    elif resolution_mode == 'biggest':
+    elif resolution_mode == "biggest":
         width = max(size[0] for size in sizes)
         height = max(size[1] for size in sizes)
-    elif resolution_mode == 'middle':
+    elif resolution_mode == "middle":
         sorted_widths = sorted(size[0] for size in sizes)
         sorted_heights = sorted(size[1] for size in sizes)
         width = sorted_widths[len(sorted_widths) // 2]
         height = sorted_heights[len(sorted_heights) // 2]
-    elif resolution_mode == 'custom':
+    elif resolution_mode == "custom":
         width = custom_width
         height = custom_height
     else:
@@ -201,11 +205,13 @@ def load_and_resize_images(image_files, target_size):
     for idx, img_path in enumerate(image_files):
         try:
             with Image.open(img_path) as img:
-                img = img.convert('RGB')
+                img = img.convert("RGB")
                 img = img.resize(target_size, Image.Resampling.LANCZOS)
                 img_np = np.array(img)
                 resized_images.append(img_np)
-                logging.info(f"Loaded and resized image {idx + 1}/{len(image_files)}: '{img_path}'")
+                logging.info(
+                    f"Loaded and resized image {idx + 1}/{len(image_files)}: '{img_path}'"
+                )
         except Exception as e:
             logging.error(f"Failed to process image '{img_path}': {e}")
             sys.exit(1)
@@ -224,21 +230,25 @@ def align_images(images, alignment_method):
     aligned_images = [reference_image]
 
     # Initialize feature detector
-    if alignment_method == 'SIFT':
+    if alignment_method == "SIFT":
         try:
             sift = cv2.SIFT_create()
             detector = sift
             logging.info("Using SIFT for feature detection.")
         except AttributeError:
-            logging.error("SIFT is not available. Ensure that you have opencv-contrib-python installed.")
+            logging.error(
+                "SIFT is not available. Ensure that you have opencv-contrib-python installed."
+            )
             sys.exit(1)
-    elif alignment_method == 'SURF':
+    elif alignment_method == "SURF":
         try:
             surf = cv2.xfeatures2d.SURF_create()
             detector = surf
             logging.info("Using SURF for feature detection.")
         except AttributeError:
-            logging.error("SURF is not available. Ensure that you have opencv-contrib-python installed.")
+            logging.error(
+                "SURF is not available. Ensure that you have opencv-contrib-python installed."
+            )
             sys.exit(1)
     else:
         orb = cv2.ORB_create(5000)
@@ -246,7 +256,7 @@ def align_images(images, alignment_method):
         logging.info("Using ORB for feature detection.")
 
     # Define matcher
-    if alignment_method in ['SIFT', 'SURF']:
+    if alignment_method in ["SIFT", "SURF"]:
         bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
     else:
         bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
@@ -257,7 +267,9 @@ def align_images(images, alignment_method):
         keypoints2, descriptors2 = detector.detectAndCompute(img, None)
 
         if descriptors1 is None or descriptors2 is None:
-            logging.warning(f"Not enough descriptors found in image {idx}. Skipping alignment.")
+            logging.warning(
+                f"Not enough descriptors found in image {idx}. Skipping alignment."
+            )
             aligned_images.append(img)
             continue
 
@@ -265,21 +277,31 @@ def align_images(images, alignment_method):
         matches = sorted(matches, key=lambda x: x.distance)
 
         if len(matches) < 4:
-            logging.warning(f"Not enough matches found in image {idx}. Skipping alignment.")
+            logging.warning(
+                f"Not enough matches found in image {idx}. Skipping alignment."
+            )
             aligned_images.append(img)
             continue
 
-        src_pts = np.float32([keypoints1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-        dst_pts = np.float32([keypoints2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+        src_pts = np.float32([keypoints1[m.queryIdx].pt for m in matches]).reshape(
+            -1, 1, 2
+        )
+        dst_pts = np.float32([keypoints2[m.trainIdx].pt for m in matches]).reshape(
+            -1, 1, 2
+        )
 
         try:
             M, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
             if M is not None:
-                aligned_img = cv2.warpPerspective(img, M, (reference_image.shape[1], reference_image.shape[0]))
+                aligned_img = cv2.warpPerspective(
+                    img, M, (reference_image.shape[1], reference_image.shape[0])
+                )
                 aligned_images.append(aligned_img)
                 logging.info(f"Image {idx} aligned successfully.")
             else:
-                logging.warning(f"Homography could not be computed for image {idx}. Skipping alignment.")
+                logging.warning(
+                    f"Homography could not be computed for image {idx}. Skipping alignment."
+                )
                 aligned_images.append(img)
         except cv2.error as e:
             logging.error(f"Error during alignment of image {idx}: {e}")
@@ -295,13 +317,13 @@ def blend_images(images, blend_mode):
     logging.info(f"Blending images using '{blend_mode}' mode.")
     stacked_images = np.stack(images, axis=3)
 
-    if blend_mode == 'average':
+    if blend_mode == "average":
         blended = np.mean(stacked_images, axis=3).astype(np.uint8)
-    elif blend_mode == 'median':
+    elif blend_mode == "median":
         blended = np.median(stacked_images, axis=3).astype(np.uint8)
-    elif blend_mode == 'max':
+    elif blend_mode == "max":
         blended = np.max(stacked_images, axis=3).astype(np.uint8)
-    elif blend_mode == 'min':
+    elif blend_mode == "min":
         blended = np.min(stacked_images, axis=3).astype(np.uint8)
     else:
         logging.error(f"Unknown blend mode '{blend_mode}'.")
@@ -341,7 +363,7 @@ def main():
         image_files,
         resolution_mode,
         custom_width=custom_width,
-        custom_height=custom_height
+        custom_height=custom_height,
     )
 
     # Load and resize images
@@ -357,5 +379,5 @@ def main():
     save_image(merged_image_np, output_file)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

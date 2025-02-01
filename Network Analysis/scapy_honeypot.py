@@ -91,6 +91,7 @@ except ImportError:
 @dataclass
 class ConnectionInfo:
     """Data class holding information about each connection."""
+
     timestamp: datetime
     ip: str
     # For TCP/UDP, input_port = destination port;
@@ -177,9 +178,9 @@ class EmailNotifier(Notifier):
         )
 
         msg: MIMEText = MIMEText(message_body)
-        msg['Subject'] = "Honeypot Connection Alert"
-        msg['From'] = self.smtp_sender
-        msg['To'] = self.recipient_email
+        msg["Subject"] = "Honeypot Connection Alert"
+        msg["From"] = self.smtp_sender
+        msg["To"] = self.recipient_email
 
         try:
             smtp_class = smtplib.SMTP_SSL if self.use_ssl else smtplib.SMTP
@@ -225,7 +226,9 @@ class WebhookNotifier(Notifier):
             if response.status_code == 200:
                 logging.info(f"Webhook sent to {self.webhook_url}")
             else:
-                logging.warning(f"Webhook to {self.webhook_url} returned status code {response.status_code}")
+                logging.warning(
+                    f"Webhook to {self.webhook_url} returned status code {response.status_code}"
+                )
         except Exception as e:
             logging.error(f"Error sending webhook to {self.webhook_url}: {e}")
 
@@ -246,7 +249,7 @@ class Honeypot:
         notifiers: List[Notifier],
         perform_rdns: bool = False,
         flood_limit: int = 10,
-        flood_interval: int = 300
+        flood_interval: int = 300,
     ) -> None:
         """
         :param port_protocols: A list of tuples: ([ports or types], protocol).
@@ -282,15 +285,15 @@ class Honeypot:
         logging.info("Generating BPF filter for scapy...")
 
         bpf_expressions: List[str] = []
-        for (values, proto) in self.port_protocols:
+        for values, proto in self.port_protocols:
             proto_lower = proto.lower()
-            if proto_lower in ('tcp', 'udp'):
+            if proto_lower in ("tcp", "udp"):
                 if not values:
                     # e.g. ":tcp" => all tcp
                     bpf_expressions.append(proto_lower)
                 else:
                     bpf_expressions.append(self._build_tcp_udp_bpf(proto_lower, values))
-            elif proto_lower == 'icmp':
+            elif proto_lower == "icmp":
                 if not values:
                     bpf_expressions.append("icmp")
                 else:
@@ -319,7 +322,7 @@ class Honeypot:
                 filter=final_filter,
                 prn=self._packet_handler,
                 store=False,
-                stop_filter=stop_sniff_filter
+                stop_filter=stop_sniff_filter,
             )
         except KeyboardInterrupt:
             logging.warning("Keyboard interrupt received. Shutting down.")
@@ -423,7 +426,9 @@ class Honeypot:
             reverse_dns = self._do_reverse_dns(ip_src)
 
         log_port_type: str = str(input_port) if input_port is not None else "N/A"
-        logging.info(f"Detected {protocol.upper()} from {ip_src} to {ip_dst}:{log_port_type}")
+        logging.info(
+            f"Detected {protocol.upper()} from {ip_src} to {ip_dst}:{log_port_type}"
+        )
 
         conn_info = ConnectionInfo(
             timestamp=timestamp,
@@ -432,7 +437,7 @@ class Honeypot:
             output_port=output_port,
             protocol=protocol,
             reverse_dns=reverse_dns,
-            raw_packet=raw_str
+            raw_packet=raw_str,
         )
 
         if not self._flood_exceeded(ip_src):
@@ -446,6 +451,7 @@ class Honeypot:
     def _do_reverse_dns(self, ip: str) -> Optional[str]:
         """Attempt a passive reverse DNS lookup for the given IP address."""
         import socket
+
         try:
             host, _, _ = socket.gethostbyaddr(ip)
             return host
@@ -463,8 +469,7 @@ class Honeypot:
 
         now: float = time.time()
         data: Dict[str, float] = self._ip_notify_count.setdefault(
-            ip,
-            {"count": 0, "reset_time": now + self.flood_interval}
+            ip, {"count": 0, "reset_time": now + self.flood_interval}
         )
 
         # If current time is beyond the reset_time, reset
@@ -484,41 +489,41 @@ def parse_port_protocol(port_str: str) -> Tuple[List[int], str]:
     Parses a string "[start[-end]]:protocol". For ICMP, 'start[-end]' is the ICMP type or range;
     for TCP/UDP, empty means all ports, or we parse single ports or port ranges.
     """
-    if ':' not in port_str:
+    if ":" not in port_str:
         logging.error(f"Invalid port+protocol format (missing colon): {port_str}")
-        return ([], '')
+        return ([], "")
 
-    port_part, proto_part = port_str.split(':', 1)
+    port_part, proto_part = port_str.split(":", 1)
     proto_part = proto_part.lower().strip()
     port_part = port_part.strip()
 
-    if proto_part not in ('tcp', 'udp', 'icmp'):
+    if proto_part not in ("tcp", "udp", "icmp"):
         logging.error(f"Unsupported protocol '{proto_part}' in: {port_str}")
-        return ([], '')
+        return ([], "")
 
     # Handle ICMP
-    if proto_part == 'icmp':
+    if proto_part == "icmp":
         if not port_part:
             # e.g. ":icmp" => all icmp
-            return ([], 'icmp')
-        if '-' in port_part:
+            return ([], "icmp")
+        if "-" in port_part:
             # Range of types
             try:
-                start_str, end_str = port_part.split('-', 1)
+                start_str, end_str = port_part.split("-", 1)
                 start_t = int(start_str)
                 end_t = int(end_str)
-                return (list(range(start_t, end_t + 1)), 'icmp')
+                return (list(range(start_t, end_t + 1)), "icmp")
             except ValueError:
                 logging.error(f"Invalid ICMP type range specified: {port_part}")
-                return ([], 'icmp')
+                return ([], "icmp")
         else:
             # Single type
             try:
                 icmp_type = int(port_part)
-                return ([icmp_type], 'icmp')
+                return ([icmp_type], "icmp")
             except ValueError:
                 logging.error(f"Invalid ICMP type specified: {port_part}")
-                return ([], 'icmp')
+                return ([], "icmp")
 
     # TCP/UDP:
     if not port_part:
@@ -526,10 +531,10 @@ def parse_port_protocol(port_str: str) -> Tuple[List[int], str]:
         # e.g. ":udp" => all udp
         return ([], proto_part)
 
-    if '-' in port_part:
+    if "-" in port_part:
         # Range
         try:
-            start_port, end_port = port_part.split('-', 1)
+            start_port, end_port = port_part.split("-", 1)
             start_p = int(start_port)
             end_p = int(end_port)
             return (list(range(start_p, end_p + 1)), proto_part)
@@ -550,109 +555,125 @@ def parse_arguments() -> argparse.Namespace:
     """Parses command-line arguments (with short aliases and multiple --port usage)."""
     parser = argparse.ArgumentParser(
         description="A Scapy-based honeypot that passively captures connection attempts.",
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
     parser.add_argument(
-        '-p', '--port',
-        action='append',
+        "-p",
+        "--port",
+        action="append",
         type=str,
         help=(
             'TCP/UDP/ICMP port (or type) or range in "[start[-end]]:protocol" format. '
-            'Can be specified multiple times.'
-        )
+            "Can be specified multiple times."
+        ),
     )
     parser.add_argument(
-        '-r', '--reverse-dns',
-        action='store_true',
-        help='Attempt reverse DNS lookup for each connection.'
+        "-r",
+        "--reverse-dns",
+        action="store_true",
+        help="Attempt reverse DNS lookup for each connection.",
     )
 
     # Email
     parser.add_argument(
-        '-e', '--email',
+        "-e",
+        "--email",
         type=str,
-        help='Send email notification to the given address.'
+        help="Send email notification to the given address.",
     )
     parser.add_argument(
-        '-H', '--smtp-server',
+        "-H",
+        "--smtp-server",
         type=str,
-        default='localhost',
-        help='SMTP server hostname or IP.'
+        default="localhost",
+        help="SMTP server hostname or IP.",
     )
     parser.add_argument(
-        '-O', '--smtp-port',
+        "-O",
+        "--smtp-port",
         type=int,
         default=25,
-        help='SMTP server port (default: 25).'
+        help="SMTP server port (default: 25).",
     )
     parser.add_argument(
-        '-u', '--smtp-user',
+        "-u",
+        "--smtp-user",
         type=str,
         default=None,
-        help='SMTP username for authentication.'
+        help="SMTP username for authentication.",
     )
     parser.add_argument(
-        '-a', '--smtp-password',
+        "-a",
+        "--smtp-password",
         type=str,
         default=None,
-        help='SMTP password for authentication.'
+        help="SMTP password for authentication.",
     )
     parser.add_argument(
-        '-f', '--smtp-sender',
+        "-f",
+        "--smtp-sender",
         type=str,
-        default='hendrik@example.com',
-        help='Email sender address.'
+        default="hendrik@example.com",
+        help="Email sender address.",
     )
     parser.add_argument(
-        '-t', '--smtp-tls',
-        action='store_true',
-        help='Use STARTTLS for SMTP.'
+        "-t",
+        "--smtp-tls",
+        action="store_true",
+        help="Use STARTTLS for SMTP.",
     )
     parser.add_argument(
-        '-x', '--smtp-ssl',
-        action='store_true',
-        help='Use SSL/TLS for the entire SMTP connection.'
+        "-x",
+        "--smtp-ssl",
+        action="store_true",
+        help="Use SSL/TLS for the entire SMTP connection.",
     )
 
     # Webhook
     parser.add_argument(
-        '-b', '--webhook',
+        "-b",
+        "--webhook",
         type=str,
-        help='Send webhook notification to the given URL.'
+        help="Send webhook notification to the given URL.",
     )
 
     # Stdout
     parser.add_argument(
-        '-o', '--stdout',
-        action='store_true',
-        help='Print a message to stdout for every connection.'
+        "-o",
+        "--stdout",
+        action="store_true",
+        help="Print a message to stdout for every connection.",
     )
 
     # Flood protection
     parser.add_argument(
-        '-L', '--flood-limit',
+        "-L",
+        "--flood-limit",
         type=int,
         default=10,
-        help="Number of notifications per IP within the flood interval. 0 = unlimited."
+        help="Number of notifications per IP within the flood interval. 0 = unlimited.",
     )
     parser.add_argument(
-        '-I', '--flood-interval',
+        "-I",
+        "--flood-interval",
         type=int,
         default=300,
-        help="Flood protection interval in seconds."
+        help="Flood protection interval in seconds.",
     )
 
     # Logging
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv', '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
 
     return parser.parse_args()
@@ -669,8 +690,8 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
 
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
@@ -684,9 +705,12 @@ def resolve_smtp_config(args: argparse.Namespace) -> Dict[str, Any]:
         "smtp_port": args.smtp_port or int(os.getenv("HB_SMTP_PORT", "25")),
         "smtp_user": args.smtp_user or os.getenv("HB_SMTP_USER"),
         "smtp_password": args.smtp_password or os.getenv("HB_SMTP_PASSWORD"),
-        "smtp_sender": args.smtp_sender or os.getenv("HB_SMTP_SENDER", "hendrik@example.com"),
-        "use_tls": args.smtp_tls or (os.getenv("HB_SMTP_TLS", "false").lower() == "true"),
-        "use_ssl": args.smtp_ssl or (os.getenv("HB_SMTP_SSL", "false").lower() == "true"),
+        "smtp_sender": args.smtp_sender
+        or os.getenv("HB_SMTP_SENDER", "hendrik@example.com"),
+        "use_tls": args.smtp_tls
+        or (os.getenv("HB_SMTP_TLS", "false").lower() == "true"),
+        "use_ssl": args.smtp_ssl
+        or (os.getenv("HB_SMTP_SSL", "false").lower() == "true"),
     }
 
     env_recipient: Optional[str] = os.getenv("HB_SMTP_RECEIVER")
@@ -722,16 +746,18 @@ def main() -> None:
         notifiers.append(StdoutNotifier())
 
     if smtp_config["recipient_email"]:
-        notifiers.append(EmailNotifier(
-            recipient_email=smtp_config["recipient_email"],
-            smtp_server=smtp_config["smtp_server"],
-            smtp_port=smtp_config["smtp_port"],
-            smtp_user=smtp_config["smtp_user"],
-            smtp_password=smtp_config["smtp_password"],
-            smtp_sender=smtp_config["smtp_sender"],
-            use_tls=smtp_config["use_tls"],
-            use_ssl=smtp_config["use_ssl"],
-        ))
+        notifiers.append(
+            EmailNotifier(
+                recipient_email=smtp_config["recipient_email"],
+                smtp_server=smtp_config["smtp_server"],
+                smtp_port=smtp_config["smtp_port"],
+                smtp_user=smtp_config["smtp_user"],
+                smtp_password=smtp_config["smtp_password"],
+                smtp_sender=smtp_config["smtp_sender"],
+                use_tls=smtp_config["use_tls"],
+                use_ssl=smtp_config["use_ssl"],
+            )
+        )
 
     if args.webhook:
         notifiers.append(WebhookNotifier(args.webhook))
@@ -744,7 +770,7 @@ def main() -> None:
         notifiers=notifiers,
         perform_rdns=args.reverse_dns,
         flood_limit=args.flood_limit,
-        flood_interval=args.flood_interval
+        flood_interval=args.flood_interval,
     )
     honeypot.start()
 

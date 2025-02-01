@@ -43,22 +43,24 @@ import piexif
 def parse_arguments():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Detect and display metadata (EXIF, IPTC, XMP, etc.) from images.'
+        description="Detect and display metadata (EXIF, IPTC, XMP, etc.) from images."
     )
     parser.add_argument(
-        '-r', '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose logging output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging output.",
     )
     parser.add_argument(
-        'paths',
-        nargs='+',
-        help='Path(s) to image(s) or directory(ies) to process.'
+        "paths",
+        nargs="+",
+        help="Path(s) to image(s) or directory(ies) to process.",
     )
     return parser.parse_args()
 
@@ -69,7 +71,7 @@ def setup_logging(verbose: bool):
     if not verbose:
         level = logging.CRITICAL
 
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def collect_images(paths: List[str], recursive: bool) -> List[str]:
@@ -78,7 +80,7 @@ def collect_images(paths: List[str], recursive: bool) -> List[str]:
     If a path is a directory and recursive is True,
     it will traverse the directory structure.
     """
-    supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', '.webp')
+    supported_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif", ".webp")
     image_files = []
 
     for path in paths:
@@ -120,20 +122,20 @@ def detect_metadata(img_path: str):
             info_data = {}
             for key, val in img.info.items():
                 # Not interesting
-                if key.lower().startswith('jfif'):
-                   continue
+                if key.lower().startswith("jfif"):
+                    continue
                 # We skip 'exif' here because we handle that separately below
-                if key.lower() == 'exif':
-                   continue
+                if key.lower() == "exif":
+                    continue
 
                 info_data[key] = val
 
             if info_data:
                 metadata_found = True
-                metadata_dict['info'] = info_data
+                metadata_dict["info"] = info_data
 
             # EXIF data, if present
-            exif_bytes = img.info.get('exif')
+            exif_bytes = img.info.get("exif")
             if exif_bytes:
                 try:
                     exif_dict = piexif.load(exif_bytes)
@@ -143,11 +145,17 @@ def detect_metadata(img_path: str):
                         if isinstance(exif_dict[ifd_name], dict):
                             tag_pairs = {}
                             for tag_id, value in exif_dict[ifd_name].items():
-                                tag_name = piexif.TAGS[ifd_name].get(tag_id, {}).get('name', tag_id)
+                                tag_name = (
+                                    piexif.TAGS[ifd_name]
+                                    .get(tag_id, {})
+                                    .get("name", tag_id)
+                                )
                                 # Convert bytes to string for user-friendly output if possible
                                 if isinstance(value, bytes):
                                     try:
-                                        value_str = value.decode('utf-8', errors='replace')
+                                        value_str = value.decode(
+                                            "utf-8", errors="replace"
+                                        )
                                         value = value_str
                                     except:
                                         pass
@@ -157,7 +165,7 @@ def detect_metadata(img_path: str):
 
                     if exif_readable:
                         metadata_found = True
-                        metadata_dict['exif'] = exif_readable
+                        metadata_dict["exif"] = exif_readable
                 except Exception as e:
                     logging.debug(f"Could not parse EXIF data for '{img_path}': {e}")
 
@@ -196,5 +204,5 @@ def main():
         detect_metadata(img_path)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

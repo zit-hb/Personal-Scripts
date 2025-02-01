@@ -85,6 +85,7 @@ from typing import Optional, List, Tuple
 from pathlib import Path
 
 import warnings
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -124,164 +125,189 @@ def parse_arguments() -> argparse.Namespace:
     )
     # Input / Output
     parser.add_argument(
-        '-i', '--input',
+        "-i",
+        "--input",
         type=str,
         default=None,
-        help='Path to input image. If not provided, an initial image will be generated using SDXL.'
+        help="Path to input image. If not provided, an initial image will be generated using SDXL.",
     )
     parser.add_argument(
-        '-d', '--output-dir',
+        "-d",
+        "--output-dir",
         type=str,
-        default='output',
-        help='Directory to save output images. (default: output)'
+        default="output",
+        help="Directory to save output images. (default: output)",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose logging (DEBUG level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (DEBUG level).",
     )
 
     # SDXL Generation Options
     parser.add_argument(
-        '-p', '--prompt',
+        "-p",
+        "--prompt",
         type=str,
-        default='A beautiful landscape',
-        help='Prompt for SDXL generation. (default: "A beautiful landscape")'
+        default="A beautiful landscape",
+        help='Prompt for SDXL generation. (default: "A beautiful landscape")',
     )
     parser.add_argument(
-        '-P', '--negative-prompt',
+        "-P",
+        "--negative-prompt",
         type=str,
         default=None,
-        help='Negative prompt for SDXL to help improve quality.'
+        help="Negative prompt for SDXL to help improve quality.",
     )
     parser.add_argument(
-        '-s', '--seed',
+        "-s",
+        "--seed",
         type=int,
         default=None,
-        help='Seed for reproducibility.'
+        help="Seed for reproducibility.",
     )
     parser.add_argument(
-        '-n', '--num-steps',
+        "-n",
+        "--num-steps",
         type=int,
         default=50,
-        help='Number of inference steps for SDXL text-to-image. (default: 50)'
+        help="Number of inference steps for SDXL text-to-image. (default: 50)",
     )
     parser.add_argument(
-        '-N', '--inpaint-steps',
+        "-N",
+        "--inpaint-steps",
         type=int,
         default=75,
-        help='Number of inference steps for SDXL inpainting. (default: 75)'
+        help="Number of inference steps for SDXL inpainting. (default: 75)",
     )
     parser.add_argument(
-        '-g', '--guidance-scale',
+        "-g",
+        "--guidance-scale",
         type=float,
         default=7.5,
-        help='Guidance scale for SDXL. (default: 7.5)'
+        help="Guidance scale for SDXL. (default: 7.5)",
     )
     parser.add_argument(
-        '-T', '--txt2img-checkpoint',
+        "-T",
+        "--txt2img-checkpoint",
         type=str,
-        default='stabilityai/stable-diffusion-xl-base-1.0',
-        help='SDXL checkpoint for text-to-image. (default: stabilityai/stable-diffusion-xl-base-1.0)'
+        default="stabilityai/stable-diffusion-xl-base-1.0",
+        help="SDXL checkpoint for text-to-image. (default: stabilityai/stable-diffusion-xl-base-1.0)",
     )
     parser.add_argument(
-        '-C', '--inpaint-checkpoint',
+        "-C",
+        "--inpaint-checkpoint",
         type=str,
-        default='stabilityai/stable-diffusion-2-inpainting',
-        help='Checkpoint for inpainting tasks. (default: stabilityai/stable-diffusion-2-inpainting)'
+        default="stabilityai/stable-diffusion-2-inpainting",
+        help="Checkpoint for inpainting tasks. (default: stabilityai/stable-diffusion-2-inpainting)",
     )
 
     # Upscaling Options
     parser.add_argument(
-        '-u', '--upscale-exponent',
+        "-u",
+        "--upscale-exponent",
         type=int,
         default=1,
-        help='How many iterative upscaling/hallucination levels. (default: 1)'
+        help="How many iterative upscaling/hallucination levels. (default: 1)",
     )
     parser.add_argument(
-        '-f', '--upscale-factor',
+        "-f",
+        "--upscale-factor",
         type=int,
         default=4,
         choices=[2, 4],
-        help='Upscale factor for Real-ESRGAN. (default: 4)'
+        help="Upscale factor for Real-ESRGAN. (default: 4)",
     )
 
     # Hallucination Options
     parser.add_argument(
-        '-H', '--hallucinate',
-        action='store_true',
-        help='Enable hallucination (inpainting) on tiles.'
+        "-H",
+        "--hallucinate",
+        action="store_true",
+        help="Enable hallucination (inpainting) on tiles.",
     )
     parser.add_argument(
-        '-t', '--strength',
+        "-t",
+        "--strength",
         type=float,
         default=0.2,
-        help='Inpainting strength (0.0 to 1.0). (default: 0.2)'
+        help="Inpainting strength (0.0 to 1.0). (default: 0.2)",
     )
     parser.add_argument(
-        '-e', '--min-area',
+        "-e",
+        "--min-area",
         type=int,
         default=1000,
-        help='Minimum superpixel area for inpainting. (default: 1000)'
+        help="Minimum superpixel area for inpainting. (default: 1000)",
     )
     parser.add_argument(
-        '-b', '--border-thresh',
+        "-b",
+        "--border-thresh",
         type=int,
         default=50,
-        help='Avoid hallucination near borders (in pixels). (default: 50)'
+        help="Avoid hallucination near borders (in pixels). (default: 50)",
     )
     parser.add_argument(
-        '-S', '--hallucination-steps',
+        "-S",
+        "--hallucination-steps",
         type=int,
         default=1,
-        help='Number of inpainting iterations per tile. (default: 1)'
+        help="Number of inpainting iterations per tile. (default: 1)",
     )
 
     # Tile Settings
     parser.add_argument(
-        '-Z', '--tile-size',
+        "-Z",
+        "--tile-size",
         type=int,
         default=768,
-        help='Base tile size for splitting image. (default: 768)'
+        help="Base tile size for splitting image. (default: 768)",
     )
     parser.add_argument(
-        '-O', '--tile-overlap',
+        "-O",
+        "--tile-overlap",
         type=int,
         default=128,
-        help='Overlap between tiles (in pixels). (default: 128)'
+        help="Overlap between tiles (in pixels). (default: 128)",
     )
 
     # Additional adjustable parameters
     parser.add_argument(
-        '-rpt', '--realesrgan-tile-pad',
+        "-rpt",
+        "--realesrgan-tile-pad",
         type=int,
         default=30,
-        help='Tile padding for Real-ESRGAN. (default: 30)'
+        help="Tile padding for Real-ESRGAN. (default: 30)",
     )
     parser.add_argument(
-        '-rpp', '--realesrgan-pre-pad',
+        "-rpp",
+        "--realesrgan-pre-pad",
         type=int,
         default=10,
-        help='Pre padding for Real-ESRGAN. (default: 10)'
+        help="Pre padding for Real-ESRGAN. (default: 10)",
     )
     parser.add_argument(
-        '-sc', '--slic-compactness',
+        "-sc",
+        "--slic-compactness",
         type=float,
         default=10.0,
-        help='Compactness parameter for SLIC segmentation. (default: 10.0)'
+        help="Compactness parameter for SLIC segmentation. (default: 10.0)",
     )
     parser.add_argument(
-        '-sba', '--slic-baseline-area',
+        "-sba",
+        "--slic-baseline-area",
         type=int,
         default=589824,  # 768x768
-        help='Baseline area for adaptive SLIC segmentation. (default: 589824)'
+        help="Baseline area for adaptive SLIC segmentation. (default: 589824)",
     )
     parser.add_argument(
-        '-bw', '--blending-window',
+        "-bw",
+        "--blending-window",
         type=str,
         choices=["hamming", "hann", "uniform"],
         default="hamming",
-        help='Blending window type used for tile blending. (default: hamming)'
+        help="Blending window type used for tile blending. (default: hamming)",
     )
 
     args = parser.parse_args()
@@ -306,8 +332,8 @@ def setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
@@ -317,7 +343,9 @@ def download_realesrgan_model(upscale_factor: int) -> Path:
     """
     url = DEFAULT_REALESRGAN_MODEL_URLS.get(upscale_factor)
     if url is None:
-        logging.error(f"No default Real-ESRGAN model URL for upscale factor {upscale_factor}.")
+        logging.error(
+            f"No default Real-ESRGAN model URL for upscale factor {upscale_factor}."
+        )
         sys.exit(1)
 
     model_filename = os.path.basename(url)
@@ -331,7 +359,7 @@ def download_realesrgan_model(upscale_factor: int) -> Path:
     response = requests.get(url, stream=True)
     response.raise_for_status()
 
-    with open(model_path, 'wb') as f:
+    with open(model_path, "wb") as f:
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
                 f.write(chunk)
@@ -392,7 +420,7 @@ def generate_initial_image(
     guidance_scale: float,
     width: int,
     height: int,
-    seed: Optional[int] = None
+    seed: Optional[int] = None,
 ) -> Image.Image:
     """
     Generates the initial image using the SDXL text-to-image pipeline.
@@ -421,13 +449,15 @@ def generate_initial_image(
         sys.exit(1)
 
     image = result.images[0]
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
+    if image.mode != "RGB":
+        image = image.convert("RGB")
 
     return image
 
 
-def load_realesrgan_model(upscale_factor: int, tile_pad: int, pre_pad: int) -> RealESRGANer:
+def load_realesrgan_model(
+    upscale_factor: int, tile_pad: int, pre_pad: int
+) -> RealESRGANer:
     """
     Loads the Real-ESRGAN model for the specified upscale factor.
     """
@@ -435,11 +465,21 @@ def load_realesrgan_model(upscale_factor: int, tile_pad: int, pre_pad: int) -> R
 
     if upscale_factor == 2:
         model = RRDBNet(
-            num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=2
+            num_in_ch=3,
+            num_out_ch=3,
+            num_feat=64,
+            num_block=23,
+            num_grow_ch=32,
+            scale=2,
         )
     else:
         model = RRDBNet(
-            num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4
+            num_in_ch=3,
+            num_out_ch=3,
+            num_feat=64,
+            num_block=23,
+            num_grow_ch=32,
+            scale=4,
         )
 
     realesrgan_model = RealESRGANer(
@@ -451,7 +491,7 @@ def load_realesrgan_model(upscale_factor: int, tile_pad: int, pre_pad: int) -> R
         tile_pad=tile_pad,
         pre_pad=pre_pad,
         half=True if DEVICE.type == "cuda" else False,
-        device=DEVICE
+        device=DEVICE,
     )
     return realesrgan_model
 
@@ -472,7 +512,9 @@ def align_to_multiple(size: int, multiple: int = 8) -> int:
     return size - (size % multiple)
 
 
-def generate_tiles(image: Image.Image, tile_size: int, tile_overlap: int) -> List[Tuple[Image.Image, int, int]]:
+def generate_tiles(
+    image: Image.Image, tile_size: int, tile_overlap: int
+) -> List[Tuple[Image.Image, int, int]]:
     """
     Splits the image into overlapping tiles to facilitate blending and reduce seams.
     Edge areas are padded by replicating edge pixels.
@@ -501,15 +543,20 @@ def generate_tiles(image: Image.Image, tile_size: int, tile_overlap: int) -> Lis
                 pad_w = tile_size - tile_np.shape[1]
                 pad_h = tile_size - tile_np.shape[0]
                 if pad_w > 0 or pad_h > 0:
-                    tile_np = np.pad(tile_np, ((0, pad_h), (0, pad_w), (0, 0)), mode='edge')
+                    tile_np = np.pad(
+                        tile_np, ((0, pad_h), (0, pad_w), (0, 0)), mode="edge"
+                    )
                 tile = Image.fromarray(tile_np)
             tiles.append((tile, x, y))
 
     return tiles
 
 
-def blend_tiles(tiles_with_positions: List[Tuple[Image.Image, int, int]], image_size: Tuple[int, int],
-                window_type: str = "hamming") -> Image.Image:
+def blend_tiles(
+    tiles_with_positions: List[Tuple[Image.Image, int, int]],
+    image_size: Tuple[int, int],
+    window_type: str = "hamming",
+) -> Image.Image:
     """
     Blends the processed tiles back into a single image.
     Uses a smooth weighting window (hamming, hann, or uniform) to feather overlapping areas.
@@ -534,15 +581,20 @@ def blend_tiles(tiles_with_positions: List[Tuple[Image.Image, int, int]], image_
         if tile_crop_h <= 0 or tile_crop_w <= 0:
             continue
 
-        accumulator[y:end_y, x:end_x] += tile_np[:tile_crop_h, :tile_crop_w] * tile_weight[:tile_crop_h, :tile_crop_w, None]
+        accumulator[y:end_y, x:end_x] += (
+            tile_np[:tile_crop_h, :tile_crop_w]
+            * tile_weight[:tile_crop_h, :tile_crop_w, None]
+        )
         weight_acc[y:end_y, x:end_x] += tile_weight[:tile_crop_h, :tile_crop_w]
 
     weight_acc = np.maximum(weight_acc, 1e-5)
     blended = (accumulator / weight_acc[..., None]).clip(0, 255).astype(np.uint8)
-    return Image.fromarray(blended, 'RGB')
+    return Image.fromarray(blended, "RGB")
 
 
-def upscale_with_realesrgan(model: RealESRGANer, image: Image.Image, outscale: float) -> Image.Image:
+def upscale_with_realesrgan(
+    model: RealESRGANer, image: Image.Image, outscale: float
+) -> Image.Image:
     """
     Upscales a given image using the Real-ESRGAN model.
     """
@@ -553,9 +605,14 @@ def upscale_with_realesrgan(model: RealESRGANer, image: Image.Image, outscale: f
     return Image.fromarray(upscaled_rgb)
 
 
-def create_superpixel_mask(image_np: np.ndarray, n_segments: int, compactness: float,
-                           min_area: int, border_thresh: int,
-                           excluded_segments: Optional[List[int]] = None) -> Optional[Image.Image]:
+def create_superpixel_mask(
+    image_np: np.ndarray,
+    n_segments: int,
+    compactness: float,
+    min_area: int,
+    border_thresh: int,
+    excluded_segments: Optional[List[int]] = None,
+) -> Optional[Image.Image]:
     """
     Creates a mask by segmenting the image into superpixels and selecting one suitable area for inpainting.
     """
@@ -563,7 +620,9 @@ def create_superpixel_mask(image_np: np.ndarray, n_segments: int, compactness: f
         excluded_segments = []
 
     image_float = img_as_float(image_np)
-    segments = slic(image_float, n_segments=n_segments, compactness=compactness, start_label=1)
+    segments = slic(
+        image_float, n_segments=n_segments, compactness=compactness, start_label=1
+    )
     height, width = segments.shape
     unique, counts = np.unique(segments, return_counts=True)
 
@@ -576,8 +635,12 @@ def create_superpixel_mask(image_np: np.ndarray, n_segments: int, compactness: f
         ys, xs = np.where(segments == seg_id)
         y_min, y_max = ys.min(), ys.max()
         x_min, x_max = xs.min(), xs.max()
-        if y_min < border_thresh or y_max > (height - border_thresh) or \
-           x_min < border_thresh or x_max > (width - border_thresh):
+        if (
+            y_min < border_thresh
+            or y_max > (height - border_thresh)
+            or x_min < border_thresh
+            or x_max > (width - border_thresh)
+        ):
             continue
         suitable_segments.append((seg_id, area))
 
@@ -640,7 +703,7 @@ def perform_hallucination(
     border_thresh: int,
     hallucination_steps: int,
     slic_baseline_area: int,
-    slic_compactness: float
+    slic_compactness: float,
 ) -> Image.Image:
     """
     Performs hallucination (inpainting) on a tile by finding superpixel masks and refining the tile.
@@ -660,7 +723,7 @@ def perform_hallucination(
             compactness=slic_compactness,
             min_area=min_area,
             border_thresh=border_thresh,
-            excluded_segments=excluded_segments
+            excluded_segments=excluded_segments,
         )
 
         if mask is not None:
@@ -676,7 +739,12 @@ def perform_hallucination(
             )
             current_tile = inpainted_tile
             current_tile_np = np.array(current_tile)
-            segments = slic(img_as_float(current_tile_np), n_segments=n_segments, compactness=slic_compactness, start_label=1)
+            segments = slic(
+                img_as_float(current_tile_np),
+                n_segments=n_segments,
+                compactness=slic_compactness,
+                start_label=1,
+            )
             selected_segments = np.unique(segments[np.array(mask) == 255])
             excluded_segments.extend(selected_segments.tolist())
         else:
@@ -706,13 +774,13 @@ def create_high_resolution_image(
     tile_overlap: int,
     blending_window: str,
     slic_baseline_area: int,
-    slic_compactness: float
+    slic_compactness: float,
 ) -> None:
     """
     Creates the final high-resolution image by repeatedly upscaling and optionally hallucinating the image.
     Saves intermediate results for each level.
     """
-    initial_image_path = os.path.join(output_dir, 'initial_image.png')
+    initial_image_path = os.path.join(output_dir, "initial_image.png")
     initial_image.save(initial_image_path)
 
     current_image = initial_image
@@ -726,7 +794,9 @@ def create_high_resolution_image(
         processed_tiles = []
 
         for idx, (tile, x, y) in enumerate(tiles_with_positions):
-            logging.debug(f"Processing tile {idx+1}/{len(tiles_with_positions)} at ({x}, {y}).")
+            logging.debug(
+                f"Processing tile {idx + 1}/{len(tiles_with_positions)} at ({x}, {y})."
+            )
             # If hallucination is enabled, perform it on the low-resolution tile first to save VRAM.
             if hallucinate and inpaint_pipe:
                 tile = perform_hallucination(
@@ -752,12 +822,14 @@ def create_high_resolution_image(
 
         new_width = current_image.width * upscale_factor
         new_height = current_image.height * upscale_factor
-        current_image = blend_tiles(processed_tiles, (new_width, new_height), window_type=blending_window)
+        current_image = blend_tiles(
+            processed_tiles, (new_width, new_height), window_type=blending_window
+        )
 
-        level_image_path = os.path.join(output_dir, f'level{level}_image.png')
+        level_image_path = os.path.join(output_dir, f"level{level}_image.png")
         current_image.save(level_image_path)
 
-    final_image_path = os.path.join(output_dir, 'final_image.png')
+    final_image_path = os.path.join(output_dir, "final_image.png")
     current_image.save(final_image_path)
 
     if inpaint_pipe:
@@ -771,7 +843,7 @@ def create_initial_image_if_needed(args: argparse.Namespace) -> Image.Image:
     """
     if args.input is not None:
         try:
-            initial_image = Image.open(args.input).convert('RGB')
+            initial_image = Image.open(args.input).convert("RGB")
             logging.info(f"Loaded input image from '{args.input}'.")
             return initial_image
         except Exception:
@@ -807,7 +879,7 @@ def main() -> None:
     realesrgan_model = load_realesrgan_model(
         args.upscale_factor,
         tile_pad=args.realesrgan_tile_pad,
-        pre_pad=args.realesrgan_pre_pad
+        pre_pad=args.realesrgan_pre_pad,
     )
 
     create_high_resolution_image(
@@ -838,5 +910,5 @@ def main() -> None:
     sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

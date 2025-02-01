@@ -47,44 +47,50 @@ from typing import List, Tuple, Optional
 def parse_arguments():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Remove images that do not meet specified dimension requirements.'
+        description="Remove images that do not meet specified dimension requirements."
     )
     parser.add_argument(
-        '-W', '--required-width',
+        "-W",
+        "--required-width",
         type=str,
-        default='>=600',
-        help="Limit input images to certain width (e.g., 1024, >1024, <1024). Defaults to '>=600' if not provided."
+        default=">=600",
+        help="Limit input images to certain width (e.g., 1024, >1024, <1024). Defaults to '>=600' if not provided.",
     )
     parser.add_argument(
-        '-H', '--required-height',
+        "-H",
+        "--required-height",
         type=str,
-        default='>=600',
-        help="Limit input images to certain height (e.g., 768, >768, <768). Defaults to '>=600' if not provided."
+        default=">=600",
+        help="Limit input images to certain height (e.g., 768, >768, <768). Defaults to '>=600' if not provided.",
     )
     parser.add_argument(
-        '-m', '--move-dir',
+        "-m",
+        "--move-dir",
         type=str,
-        help='Move files to this directory instead of deleting.'
+        help="Move files to this directory instead of deleting.",
     )
     parser.add_argument(
-        '-n', '--dry-run',
-        action='store_true',
-        help='Show what would be done without making any changes.'
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making any changes.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        '-r', '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parser.add_argument(
-        'path',
+        "path",
         type=str,
-        help='The image file or directory to process.'
+        help="The image file or directory to process.",
     )
     args = parser.parse_args()
     return args
@@ -93,12 +99,12 @@ def parse_arguments():
 def setup_logging(verbose: bool):
     """Sets up the logging configuration."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def collect_images(path: str, recursive: bool) -> List[str]:
     """Collects all image files from the provided path."""
-    supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', '.webp')
+    supported_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif", ".webp")
     image_files = []
 
     if os.path.isfile(path):
@@ -129,45 +135,53 @@ def collect_images(path: str, recursive: bool) -> List[str]:
 
 def parse_dimension_requirement(requirement_str: str) -> Tuple[str, int]:
     """Parses a dimension requirement string into an operator and value."""
-    match = re.match(r'(<=|>=|<|>|=)?\s*(\d+)', requirement_str.strip())
+    match = re.match(r"(<=|>=|<|>|=)?\s*(\d+)", requirement_str.strip())
     if not match:
         logging.error(f"Invalid dimension requirement '{requirement_str}'.")
         sys.exit(1)
 
-    operator = match.group(1) if match.group(1) else '='
+    operator = match.group(1) if match.group(1) else "="
     value = int(match.group(2))
     return operator, value
 
 
 def check_dimension(dimension: int, operator: str, value: int) -> bool:
     """Checks if a dimension satisfies the requirement."""
-    if operator == '>':
+    if operator == ">":
         return dimension > value
-    elif operator == '<':
+    elif operator == "<":
         return dimension < value
-    elif operator == '=':
+    elif operator == "=":
         return dimension == value
-    elif operator == '>=':
+    elif operator == ">=":
         return dimension >= value
-    elif operator == '<=':
+    elif operator == "<=":
         return dimension <= value
     else:
         logging.error(f"Unknown operator '{operator}'.")
         sys.exit(1)
 
 
-def filter_images_by_size(img_path: str, width_requirement: Optional[Tuple[str, int]], height_requirement: Optional[Tuple[str, int]]) -> bool:
+def filter_images_by_size(
+    img_path: str,
+    width_requirement: Optional[Tuple[str, int]],
+    height_requirement: Optional[Tuple[str, int]],
+) -> bool:
     """Determines whether an image meets the dimension requirements."""
     try:
         with Image.open(img_path) as img:
             width, height = img.size
             if width_requirement:
                 if not check_dimension(width, *width_requirement):
-                    logging.info(f"Selecting '{img_path}' due to width requirement (width: {width}).")
+                    logging.info(
+                        f"Selecting '{img_path}' due to width requirement (width: {width})."
+                    )
                     return False
             if height_requirement:
                 if not check_dimension(height, *height_requirement):
-                    logging.info(f"Selecting '{img_path}' due to height requirement (height: {height}).")
+                    logging.info(
+                        f"Selecting '{img_path}' due to height requirement (height: {height})."
+                    )
                     return False
             return True
     except Exception as e:
@@ -226,5 +240,5 @@ def main():
                 logging.info(f"Keeping '{img_path}' as it meets all requirements.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

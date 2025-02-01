@@ -49,69 +49,78 @@ from typing import List, Optional
 def parse_arguments():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Resize images to fit within specified dimensions.'
+        description="Resize images to fit within specified dimensions."
     )
     parser.add_argument(
-        '-W', '--max-width',
+        "-W",
+        "--max-width",
         type=int,
-        help='Maximum width of images (e.g., 2048).'
+        help="Maximum width of images (e.g., 2048).",
     )
     parser.add_argument(
-        '-H', '--max-height',
+        "-H",
+        "--max-height",
         type=int,
-        help='Maximum height of images (e.g., 2048).'
+        help="Maximum height of images (e.g., 2048).",
     )
     parser.add_argument(
-        '-w', '--min-width',
+        "-w",
+        "--min-width",
         type=int,
-        help='Minimum width of images (e.g., 800).'
+        help="Minimum width of images (e.g., 800).",
     )
     parser.add_argument(
-        '-e', '--min-height',
+        "-e",
+        "--min-height",
         type=int,
-        help='Minimum height of images (e.g., 600).'
+        help="Minimum height of images (e.g., 600).",
     )
     parser.add_argument(
-        '--keep-aspect-ratio',
-        action='store_true',
+        "--keep-aspect-ratio",
+        action="store_true",
         default=True,
-        help='Maintain the aspect ratio (default).'
+        help="Maintain the aspect ratio (default).",
     )
     parser.add_argument(
-        '--ignore-aspect-ratio',
-        action='store_false',
-        dest='keep_aspect_ratio',
-        help='Do not maintain the aspect ratio.'
+        "--ignore-aspect-ratio",
+        action="store_false",
+        dest="keep_aspect_ratio",
+        help="Do not maintain the aspect ratio.",
     )
     parser.add_argument(
-        '-o', '--output-dir',
+        "-o",
+        "--output-dir",
         type=str,
-        help='Output directory for the resized images.'
+        help="Output directory for the resized images.",
     )
     parser.add_argument(
-        '-k', '--backup',
-        action='store_true',
-        help='Keep a backup of the original images.'
+        "-k",
+        "--backup",
+        action="store_true",
+        help="Keep a backup of the original images.",
     )
     parser.add_argument(
-        '-n', '--dry-run',
-        action='store_true',
-        help='Show what would be done without making any changes.'
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making any changes.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        '-r', '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parser.add_argument(
-        'path',
+        "path",
         type=str,
-        help='The image file or directory to process.'
+        help="The image file or directory to process.",
     )
     args = parser.parse_args()
     return args
@@ -120,12 +129,12 @@ def parse_arguments():
 def setup_logging(verbose: bool):
     """Sets up the logging configuration."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def collect_images(path: str, recursive: bool) -> List[str]:
     """Collects all image files from the provided path."""
-    supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', '.webp')
+    supported_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif", ".webp")
     image_files = []
 
     if os.path.isfile(path):
@@ -165,7 +174,7 @@ def resize_image(
     keep_aspect_ratio: bool,
     output_dir: Optional[str],
     dry_run: bool,
-    backup: bool
+    backup: bool,
 ):
     """Resizes a single image based on specified dimensions."""
     try:
@@ -228,7 +237,9 @@ def resize_image(
             new_size = (new_width, new_height)
 
             if dry_run:
-                logging.info(f"Would resize '{img_path}' from {width}x{height} to {new_width}x{new_height}")
+                logging.info(
+                    f"Would resize '{img_path}' from {width}x{height} to {new_width}x{new_height}"
+                )
                 return
 
             resized_img = img.resize(new_size, Image.ANTIALIAS)
@@ -240,16 +251,20 @@ def resize_image(
                 output_path = img_path
 
             if backup and output_path == img_path:
-                backup_path = img_path + '.bak'
+                backup_path = img_path + ".bak"
                 if not os.path.exists(backup_path):
                     os.rename(img_path, backup_path)
                 else:
-                    logging.warning(f"Backup file '{backup_path}' already exists, skipping backup.")
+                    logging.warning(
+                        f"Backup file '{backup_path}' already exists, skipping backup."
+                    )
                 resized_img.save(img_path)
             else:
                 resized_img.save(output_path)
 
-            logging.info(f"Resized image saved as '{output_path}' (New size: {new_width}x{new_height})")
+            logging.info(
+                f"Resized image saved as '{output_path}' (New size: {new_width}x{new_height})"
+            )
 
     except Exception as e:
         logging.error(f"Failed to process image '{img_path}': {e}")
@@ -277,9 +292,9 @@ def main():
             args.keep_aspect_ratio,
             args.output_dir,
             args.dry_run,
-            args.backup
+            args.backup,
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

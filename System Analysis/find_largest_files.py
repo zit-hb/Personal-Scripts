@@ -50,70 +50,70 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Search for the largest files in a specified directory, with optional filtering and sorting.'
+        description="Search for the largest files in a specified directory, with optional filtering and sorting."
     )
     parser.add_argument(
-        'directory',
-        nargs='?',
-        default='.',
-        help='The directory to search for files. Defaults to the current directory if not provided.'
+        "directory",
+        nargs="?",
+        default=".",
+        help="The directory to search for files. Defaults to the current directory if not provided.",
     )
     parser.add_argument(
-        '-n',
-        '--num-files',
+        "-n",
+        "--num-files",
         type=int,
         default=10,
-        help='The number of largest files to display. Defaults to 10.'
+        help="The number of largest files to display. Defaults to 10.",
     )
     parser.add_argument(
-        '-p',
-        '--paths-only',
-        action='store_true',
-        help='Output only the file paths, for easy use in other scripts.'
+        "-p",
+        "--paths-only",
+        action="store_true",
+        help="Output only the file paths, for easy use in other scripts.",
     )
     parser.add_argument(
-        '-t',
-        '--types',
+        "-t",
+        "--types",
         type=str,
-        help='Comma-separated list of file extensions to include (e.g., \'txt,pdf,jpg\').'
+        help="Comma-separated list of file extensions to include (e.g., 'txt,pdf,jpg').",
     )
     parser.add_argument(
-        '-e',
-        '--exclude',
+        "-e",
+        "--exclude",
         type=str,
-        help='Comma-separated list of patterns to exclude (e.g., \'*.log,*.tmp\').'
+        help="Comma-separated list of patterns to exclude (e.g., '*.log,*.tmp').",
     )
     parser.add_argument(
-        '-s',
-        '--size',
+        "-s",
+        "--size",
         type=str,
-        help='Filter files by size (e.g., \'>1M\', \'<500K\', \'=2G\').'
+        help="Filter files by size (e.g., '>1M', '<500K', '=2G').",
     )
     parser.add_argument(
-        '-R',
-        '--no-recursion',
-        action='store_true',
-        help='Do not search directories recursively.'
+        "-R",
+        "--no-recursion",
+        action="store_true",
+        help="Do not search directories recursively.",
     )
     parser.add_argument(
-        '-S',
-        '--sort-by',
+        "-S",
+        "--sort-by",
         type=str,
-        choices=['size', 'name', 'mtime', 'ctime'],
-        default='size',
-        help='Sort files by attribute: size (default), name, mtime, ctime.'
+        choices=["size", "name", "mtime", "ctime"],
+        default="size",
+        help="Sort files by attribute: size (default), name, mtime, ctime.",
     )
     parser.add_argument(
-        '-r',
-        '--reverse',
-        action='store_true',
-        help='Reverse the sort order.'
+        "-r",
+        "--reverse",
+        action="store_true",
+        help="Reverse the sort order.",
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging.",
     )
     args = parser.parse_args()
     return args
@@ -127,7 +127,7 @@ def setup_logging(verbose: bool = False) -> None:
         level = logging.INFO
     else:
         level = logging.WARNING
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def parse_size_filter(size_filter_str: str) -> Optional[Tuple[str, int]]:
@@ -135,7 +135,7 @@ def parse_size_filter(size_filter_str: str) -> Optional[Tuple[str, int]]:
     Parses a size filter string and returns a tuple of (operator, size in bytes)
     e.g., '>1M' -> ('>', 1048576)
     """
-    pattern = r'([<>]=?|=)\s*([\d\.]+)\s*([KMGTP]?B?)'
+    pattern = r"([<>]=?|=)\s*([\d\.]+)\s*([KMGTP]?B?)"
     match = re.match(pattern, size_filter_str.strip(), re.IGNORECASE)
     if not match:
         logging.error(f"Invalid size filter format: '{size_filter_str}'")
@@ -144,18 +144,18 @@ def parse_size_filter(size_filter_str: str) -> Optional[Tuple[str, int]]:
     num = float(num)
     unit = unit.upper()
     unit_multipliers = {
-        '': 1,
-        'B': 1,
-        'K': 1024,
-        'KB': 1024,
-        'M': 1024**2,
-        'MB': 1024**2,
-        'G': 1024**3,
-        'GB': 1024**3,
-        'T': 1024**4,
-        'TB': 1024**4,
-        'P': 1024**5,
-        'PB': 1024**5,
+        "": 1,
+        "B": 1,
+        "K": 1024,
+        "KB": 1024,
+        "M": 1024**2,
+        "MB": 1024**2,
+        "G": 1024**3,
+        "GB": 1024**3,
+        "T": 1024**4,
+        "TB": 1024**4,
+        "P": 1024**5,
+        "PB": 1024**5,
     }
     multiplier = unit_multipliers.get(unit, None)
     if multiplier is None:
@@ -165,7 +165,12 @@ def parse_size_filter(size_filter_str: str) -> Optional[Tuple[str, int]]:
     return (op, size_in_bytes)
 
 
-def collect_files(directory: str, recursive: bool, include_extensions: Optional[List[str]], exclude_patterns: Optional[List[str]]) -> List[Path]:
+def collect_files(
+    directory: str,
+    recursive: bool,
+    include_extensions: Optional[List[str]],
+    exclude_patterns: Optional[List[str]],
+) -> List[Path]:
     """
     Collects files from the directory, applying inclusion and exclusion filters.
     """
@@ -174,20 +179,22 @@ def collect_files(directory: str, recursive: bool, include_extensions: Optional[
         logging.error(f"Directory '{directory}' does not exist.")
         sys.exit(1)
     if recursive:
-        files = list(path.rglob('*'))
+        files = list(path.rglob("*"))
     else:
-        files = list(path.glob('*'))
+        files = list(path.glob("*"))
     # Filter files
     files = [f for f in files if f.is_file()]
     if include_extensions:
-        files = [f for f in files if f.suffix.lower().lstrip('.') in include_extensions]
+        files = [f for f in files if f.suffix.lower().lstrip(".") in include_extensions]
     if exclude_patterns:
         for pattern in exclude_patterns:
             files = [f for f in files if not fnmatch.fnmatch(f.name, pattern)]
     return files
 
 
-def filter_files_by_size(files: List[Path], size_filter: Optional[Tuple[str, int]]) -> List[Path]:
+def filter_files_by_size(
+    files: List[Path], size_filter: Optional[Tuple[str, int]]
+) -> List[Path]:
     """
     Filters the files by size based on the size filter.
     """
@@ -195,11 +202,11 @@ def filter_files_by_size(files: List[Path], size_filter: Optional[Tuple[str, int
         return files
     op_str, size_in_bytes = size_filter
     ops = {
-        '>': operator.gt,
-        '>=': operator.ge,
-        '<': operator.lt,
-        '<=': operator.le,
-        '=': operator.eq,
+        ">": operator.gt,
+        ">=": operator.ge,
+        "<": operator.lt,
+        "<=": operator.le,
+        "=": operator.eq,
     }
     op_func = ops.get(op_str)
     if not op_func:
@@ -226,11 +233,11 @@ def get_file_info(file: Path) -> dict:
         ctime = datetime.fromtimestamp(stat.st_ctime)
         mtime = datetime.fromtimestamp(stat.st_mtime)
         return {
-            'path': file,
-            'size': size,
-            'ctime': ctime,
-            'mtime': mtime,
-            'name': file.name,
+            "path": file,
+            "size": size,
+            "ctime": ctime,
+            "mtime": mtime,
+            "name": file.name,
         }
     except Exception as e:
         logging.warning(f"Could not get info for file '{file}': {e}")
@@ -242,10 +249,10 @@ def sort_files(files_info: List[dict], sort_by: str, reverse: bool) -> List[dict
     Sorts the files based on the specified attribute.
     """
     key_funcs = {
-        'size': lambda x: x.get('size', 0),
-        'name': lambda x: x.get('name', ''),
-        'mtime': lambda x: x.get('mtime', datetime.min),
-        'ctime': lambda x: x.get('ctime', datetime.min),
+        "size": lambda x: x.get("size", 0),
+        "name": lambda x: x.get("name", ""),
+        "mtime": lambda x: x.get("mtime", datetime.min),
+        "ctime": lambda x: x.get("ctime", datetime.min),
     }
     key_func = key_funcs.get(sort_by)
     if not key_func:
@@ -260,7 +267,7 @@ def humanize_size(size_in_bytes: int) -> str:
     Converts a file size in bytes to a human-readable string.
     """
     original_size = size_in_bytes
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB', 'PB']:
+    for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
         if size_in_bytes < 1024:
             return f"{size_in_bytes:.2f} {unit}"
         size_in_bytes /= 1024
@@ -274,16 +281,16 @@ def display_files(files_info: List[dict], paths_only: bool, num_files: int) -> N
     for file_info in files_info[:num_files]:
         if not file_info:
             continue
-        path = file_info.get('path')
+        path = file_info.get("path")
         if paths_only:
             print(path)
         else:
-            size = file_info.get('size', 0)
-            ctime = file_info.get('ctime')
-            mtime = file_info.get('mtime')
+            size = file_info.get("size", 0)
+            ctime = file_info.get("ctime")
+            mtime = file_info.get("mtime")
             human_size = humanize_size(size)
-            ctime_str = ctime.strftime('%Y-%m-%d %H:%M:%S') if ctime else 'Unavailable'
-            mtime_str = mtime.strftime('%Y-%m-%d %H:%M:%S') if mtime else 'Unavailable'
+            ctime_str = ctime.strftime("%Y-%m-%d %H:%M:%S") if ctime else "Unavailable"
+            mtime_str = mtime.strftime("%Y-%m-%d %H:%M:%S") if mtime else "Unavailable"
             print(f"Size: {human_size}, File: {path}")
             print(f"Creation Date: {ctime_str}, Modification Date: {mtime_str}")
             print("---------------------------------------")
@@ -307,11 +314,11 @@ def main() -> None:
 
     # Process include_extensions
     if args.types:
-        include_extensions = [ext.lower().lstrip('.') for ext in args.types.split(',')]
+        include_extensions = [ext.lower().lstrip(".") for ext in args.types.split(",")]
 
     # Process exclude_patterns
     if args.exclude:
-        exclude_patterns = [pattern.strip() for pattern in args.exclude.split(',')]
+        exclude_patterns = [pattern.strip() for pattern in args.exclude.split(",")]
 
     # Parse size filter
     if args.size:
@@ -342,5 +349,5 @@ def main() -> None:
     display_files(files_info, paths_only, num_files)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

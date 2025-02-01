@@ -43,97 +43,104 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 # Constants for file paths and commands
-LSPCI_CMD = 'lspci'
-LSUSB_CMD = 'lsusb'
-DMIDECODE_CMD = 'dmidecode'
+LSPCI_CMD = "lspci"
+LSUSB_CMD = "lsusb"
+DMIDECODE_CMD = "dmidecode"
 
 
 class OperatingSystemType(Enum):
     """Enum representing supported operating system types."""
-    WINDOWS = 'Windows'
-    LINUX = 'Linux'
-    UNKNOWN = 'Unknown'
+
+    WINDOWS = "Windows"
+    LINUX = "Linux"
+    UNKNOWN = "Unknown"
 
 
 @dataclass
 class CPUInfo:
     """Data class for storing CPU information."""
-    model: str = ''
+
+    model: str = ""
     cores: int = 0
     threads: int = 0
-    architecture: str = ''
-    frequency: str = ''
+    architecture: str = ""
+    frequency: str = ""
     flags: List[str] = field(default_factory=list)
-    cache_size: str = ''
+    cache_size: str = ""
 
 
 @dataclass
 class MemorySlotInfo:
     """Data class for storing detailed Memory Slot information."""
-    array_handle: str = ''
-    error_information_handle: str = ''
-    total_width: str = ''
-    data_width: str = ''
-    size: str = ''
-    form_factor: str = ''
-    set_value: str = ''
-    locator: str = ''
-    bank_locator: str = ''
-    type: str = ''
-    type_detail: str = ''
-    speed: str = ''
-    manufacturer: str = ''
-    serial_number: str = ''
-    asset_tag: str = ''
-    part_number: str = ''
-    rank: str = ''
-    configured_memory_speed: str = ''
-    minimum_voltage: str = ''
-    maximum_voltage: str = ''
-    configured_voltage: str = ''
-    memory_technology: str = ''
-    memory_operating_mode_capability: str = ''
-    firmware_version: str = ''
-    module_manufacturer_id: str = ''
-    module_product_id: str = ''
-    memory_subsystem_controller_manufacturer_id: str = ''
-    memory_subsystem_controller_product_id: str = ''
-    non_volatile_size: str = ''
-    volatile_size: str = ''
-    cache_size: str = ''
-    logical_size: str = ''
+
+    array_handle: str = ""
+    error_information_handle: str = ""
+    total_width: str = ""
+    data_width: str = ""
+    size: str = ""
+    form_factor: str = ""
+    set_value: str = ""
+    locator: str = ""
+    bank_locator: str = ""
+    type: str = ""
+    type_detail: str = ""
+    speed: str = ""
+    manufacturer: str = ""
+    serial_number: str = ""
+    asset_tag: str = ""
+    part_number: str = ""
+    rank: str = ""
+    configured_memory_speed: str = ""
+    minimum_voltage: str = ""
+    maximum_voltage: str = ""
+    configured_voltage: str = ""
+    memory_technology: str = ""
+    memory_operating_mode_capability: str = ""
+    firmware_version: str = ""
+    module_manufacturer_id: str = ""
+    module_product_id: str = ""
+    memory_subsystem_controller_manufacturer_id: str = ""
+    memory_subsystem_controller_product_id: str = ""
+    non_volatile_size: str = ""
+    volatile_size: str = ""
+    cache_size: str = ""
+    logical_size: str = ""
 
 
 @dataclass
 class MemoryInfo:
     """Data class for storing Memory information."""
-    total: str = ''
+
+    total: str = ""
     slots: List[MemorySlotInfo] = field(default_factory=list)
 
 
 @dataclass
 class StorageDeviceInfo:
     """Data class for storing Storage Device information."""
-    model: str = ''
-    vendor: str = ''
-    size: str = ''
-    serial: str = ''
+
+    model: str = ""
+    vendor: str = ""
+    size: str = ""
+    serial: str = ""
 
 
 @dataclass
 class USBDeviceInfo:
     """Data class for storing USB Device information."""
-    bus: str = ''
-    device_id: str = ''
-    vendor_id: str = ''
-    vendor: str = ''
-    product_id: str = ''
-    product: str = ''
+
+    bus: str = ""
+    device_id: str = ""
+    vendor_id: str = ""
+    vendor: str = ""
+    product_id: str = ""
+    product: str = ""
 
 
 @dataclass
 class PciDeviceInfo:
     """Data class for storing PCI Device information."""
+
     class_name: str
     vendor: str
     device: str
@@ -142,6 +149,7 @@ class PciDeviceInfo:
 @dataclass
 class HardwareInfo:
     """Data class for storing all hardware information."""
+
     cpu: Optional[CPUInfo] = None
     memory: Optional[MemoryInfo] = None
     storage: List[StorageDeviceInfo] = field(default_factory=list)
@@ -164,29 +172,29 @@ class LinuxCPUDetector(BaseDetector):
         """Detect CPU information on Linux."""
         cpu_info = CPUInfo()
         try:
-            with open('/proc/cpuinfo', 'r', encoding='utf-8') as f:
+            with open("/proc/cpuinfo", "r", encoding="utf-8") as f:
                 cpuinfo = f.read()
-            lines = cpuinfo.split('\n')
-            model_name = ''
+            lines = cpuinfo.split("\n")
+            model_name = ""
             cpu_cores = 0
             siblings = 0
             architecture = platform.machine()
-            frequency = ''
+            frequency = ""
             flags = []
-            cache_size = ''
+            cache_size = ""
             for line in lines:
-                if 'model name' in line:
-                    model_name = line.split(':', 1)[1].strip()
-                elif 'cpu cores' in line:
-                    cpu_cores = int(line.split(':', 1)[1].strip())
-                elif 'siblings' in line:
-                    siblings = int(line.split(':', 1)[1].strip())
-                elif 'cpu MHz' in line:
-                    frequency = line.split(':', 1)[1].strip() + ' MHz'
-                elif 'flags' in line:
-                    flags = line.split(':', 1)[1].strip().split()
-                elif 'cache size' in line:
-                    cache_size = line.split(':', 1)[1].strip()
+                if "model name" in line:
+                    model_name = line.split(":", 1)[1].strip()
+                elif "cpu cores" in line:
+                    cpu_cores = int(line.split(":", 1)[1].strip())
+                elif "siblings" in line:
+                    siblings = int(line.split(":", 1)[1].strip())
+                elif "cpu MHz" in line:
+                    frequency = line.split(":", 1)[1].strip() + " MHz"
+                elif "flags" in line:
+                    flags = line.split(":", 1)[1].strip().split()
+                elif "cache size" in line:
+                    cache_size = line.split(":", 1)[1].strip()
             cpu_info.model = model_name
             cpu_info.cores = cpu_cores
             cpu_info.threads = siblings
@@ -208,45 +216,49 @@ class LinuxMemoryDetector(BaseDetector):
     def _clean_value(value: str) -> str:
         """Return empty string for unknown/not specified values, otherwise the trimmed value."""
         if not value:
-            return ''
+            return ""
         val_lower = value.strip().lower()
-        if val_lower in ('unknown', 'none', 'not specified'):
-            return ''
+        if val_lower in ("unknown", "none", "not specified"):
+            return ""
         return value.strip()
 
     def detect(self) -> Optional[MemoryInfo]:
         """Detect Memory information on Linux."""
         memory_info = MemoryInfo()
         try:
-            with open('/proc/meminfo', 'r', encoding='utf-8') as f:
+            with open("/proc/meminfo", "r", encoding="utf-8") as f:
                 meminfo_output = f.read()
-            lines = meminfo_output.strip().split('\n')
-            total_mem = ''
+            lines = meminfo_output.strip().split("\n")
+            total_mem = ""
             for line in lines:
-                if 'MemTotal' in line:
-                    total_mem = line.split(':', 1)[1].strip()
+                if "MemTotal" in line:
+                    total_mem = line.split(":", 1)[1].strip()
                     break
             memory_info.total = total_mem
 
             # For detailed slot information, root privileges and dmidecode are required
             if os.geteuid() != 0:
-                logging.info("Root privileges required to detect detailed memory slot info.")
+                logging.info(
+                    "Root privileges required to detect detailed memory slot info."
+                )
                 return memory_info
 
             try:
-                dmidecode_output = subprocess.check_output([DMIDECODE_CMD, '--type', '17'], text=True)
+                dmidecode_output = subprocess.check_output(
+                    [DMIDECODE_CMD, "--type", "17"], text=True
+                )
                 slot_info = []
                 slot = {}
-                for line in dmidecode_output.strip().split('\n'):
+                for line in dmidecode_output.strip().split("\n"):
                     line = line.strip()
-                    if line.startswith('Handle'):
+                    if line.startswith("Handle"):
                         if slot:
                             slot_info.append(slot)
                             slot = {}
-                    elif line == '':
+                    elif line == "":
                         continue
-                    elif ':' in line:
-                        key, value = line.split(':', 1)
+                    elif ":" in line:
+                        key, value = line.split(":", 1)
                         key = key.strip()
                         cleaned_value = self._clean_value(value)
                         slot[key] = cleaned_value
@@ -256,40 +268,52 @@ class LinuxMemoryDetector(BaseDetector):
                 # Convert dictionaries to MemorySlotInfo objects (already cleaned)
                 slot_objects = []
                 for s in slot_info:
-                    slot_objects.append(MemorySlotInfo(
-                        array_handle=s.get('Array Handle', ''),
-                        error_information_handle=s.get('Error Information Handle', ''),
-                        total_width=s.get('Total Width', ''),
-                        data_width=s.get('Data Width', ''),
-                        size=s.get('Size', ''),
-                        form_factor=s.get('Form Factor', ''),
-                        set_value=s.get('Set', ''),
-                        locator=s.get('Locator', ''),
-                        bank_locator=s.get('Bank Locator', ''),
-                        type=s.get('Type', ''),
-                        type_detail=s.get('Type Detail', ''),
-                        speed=s.get('Speed', ''),
-                        manufacturer=s.get('Manufacturer', ''),
-                        serial_number=s.get('Serial Number', ''),
-                        asset_tag=s.get('Asset Tag', ''),
-                        part_number=s.get('Part Number', ''),
-                        rank=s.get('Rank', ''),
-                        configured_memory_speed=s.get('Configured Memory Speed', ''),
-                        minimum_voltage=s.get('Minimum Voltage', ''),
-                        maximum_voltage=s.get('Maximum Voltage', ''),
-                        configured_voltage=s.get('Configured Voltage', ''),
-                        memory_technology=s.get('Memory Technology', ''),
-                        memory_operating_mode_capability=s.get('Memory Operating Mode Capability', ''),
-                        firmware_version=s.get('Firmware Version', ''),
-                        module_manufacturer_id=s.get('Module Manufacturer ID', ''),
-                        module_product_id=s.get('Module Product ID', ''),
-                        memory_subsystem_controller_manufacturer_id=s.get('Memory Subsystem Controller Manufacturer ID', ''),
-                        memory_subsystem_controller_product_id=s.get('Memory Subsystem Controller Product ID', ''),
-                        non_volatile_size=s.get('Non-Volatile Size', ''),
-                        volatile_size=s.get('Volatile Size', ''),
-                        cache_size=s.get('Cache Size', ''),
-                        logical_size=s.get('Logical Size', '')
-                    ))
+                    slot_objects.append(
+                        MemorySlotInfo(
+                            array_handle=s.get("Array Handle", ""),
+                            error_information_handle=s.get(
+                                "Error Information Handle", ""
+                            ),
+                            total_width=s.get("Total Width", ""),
+                            data_width=s.get("Data Width", ""),
+                            size=s.get("Size", ""),
+                            form_factor=s.get("Form Factor", ""),
+                            set_value=s.get("Set", ""),
+                            locator=s.get("Locator", ""),
+                            bank_locator=s.get("Bank Locator", ""),
+                            type=s.get("Type", ""),
+                            type_detail=s.get("Type Detail", ""),
+                            speed=s.get("Speed", ""),
+                            manufacturer=s.get("Manufacturer", ""),
+                            serial_number=s.get("Serial Number", ""),
+                            asset_tag=s.get("Asset Tag", ""),
+                            part_number=s.get("Part Number", ""),
+                            rank=s.get("Rank", ""),
+                            configured_memory_speed=s.get(
+                                "Configured Memory Speed", ""
+                            ),
+                            minimum_voltage=s.get("Minimum Voltage", ""),
+                            maximum_voltage=s.get("Maximum Voltage", ""),
+                            configured_voltage=s.get("Configured Voltage", ""),
+                            memory_technology=s.get("Memory Technology", ""),
+                            memory_operating_mode_capability=s.get(
+                                "Memory Operating Mode Capability", ""
+                            ),
+                            firmware_version=s.get("Firmware Version", ""),
+                            module_manufacturer_id=s.get("Module Manufacturer ID", ""),
+                            module_product_id=s.get("Module Product ID", ""),
+                            memory_subsystem_controller_manufacturer_id=s.get(
+                                "Memory Subsystem Controller Manufacturer ID", ""
+                            ),
+                            memory_subsystem_controller_product_id=s.get(
+                                "Memory Subsystem Controller Product ID", ""
+                            ),
+                            non_volatile_size=s.get("Non-Volatile Size", ""),
+                            volatile_size=s.get("Volatile Size", ""),
+                            cache_size=s.get("Cache Size", ""),
+                            logical_size=s.get("Logical Size", ""),
+                        )
+                    )
                 memory_info.slots = slot_objects
 
             except Exception as e:
@@ -309,20 +333,19 @@ class LinuxStorageDetector(BaseDetector):
         try:
             # Execute lsblk with JSON output
             lsblk_output = subprocess.check_output(
-                ['lsblk', '-J', '-o', 'NAME,MODEL,VENDOR,SIZE,TYPE,SERIAL'],
-                text=True
+                ["lsblk", "-J", "-o", "NAME,MODEL,VENDOR,SIZE,TYPE,SERIAL"], text=True
             )
             lsblk_json = json.loads(lsblk_output)
             storage_devices = []
 
             # Traverse the JSON structure to find devices of type 'disk'
-            for device in lsblk_json.get('blockdevices', []):
-                if device.get('type') == 'disk':
+            for device in lsblk_json.get("blockdevices", []):
+                if device.get("type") == "disk":
                     storage_device = StorageDeviceInfo(
-                        model=(device.get('model') or '').strip(),
-                        vendor=(device.get('vendor') or '').strip(),
-                        size=(device.get('size') or '').strip(),
-                        serial=(device.get('serial') or '').strip(),
+                        model=(device.get("model") or "").strip(),
+                        vendor=(device.get("vendor") or "").strip(),
+                        size=(device.get("size") or "").strip(),
+                        serial=(device.get("serial") or "").strip(),
                     )
                     storage_devices.append(storage_device)
 
@@ -348,24 +371,28 @@ class LinuxUSBDetector(BaseDetector):
         """Detect USB Device information on Linux grouped by vendor."""
         try:
             lsusb_output = subprocess.check_output([LSUSB_CMD], text=True)
-            lines = lsusb_output.strip().split('\n')
+            lines = lsusb_output.strip().split("\n")
             usb_devices = []
             for line in lines:
                 parts = line.split()
                 if len(parts) < 7:
                     continue
                 bus = parts[1]
-                device = parts[3].strip(':')
+                device = parts[3].strip(":")
                 ids = parts[5]
-                if ':' in ids:
-                    vendor_id, product_id = ids.split(':', 1)
+                if ":" in ids:
+                    vendor_id, product_id = ids.split(":", 1)
                 else:
-                    vendor_id, product_id = '', ''
-                vendor_product = ' '.join(parts[6:])
+                    vendor_id, product_id = "", ""
+                vendor_product = " ".join(parts[6:])
                 # Split vendor and product if possible
-                vendor_product_split = vendor_product.split(' ', 1)
+                vendor_product_split = vendor_product.split(" ", 1)
                 vendor = vendor_product_split[0].strip()
-                product = vendor_product_split[1].strip() if len(vendor_product_split) > 1 else ''
+                product = (
+                    vendor_product_split[1].strip()
+                    if len(vendor_product_split) > 1
+                    else ""
+                )
                 usb_device = USBDeviceInfo(
                     bus=bus,
                     device_id=device,
@@ -378,12 +405,14 @@ class LinuxUSBDetector(BaseDetector):
             # Group USB devices by vendor
             grouped_usb = {}
             for device in usb_devices:
-                vendor_key = device.vendor if device.vendor else 'Unknown'
+                vendor_key = device.vendor if device.vendor else "Unknown"
                 if vendor_key not in grouped_usb:
                     grouped_usb[vendor_key] = []
                 grouped_usb[vendor_key].append(device)
             # Sort the grouped_usb by vendor name
-            sorted_grouped_usb = dict(sorted(grouped_usb.items(), key=lambda x: x[0].lower()))
+            sorted_grouped_usb = dict(
+                sorted(grouped_usb.items(), key=lambda x: x[0].lower())
+            )
             # Sort each device list alphabetically by product
             for devices in sorted_grouped_usb.values():
                 devices.sort(key=lambda x: (x.product.lower()))
@@ -405,25 +434,21 @@ class LinuxPciDevicesDetector(BaseDetector):
         "VGA compatible controller": "GPU",
         "3D controller": "GPU",
         "Display controller": "GPU",
-
         # Audio Controllers
         "Audio device": "Audio",
         "Multimedia audio controller": "Audio",
-
         # Network Controllers
         "Ethernet controller": "Network",
         "Network controller": "Network",
         "Wireless controller": "Network",
         "Other network controller": "Network",
         "Bluetooth controller": "Network",
-
         # Bridge Devices
         "Host bridge": "Bridge",
         "ISA bridge": "Bridge",
         "IDE interface": "Storage",
         "Bridge": "Bridge",
         "PCI bridge": "Bridge",
-
         # Storage Controllers
         "SATA controller": "Storage",
         "Mass storage controller": "Storage",
@@ -431,23 +456,19 @@ class LinuxPciDevicesDetector(BaseDetector):
         "SCSI storage controller": "Storage",
         "RAID bus controller": "Storage",
         "Other mass storage controller": "Storage",
-
         # Communication Controllers
         "Serial controller": "Serial",
         "USB controller": "USB",
         "FireWire controller": "FireWire",
-
         # Input Device Controllers
         "Input device controller": "Input",
         "Mouse controller": "Input",
         "Keyboard controller": "Input",
         "Touchpad controller": "Input",
-
         # Processors and Memory
         "Processor": "Processor",
         "Memory controller": "Memory",
         "RAM memory": "Memory",
-
         # Security
         "Encryption controller": "Security",
     }
@@ -457,7 +478,9 @@ class LinuxPciDevicesDetector(BaseDetector):
 
     def __init__(self):
         """Initialize the detector with a case-insensitive mapping."""
-        self.CLASS_ALIAS_MAP_LOWER = {k.lower(): v for k, v in self.CLASS_ALIAS_MAP.items()}
+        self.CLASS_ALIAS_MAP_LOWER = {
+            k.lower(): v for k, v in self.CLASS_ALIAS_MAP.items()
+        }
 
     def detect(self) -> Optional[Dict[str, List[PciDeviceInfo]]]:
         """Detect PCI devices on Linux and group them by class."""
@@ -470,14 +493,18 @@ class LinuxPciDevicesDetector(BaseDetector):
             grouped_devices: Dict[str, List[PciDeviceInfo]] = {}
             for device in lspci_data:
                 original_class = device.class_name.strip()
-                category = self.CLASS_ALIAS_MAP_LOWER.get(original_class.lower(), self.DEFAULT_CATEGORY)
+                category = self.CLASS_ALIAS_MAP_LOWER.get(
+                    original_class.lower(), self.DEFAULT_CATEGORY
+                )
 
                 if category not in grouped_devices:
                     grouped_devices[category] = []
                 grouped_devices[category].append(device)
 
             # Sort the groups alphabetically
-            sorted_grouped_devices = dict(sorted(grouped_devices.items(), key=lambda x: x[0].lower()))
+            sorted_grouped_devices = dict(
+                sorted(grouped_devices.items(), key=lambda x: x[0].lower())
+            )
 
             # Sort devices within each group by vendor and device name
             for devices in sorted_grouped_devices.values():
@@ -493,8 +520,8 @@ class LinuxPciDevicesDetector(BaseDetector):
     def _get_lspci_data(self) -> Optional[List[PciDeviceInfo]]:
         """Parses lspci -mm output."""
         try:
-            lspci_output = subprocess.check_output([self.LSPCI_CMD, '-mm'], text=True)
-            lines = lspci_output.strip().split('\n')
+            lspci_output = subprocess.check_output([self.LSPCI_CMD, "-mm"], text=True)
+            lines = lspci_output.strip().split("\n")
             regex = re.compile(r'"([^"]*)"')
             parsed_data = []
             for line in lines:
@@ -539,7 +566,9 @@ class DetectorManager:
                 if result:
                     results.append((detector.__class__.__name__, result))
             except Exception as e:
-                logging.error(f"Error running detector {detector.__class__.__name__}: {e}")
+                logging.error(
+                    f"Error running detector {detector.__class__.__name__}: {e}"
+                )
         return results
 
 
@@ -555,7 +584,7 @@ class HardwareDetector:
     def _detect_os_type(self) -> OperatingSystemType:
         """Detects the operating system type."""
         system = platform.system().lower()
-        if 'linux' in system:
+        if "linux" in system:
             return OperatingSystemType.LINUX
         else:
             return OperatingSystemType.UNKNOWN
@@ -584,9 +613,15 @@ class HardwareDetector:
                 if result and isinstance(result[0], StorageDeviceInfo):
                     self.hardware_info.storage.extend(result)
             elif isinstance(result, dict):
-                if result and all(isinstance(v, list) and v and isinstance(v[0], PciDeviceInfo) for v in result.values()):
+                if result and all(
+                    isinstance(v, list) and v and isinstance(v[0], PciDeviceInfo)
+                    for v in result.values()
+                ):
                     self.hardware_info.pci_devices.update(result)
-                elif result and all(isinstance(v, list) and v and isinstance(v[0], USBDeviceInfo) for v in result.values()):
+                elif result and all(
+                    isinstance(v, list) and v and isinstance(v[0], USBDeviceInfo)
+                    for v in result.values()
+                ):
                     self.hardware_info.usb_devices.update(result)
         logging.info("Hardware detection completed.")
 
@@ -610,7 +645,9 @@ class HardwareInfoDisplay:
             if data:
                 self._print_section(title, data)
 
-    def _join_with_line_breaks(self, items: List[str], max_length: int, padding: str = "") -> str:
+    def _join_with_line_breaks(
+        self, items: List[str], max_length: int, padding: str = ""
+    ) -> str:
         """Join a list of strings with commas, inserting line breaks when the line length exceeds max_length."""
         if not items:
             return ""
@@ -647,7 +684,7 @@ class HardwareInfoDisplay:
             print()
             return
 
-        if hasattr(obj, '__dict__'):
+        if hasattr(obj, "__dict__"):
             attributes = sorted(obj.__dict__.items())
 
             for key, value in attributes:
@@ -669,7 +706,7 @@ class HardwareInfoDisplay:
                         formatted_list = self._join_with_line_breaks(
                             [str(item) for item in value],
                             max_length=100,
-                            padding=indent + "    "
+                            padding=indent + "    ",
                         )
                         print(formatted_list)
                 else:
@@ -702,24 +739,27 @@ def parse_arguments() -> argparse.Namespace:
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Detect hardware information about the system.",
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
     # Global options
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv', '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
     parser.add_argument(
-        '-o', '--output',
+        "-o",
+        "--output",
         type=str,
-        help='Output the detection results to a specified file (JSON format).'
+        help="Output the detection results to a specified file (JSON format).",
     )
 
     return parser.parse_args()
@@ -736,15 +776,15 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
 
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
 def save_output(data: Dict[str, Any], filepath: str) -> bool:
     """Saves the detection results to a JSON file."""
     try:
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, sort_keys=True)
         logging.info(f"Detection results saved to '{filepath}'.")
         return True
@@ -758,7 +798,7 @@ def collect_results(hardware_info: HardwareInfo) -> Dict[str, Any]:
     # Sort storage devices by vendor then model
     sorted_storage = sorted(
         [storage.__dict__ for storage in hardware_info.storage],
-        key=lambda x: (x.get('vendor', '').lower(), x.get('model', '').lower())
+        key=lambda x: (x.get("vendor", "").lower(), x.get("model", "").lower()),
     )
 
     # Sort USB devices by vendor then product
@@ -767,7 +807,7 @@ def collect_results(hardware_info: HardwareInfo) -> Dict[str, Any]:
         devices = hardware_info.usb_devices[vendor]
         sorted_devices = sorted(
             [usb.__dict__ for usb in devices],
-            key=lambda x: x.get('product', '').lower()
+            key=lambda x: x.get("product", "").lower(),
         )
         sorted_usb[vendor] = sorted_devices
 
@@ -776,14 +816,14 @@ def collect_results(hardware_info: HardwareInfo) -> Dict[str, Any]:
     for class_name in sorted(hardware_info.pci_devices.keys(), key=lambda x: x.lower()):
         sorted_devices = sorted(
             [device.__dict__ for device in hardware_info.pci_devices[class_name]],
-            key=lambda x: (x.get('vendor', '').lower(), x.get('device', '').lower())
+            key=lambda x: (x.get("vendor", "").lower(), x.get("device", "").lower()),
         )
         sorted_pci[class_name] = sorted_devices
 
     # Convert memory slots to dictionaries (already cleaned up in LinuxMemoryDetector)
     memory_dict = {}
     if hardware_info.memory:
-        memory_dict['total'] = hardware_info.memory.total
+        memory_dict["total"] = hardware_info.memory.total
         slots = []
         for slot in hardware_info.memory.slots:
             slot_attrs = {}
@@ -791,24 +831,23 @@ def collect_results(hardware_info: HardwareInfo) -> Dict[str, Any]:
                 if v:  # skip empty
                     slot_attrs[k] = v
             slots.append(slot_attrs)
-        memory_dict['slots'] = slots
+        memory_dict["slots"] = slots
 
     return {
-        'CPU': dict(sorted(hardware_info.cpu.__dict__.items())) if hardware_info.cpu else {},
-        'Memory': memory_dict if hardware_info.memory else {},
-        'Storage': sorted_storage,
-        'USBDevices': sorted_usb,
-        'PciDevices': sorted_pci,
+        "CPU": dict(sorted(hardware_info.cpu.__dict__.items()))
+        if hardware_info.cpu
+        else {},
+        "Memory": memory_dict if hardware_info.memory else {},
+        "Storage": sorted_storage,
+        "USBDevices": sorted_usb,
+        "PciDevices": sorted_pci,
     }
 
 
 def main():
     """Main function to orchestrate the hardware detection."""
     args = parse_arguments()
-    setup_logging(
-        verbose=args.verbose,
-        debug=args.debug
-    )
+    setup_logging(verbose=args.verbose, debug=args.debug)
     detector = HardwareDetector()
     detector.detect()
     HardwareInfoDisplay(detector.hardware_info).display()

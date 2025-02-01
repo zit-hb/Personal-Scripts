@@ -45,31 +45,31 @@ def parse_arguments():
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Detect images with high compression artifacts using a blockiness-based method.'
+        description="Detect images with high compression artifacts using a blockiness-based method."
     )
     parser.add_argument(
-        'image_path',
+        "image_path",
         type=str,
-        help='The path to the input image file or directory (use --batch/-B for directories).'
+        help="The path to the input image file or directory (use --batch/-B for directories).",
     )
     parser.add_argument(
-        '-t',
-        '--threshold',
+        "-t",
+        "--threshold",
         type=float,
         default=1000.0,
-        help='Threshold for compression artifact detection.'
+        help="Threshold for compression artifact detection.",
     )
     parser.add_argument(
-        '-B',
-        '--batch',
-        action='store_true',
-        help='Process a batch of images in a directory.'
+        "-B",
+        "--batch",
+        action="store_true",
+        help="Process a batch of images in a directory.",
     )
     parser.add_argument(
-        '-o',
-        '--output',
+        "-o",
+        "--output",
         type=str,
-        help='Output file to save the results.'
+        help="Output file to save the results.",
     )
     return parser.parse_args()
 
@@ -78,7 +78,7 @@ def setup_logging():
     """
     Sets up the logging configuration.
     """
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 def calculate_artifact_score(image: np.ndarray) -> float:
@@ -159,14 +159,12 @@ def process_image(image_path, threshold):
     if has_artifacts is None:
         return None
 
-    result = {
-        'image': image_path,
-        'score': score,
-        'high_artifacts': has_artifacts
-    }
+    result = {"image": image_path, "score": score, "high_artifacts": has_artifacts}
 
-    status = 'has high artifacts' if has_artifacts else 'low artifacts'
-    logging.info(f"Image '{image_path}' {status}. (Score: {score:.2f}, Threshold: {threshold})")
+    status = "has high artifacts" if has_artifacts else "low artifacts"
+    logging.info(
+        f"Image '{image_path}' {status}. (Score: {score:.2f}, Threshold: {threshold})"
+    )
     return result
 
 
@@ -183,8 +181,9 @@ def main():
             logging.error(f"Input path '{image_path}' is not a directory.")
             sys.exit(1)
         image_files = [
-            os.path.join(image_path, f) for f in os.listdir(image_path)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp'))
+            os.path.join(image_path, f)
+            for f in os.listdir(image_path)
+            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp"))
         ]
         if not image_files:
             logging.error(f"No image files found in directory '{image_path}'.")
@@ -202,15 +201,17 @@ def main():
         result = process_image(img_file, threshold)
         if result:
             results.append(result)
-            if result['high_artifacts']:
+            if result["high_artifacts"]:
                 any_high_artifacts = True
 
     # Save results to output file if specified
     if output_file:
         try:
-            with open(output_file, 'w') as f:
+            with open(output_file, "w") as f:
                 for res in results:
-                    status = 'high_artifacts' if res['high_artifacts'] else 'low_artifacts'
+                    status = (
+                        "high_artifacts" if res["high_artifacts"] else "low_artifacts"
+                    )
                     f.write(f"{res['image']},{res['score']:.2f},{status}\n")
             logging.info(f"Results saved to '{output_file}'.")
         except Exception as e:
@@ -220,5 +221,5 @@ def main():
     sys.exit(1 if any_high_artifacts else 0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

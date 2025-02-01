@@ -38,42 +38,42 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Find files with the same base name but different extensions.'
+        description="Find files with the same base name but different extensions."
     )
     parser.add_argument(
-        'directory',
+        "directory",
         type=str,
-        help='The path to the directory to scan for files.'
+        help="The path to the directory to scan for files.",
     )
     parser.add_argument(
-        '-r',
-        '--recursive',
-        action='store_true',
-        help='Scan directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Scan directories recursively.",
     )
     parser.add_argument(
-        '-e',
-        '--exclude',
-        action='append',
-        help='File extension to exclude (e.g., .txt). Can be specified multiple times.'
+        "-e",
+        "--exclude",
+        action="append",
+        help="File extension to exclude (e.g., .txt). Can be specified multiple times.",
     )
     parser.add_argument(
-        '-i',
-        '--ignore-case',
-        action='store_true',
-        help='Perform case-insensitive comparison of base names.'
+        "-i",
+        "--ignore-case",
+        action="store_true",
+        help="Perform case-insensitive comparison of base names.",
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv',
-        '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
     args = parser.parse_args()
 
@@ -91,10 +91,15 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     else:
         level = logging.WARNING
 
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
-def collect_files(directory: str, recursive: bool, exclude_exts: Optional[List[str]], ignore_case: bool) -> List[Path]:
+def collect_files(
+    directory: str,
+    recursive: bool,
+    exclude_exts: Optional[List[str]],
+    ignore_case: bool,
+) -> List[Path]:
     """
     Collects all files from the directory, excluding files with certain extensions.
     """
@@ -115,9 +120,9 @@ def collect_files(directory: str, recursive: bool, exclude_exts: Optional[List[s
         exclude_exts_set = set()
 
     if recursive:
-        all_files = path.rglob('*')
+        all_files = path.rglob("*")
     else:
-        all_files = path.glob('*')
+        all_files = path.glob("*")
 
     for file in all_files:
         if file.is_file():
@@ -126,7 +131,9 @@ def collect_files(directory: str, recursive: bool, exclude_exts: Optional[List[s
             if ignore_case:
                 file_ext = file_ext.lower()
             if file_ext in exclude_exts_set:
-                logging.debug(f"Excluding file '{file}' due to extension '{file.suffix}'")
+                logging.debug(
+                    f"Excluding file '{file}' due to extension '{file.suffix}'"
+                )
                 continue
             files.append(file)
 
@@ -134,7 +141,9 @@ def collect_files(directory: str, recursive: bool, exclude_exts: Optional[List[s
     return files
 
 
-def find_duplicate_base_names(files: List[Path], ignore_case: bool) -> Dict[str, List[Path]]:
+def find_duplicate_base_names(
+    files: List[Path], ignore_case: bool
+) -> Dict[str, List[Path]]:
     """
     Finds files with the same base name but different extensions.
     Returns a dictionary mapping from base name to list of files with that base name.
@@ -154,7 +163,9 @@ def find_duplicate_base_names(files: List[Path], ignore_case: bool) -> Dict[str,
         if len(extensions) > 1:
             duplicates[base_name_key] = paths
 
-    logging.info(f"Found {len(duplicates)} sets of files with duplicate base names and different extensions.")
+    logging.info(
+        f"Found {len(duplicates)} sets of files with duplicate base names and different extensions."
+    )
     return duplicates
 
 
@@ -167,7 +178,9 @@ def main() -> None:
     logging.info("Starting Duplicate Base Name Finder Script.")
 
     # Collect files
-    files = collect_files(args.directory, args.recursive, args.exclude, args.ignore_case)
+    files = collect_files(
+        args.directory, args.recursive, args.exclude, args.ignore_case
+    )
 
     if not files:
         logging.warning("No files found to process.")
@@ -182,11 +195,11 @@ def main() -> None:
 
     # Display duplicates
     for base_name_key, files in duplicates.items():
-        file_list = ', '.join(str(file) for file in files)
+        file_list = ", ".join(str(file) for file in files)
         print(f"Files with base name '{base_name_key}': {file_list}")
 
     logging.info("Process completed successfully.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

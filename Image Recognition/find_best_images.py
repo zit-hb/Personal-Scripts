@@ -53,57 +53,65 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Find the top X images with the best quality in a directory.'
+        description="Find the top X images with the best quality in a directory."
     )
     parser.add_argument(
-        'image_directory',
+        "image_directory",
         type=str,
-        help='The path to the input image directory.'
+        help="The path to the input image directory.",
     )
     parser.add_argument(
-        '-n', '--num-images',
+        "-n",
+        "--num-images",
         type=int,
         default=10,
-        help='Number of top images to select.'
+        help="Number of top images to select.",
     )
     parser.add_argument(
-        '-o', '--output-dir',
+        "-o",
+        "--output-dir",
         type=str,
-        help='Output directory to copy the selected images.'
+        help="Output directory to copy the selected images.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        '-vv', '--debug',
-        action='store_true',
-        help='Enable debug logging.'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging.",
     )
     parser.add_argument(
-        '-A', '--artifact-weight',
+        "-A",
+        "--artifact-weight",
         type=float,
         default=1.0,
-        help='Weight for the artifact (compression) score.'
+        help="Weight for the artifact (compression) score.",
     )
     parser.add_argument(
-        '-L', '--laplacian-weight',
+        "-L",
+        "--laplacian-weight",
         type=float,
         default=1.0,
-        help='Weight for the laplacian (blurriness) score.'
+        help="Weight for the laplacian (blurriness) score.",
     )
     parser.add_argument(
-        '-S', '--sobel-weight',
+        "-S",
+        "--sobel-weight",
         type=float,
         default=0.1,
-        help='Weight for the sobel (sharpness) score.'
+        help="Weight for the sobel (sharpness) score.",
     )
     parser.add_argument(
-        '-T', '--tenengrad-weight',
+        "-T",
+        "--tenengrad-weight",
         type=float,
         default=0.1,
-        help='Weight for the tenengrad (sharpness) score.'
+        help="Weight for the tenengrad (sharpness) score.",
     )
     return parser.parse_args()
 
@@ -118,7 +126,7 @@ def setup_logging(verbose: bool, debug: bool) -> None:
         level = logging.INFO
     else:
         level = logging.ERROR
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def get_image_files(image_directory: str) -> List[str]:
@@ -132,7 +140,7 @@ def get_image_files(image_directory: str) -> List[str]:
     image_files: List[str] = [
         os.path.join(image_directory, f)
         for f in os.listdir(image_directory)
-        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp'))
+        if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp"))
     ]
     if not image_files:
         logging.error(f"No image files found in directory '{image_directory}'.")
@@ -224,8 +232,8 @@ def calculate_tenengrad_variance(gray_image: np.ndarray) -> float:
     """
     gx = cv2.Sobel(gray_image, cv2.CV_64F, 1, 0, ksize=3)
     gy = cv2.Sobel(gray_image, cv2.CV_64F, 0, 1, ksize=3)
-    gradient_magnitude = np.sqrt(gx ** 2 + gy ** 2)
-    variance = np.mean(gradient_magnitude ** 2)
+    gradient_magnitude = np.sqrt(gx**2 + gy**2)
+    variance = np.mean(gradient_magnitude**2)
     return float(variance)
 
 
@@ -250,11 +258,11 @@ def process_image(image_path: str) -> Optional[Dict[str, Any]]:
     tenengrad_score: float = calculate_tenengrad_variance(gray)
 
     result: Dict[str, Any] = {
-        'image': image_path,
-        'artifact_score': artifact_score,
-        'laplacian_score': laplacian_score,
-        'sobel_score': sobel_score,
-        'tenengrad_score': tenengrad_score,
+        "image": image_path,
+        "artifact_score": artifact_score,
+        "laplacian_score": laplacian_score,
+        "sobel_score": sobel_score,
+        "tenengrad_score": tenengrad_score,
     }
 
     logging.info(
@@ -301,31 +309,48 @@ def collect_and_normalize_scores(results: List[Dict[str, Any]]) -> List[Dict[str
     """
     Collects scores from results, normalizes them, and updates the results with normalized scores.
     """
-    artifact_scores: List[float] = [res['artifact_score'] for res in results]
-    laplacian_scores: List[float] = [res['laplacian_score'] for res in results]
-    sobel_scores: List[float] = [res['sobel_score'] for res in results]
-    tenengrad_scores: List[float] = [res['tenengrad_score'] for res in results]
+    artifact_scores: List[float] = [res["artifact_score"] for res in results]
+    laplacian_scores: List[float] = [res["laplacian_score"] for res in results]
+    sobel_scores: List[float] = [res["sobel_score"] for res in results]
+    tenengrad_scores: List[float] = [res["tenengrad_score"] for res in results]
 
     # Artifact: lower is better
-    norm_artifact_scores: List[float] = normalize_scores(artifact_scores, higher_better=False)
+    norm_artifact_scores: List[float] = normalize_scores(
+        artifact_scores, higher_better=False
+    )
     # Laplacian: higher is better
-    norm_laplacian_scores: List[float] = normalize_scores(laplacian_scores, higher_better=True)
+    norm_laplacian_scores: List[float] = normalize_scores(
+        laplacian_scores, higher_better=True
+    )
     # Sobel: higher is better
     norm_sobel_scores: List[float] = normalize_scores(sobel_scores, higher_better=True)
     # Tenengrad: higher is better
-    norm_tenengrad_scores: List[float] = normalize_scores(tenengrad_scores, higher_better=True)
+    norm_tenengrad_scores: List[float] = normalize_scores(
+        tenengrad_scores, higher_better=True
+    )
 
-    for res, na, nl, ns, nt in zip(results, norm_artifact_scores, norm_laplacian_scores, norm_sobel_scores, norm_tenengrad_scores):
-        res['norm_artifact_score'] = na
-        res['norm_laplacian_score'] = nl
-        res['norm_sobel_score'] = ns
-        res['norm_tenengrad_score'] = nt
+    for res, na, nl, ns, nt in zip(
+        results,
+        norm_artifact_scores,
+        norm_laplacian_scores,
+        norm_sobel_scores,
+        norm_tenengrad_scores,
+    ):
+        res["norm_artifact_score"] = na
+        res["norm_laplacian_score"] = nl
+        res["norm_sobel_score"] = ns
+        res["norm_tenengrad_score"] = nt
 
     return results
 
 
-def compute_overall_scores(results: List[Dict[str, Any]], artifact_weight: float, laplacian_weight: float,
-                           sobel_weight: float, tenengrad_weight: float) -> List[Dict[str, Any]]:
+def compute_overall_scores(
+    results: List[Dict[str, Any]],
+    artifact_weight: float,
+    laplacian_weight: float,
+    sobel_weight: float,
+    tenengrad_weight: float,
+) -> List[Dict[str, Any]]:
     """
     Computes overall quality scores based on normalized scores and given weights.
     """
@@ -339,26 +364,30 @@ def compute_overall_scores(results: List[Dict[str, Any]], artifact_weight: float
         tenengrad_weight = 0.1
 
     for res in results:
-        na = res['norm_artifact_score']
-        nl = res['norm_laplacian_score']
-        ns = res['norm_sobel_score']
-        nt = res['norm_tenengrad_score']
+        na = res["norm_artifact_score"]
+        nl = res["norm_laplacian_score"]
+        ns = res["norm_sobel_score"]
+        nt = res["norm_tenengrad_score"]
 
-        overall_score = ((na * artifact_weight) +
-                         (nl * laplacian_weight) +
-                         (ns * sobel_weight) +
-                         (nt * tenengrad_weight)) / total_weight
-        res['overall_score'] = overall_score
+        overall_score = (
+            (na * artifact_weight)
+            + (nl * laplacian_weight)
+            + (ns * sobel_weight)
+            + (nt * tenengrad_weight)
+        ) / total_weight
+        res["overall_score"] = overall_score
 
     return results
 
 
-def select_top_images(results: List[Dict[str, Any]], num_images: int) -> List[Dict[str, Any]]:
+def select_top_images(
+    results: List[Dict[str, Any]], num_images: int
+) -> List[Dict[str, Any]]:
     """
     Sorts the results based on overall quality score and selects the top images.
     """
     # Sort results based on overall quality score
-    results.sort(key=lambda x: x['overall_score'], reverse=True)
+    results.sort(key=lambda x: x["overall_score"], reverse=True)
 
     # Select top images
     top_results: List[Dict[str, Any]] = results[:num_images]
@@ -366,20 +395,35 @@ def select_top_images(results: List[Dict[str, Any]], num_images: int) -> List[Di
     return top_results
 
 
-def output_results(top_results: List[Dict[str, Any]], artifact_weight: float, laplacian_weight: float,
-                   sobel_weight: float, tenengrad_weight: float) -> None:
+def output_results(
+    top_results: List[Dict[str, Any]],
+    artifact_weight: float,
+    laplacian_weight: float,
+    sobel_weight: float,
+    tenengrad_weight: float,
+) -> None:
     """
     Outputs the top results to the console.
     """
-    print(f"Using Weights: Artifacts={artifact_weight}, Laplacian={laplacian_weight}, "
-          f"Sobel={sobel_weight}, Tenengrad={tenengrad_weight}\n")
+    print(
+        f"Using Weights: Artifacts={artifact_weight}, Laplacian={laplacian_weight}, "
+        f"Sobel={sobel_weight}, Tenengrad={tenengrad_weight}\n"
+    )
 
     for res in top_results:
         print(f"Image: {res['image']}")
-        print(f"  Artifact Score:  {res['artifact_score']:.2f} (Normalized: {res['norm_artifact_score']:.2f})")
-        print(f"  Laplacian Score: {res['laplacian_score']:.2f} (Normalized: {res['norm_laplacian_score']:.2f})")
-        print(f"  Sobel Score:     {res['sobel_score']:.2f} (Normalized: {res['norm_sobel_score']:.2f})")
-        print(f"  Tenengrad Score: {res['tenengrad_score']:.2f} (Normalized: {res['norm_tenengrad_score']:.2f})")
+        print(
+            f"  Artifact Score:  {res['artifact_score']:.2f} (Normalized: {res['norm_artifact_score']:.2f})"
+        )
+        print(
+            f"  Laplacian Score: {res['laplacian_score']:.2f} (Normalized: {res['norm_laplacian_score']:.2f})"
+        )
+        print(
+            f"  Sobel Score:     {res['sobel_score']:.2f} (Normalized: {res['norm_sobel_score']:.2f})"
+        )
+        print(
+            f"  Tenengrad Score: {res['tenengrad_score']:.2f} (Normalized: {res['norm_tenengrad_score']:.2f})"
+        )
         print(f"  Overall Quality Score: {res['overall_score']:.2f}")
         print()
 
@@ -397,7 +441,7 @@ def copy_images(top_results: List[Dict[str, Any]], output_dir: str) -> None:
             logging.error(f"Could not create output directory '{output_dir}': {e}")
             sys.exit(1)
     for res in top_results:
-        src: str = res['image']
+        src: str = res["image"]
         filename: str = os.path.basename(src)
         formatted_score: str = f"{res['overall_score']:.2f}"
         dst_filename: str = f"{formatted_score}_{filename}"
@@ -432,12 +476,17 @@ def main() -> None:
         args.artifact_weight,
         args.laplacian_weight,
         args.sobel_weight,
-        args.tenengrad_weight
+        args.tenengrad_weight,
     )
     top_results = select_top_images(results, args.num_images)
 
-    output_results(top_results, args.artifact_weight, args.laplacian_weight,
-                   args.sobel_weight, args.tenengrad_weight)
+    output_results(
+        top_results,
+        args.artifact_weight,
+        args.laplacian_weight,
+        args.sobel_weight,
+        args.tenengrad_weight,
+    )
 
     if args.output_dir:
         copy_images(top_results, args.output_dir)
@@ -445,5 +494,5 @@ def main() -> None:
     sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

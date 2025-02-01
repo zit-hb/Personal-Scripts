@@ -41,57 +41,57 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Find and remove duplicate files in a directory.'
+        description="Find and remove duplicate files in a directory."
     )
     parser.add_argument(
-        'directory',
+        "directory",
         type=str,
-        help='The path to the directory to scan for duplicate files.'
+        help="The path to the directory to scan for duplicate files.",
     )
     parser.add_argument(
-        '-a',
-        '--algorithm',
+        "-a",
+        "--algorithm",
         type=str,
-        default='md5',
-        help='Hashing algorithm to use. Choices: "md5", "sha1", "sha256", etc.'
+        default="md5",
+        help='Hashing algorithm to use. Choices: "md5", "sha1", "sha256", etc.',
     )
     parser.add_argument(
-        '-r',
-        '--recursive',
-        action='store_true',
-        help='Scan directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Scan directories recursively.",
     )
     parser.add_argument(
-        '-k',
-        '--keep',
+        "-k",
+        "--keep",
         type=str,
-        default='oldest',
-        choices=['oldest', 'newest', 'first', 'last'],
-        help='Criteria for keeping a file. Choices: "oldest", "newest", "first", "last". (default: "oldest")'
+        default="oldest",
+        choices=["oldest", "newest", "first", "last"],
+        help='Criteria for keeping a file. Choices: "oldest", "newest", "first", "last". (default: "oldest")',
     )
     parser.add_argument(
-        '-e',
-        '--exclude',
+        "-e",
+        "--exclude",
         type=str,
-        help='Comma-separated list of directories to exclude from scanning.'
+        help="Comma-separated list of directories to exclude from scanning.",
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv',
-        '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
     parser.add_argument(
-        '-n',
-        '--dry-run',
-        action='store_true',
-        help='Perform a dry run without deleting any files.'
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="Perform a dry run without deleting any files.",
     )
     args = parser.parse_args()
 
@@ -115,10 +115,12 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     else:
         level = logging.WARNING
 
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
-def collect_files(directory: str, recursive: bool, exclude_dirs: Optional[str]) -> List[Path]:
+def collect_files(
+    directory: str, recursive: bool, exclude_dirs: Optional[str]
+) -> List[Path]:
     """
     Collects all files from the directory, excluding specified directories.
     """
@@ -130,14 +132,16 @@ def collect_files(directory: str, recursive: bool, exclude_dirs: Optional[str]) 
         sys.exit(1)
 
     if exclude_dirs:
-        exclude_paths = set((path / ex_dir.strip()).resolve() for ex_dir in exclude_dirs.split(','))
+        exclude_paths = set(
+            (path / ex_dir.strip()).resolve() for ex_dir in exclude_dirs.split(",")
+        )
     else:
         exclude_paths = set()
 
     if recursive:
-        all_files = path.rglob('*')
+        all_files = path.rglob("*")
     else:
-        all_files = path.glob('*')
+        all_files = path.glob("*")
 
     for file in all_files:
         if file.is_file():
@@ -156,15 +160,15 @@ def compute_hash(file_path: Path, algorithm: str) -> str:
     """
     hash_func = hashlib.new(algorithm)
     try:
-        with file_path.open('rb') as f:
-            for chunk in iter(lambda: f.read(4096), b''):
+        with file_path.open("rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
                 hash_func.update(chunk)
         file_hash = hash_func.hexdigest()
         logging.debug(f"Computed {algorithm} hash for '{file_path}': {file_hash}")
         return file_hash
     except Exception as e:
         logging.error(f"Failed to compute hash for '{file_path}': {e}")
-        return ''
+        return ""
 
 
 def find_duplicates(files: List[Path], algorithm: str) -> Dict[str, List[Path]]:
@@ -186,23 +190,27 @@ def select_file_to_keep(files: List[Path], criteria: str) -> Path:
     """
     Selects one file to keep from a list of files based on the specified criteria.
     """
-    if criteria == 'oldest':
+    if criteria == "oldest":
         file_to_keep = min(files, key=lambda f: f.stat().st_mtime)
-    elif criteria == 'newest':
+    elif criteria == "newest":
         file_to_keep = max(files, key=lambda f: f.stat().st_mtime)
-    elif criteria == 'first':
+    elif criteria == "first":
         file_to_keep = sorted(files, key=lambda f: f.resolve().as_posix())[0]
-    elif criteria == 'last':
+    elif criteria == "last":
         file_to_keep = sorted(files, key=lambda f: f.resolve().as_posix())[-1]
     else:
-        logging.error(f"Invalid criteria '{criteria}'. Defaulting to keep the first file.")
+        logging.error(
+            f"Invalid criteria '{criteria}'. Defaulting to keep the first file."
+        )
         file_to_keep = files[0]
 
     logging.debug(f"Selected file to keep based on '{criteria}': '{file_to_keep}'")
     return file_to_keep
 
 
-def delete_duplicates(duplicates: Dict[str, List[Path]], criteria: str, dry_run: bool) -> None:
+def delete_duplicates(
+    duplicates: Dict[str, List[Path]], criteria: str, dry_run: bool
+) -> None:
     """
     Deletes duplicate files based on the specified criteria.
     """
@@ -248,5 +256,5 @@ def main() -> None:
     logging.info("Duplicate file removal process completed successfully.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

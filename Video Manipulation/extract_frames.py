@@ -68,13 +68,23 @@ import imagehash
 from PIL import Image
 from collections import OrderedDict
 
-CACHE_DIR = os.path.join(os.path.expanduser('~'), '.cache', 'extract_frames')
-MODEL_URL = 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8m.pt'
-MODEL_FILENAME = 'yolov8m.pt'
+CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "extract_frames")
+MODEL_URL = "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8m.pt"
+MODEL_FILENAME = "yolov8m.pt"
 MAX_CACHE_ENTRIES = 1000
 
 # List of video file extensions to consider
-VIDEO_EXTENSIONS = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.mpg', '.mpeg', '.m4v']
+VIDEO_EXTENSIONS = [
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".flv",
+    ".wmv",
+    ".mpg",
+    ".mpeg",
+    ".m4v",
+]
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -82,87 +92,87 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Extract frames from videos, filter by blurriness, compression artifacts, and content matching using YOLOv8.'
+        description="Extract frames from videos, filter by blurriness, compression artifacts, and content matching using YOLOv8."
     )
     parser.add_argument(
-        'input_paths',
-        nargs='+',
+        "input_paths",
+        nargs="+",
         type=str,
-        help='The path(s) to input video file(s) or directory(s) containing video files.'
+        help="The path(s) to input video file(s) or directory(s) containing video files.",
     )
     parser.add_argument(
-        '-o',
-        '--output-dir',
+        "-o",
+        "--output-dir",
         type=str,
-        help='The directory to save the extracted frames. Defaults to the current working directory.'
+        help="The directory to save the extracted frames. Defaults to the current working directory.",
     )
     parser.add_argument(
-        '-s',
-        '--frame-rate',
+        "-s",
+        "--frame-rate",
         type=float,
-        help='Frame extraction rate (frames per second). Default is to extract every frame.'
+        help="Frame extraction rate (frames per second). Default is to extract every frame.",
     )
     parser.add_argument(
-        '-b',
-        '--blurry-threshold',
-        type=float,
-        default=0,
-        help='Threshold for detecting blurry images.'
-    )
-    parser.add_argument(
-        '-a',
-        '--compression-threshold',
+        "-b",
+        "--blurry-threshold",
         type=float,
         default=0,
-        help='Threshold for compression artifacts detection.'
+        help="Threshold for detecting blurry images.",
     )
     parser.add_argument(
-        '-c',
-        '--class',
-        dest='class_names',
+        "-a",
+        "--compression-threshold",
+        type=float,
+        default=0,
+        help="Threshold for compression artifacts detection.",
+    )
+    parser.add_argument(
+        "-c",
+        "--class",
+        dest="class_names",
         type=str,
-        action='append',
+        action="append",
         help='The object class names to detect within the frames (e.g., "person", "car"). '
-             'Multiple --class (-c) arguments can be provided. Any matching class will be accepted.'
+        "Multiple --class (-c) arguments can be provided. Any matching class will be accepted.",
     )
     parser.add_argument(
-        '-C',
-        '--negative-class',
-        dest='negative_class_names',
+        "-C",
+        "--negative-class",
+        dest="negative_class_names",
         type=str,
-        action='append',
-        help='The object class names that should NOT be present in the frames. '
-             'Multiple --negative-class (-C) arguments can be provided. None should match.'
+        action="append",
+        help="The object class names that should NOT be present in the frames. "
+        "Multiple --negative-class (-C) arguments can be provided. None should match.",
     )
     parser.add_argument(
-        '-S',
-        '--start',
+        "-S",
+        "--start",
         type=str,
-        help='Start time of the video segment to process. Supports formats like "ss", "mm:ss", "hh:mm:ss".'
+        help='Start time of the video segment to process. Supports formats like "ss", "mm:ss", "hh:mm:ss".',
     )
     parser.add_argument(
-        '-E',
-        '--end',
+        "-E",
+        "--end",
         type=str,
-        help='End time of the video segment to process. Supports formats like "ss", "mm:ss", "hh:mm:ss".'
+        help='End time of the video segment to process. Supports formats like "ss", "mm:ss", "hh:mm:ss".',
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        '-d',
-        '--dry-run',
-        action='store_true',
-        help='Show what would be done without making any changes.'
+        "-d",
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making any changes.",
     )
     parser.add_argument(
-        '-r',
-        '--recursive',
-        action='store_true',
-        help='Recursively search for video files in the specified directory(s).'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Recursively search for video files in the specified directory(s).",
     )
     args = parser.parse_args()
     return args
@@ -173,7 +183,7 @@ def setup_logging(verbose: bool) -> None:
     Sets up the logging configuration.
     """
     level = logging.INFO if verbose else logging.WARNING
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def is_video_file(file_path: str) -> bool:
@@ -194,7 +204,9 @@ def get_video_files(input_paths: List[str], recursive: bool) -> List[str]:
             if is_video_file(path):
                 video_files.append(path)
             else:
-                logging.warning(f"File '{path}' is not a supported video format. Skipping.")
+                logging.warning(
+                    f"File '{path}' is not a supported video format. Skipping."
+                )
         elif os.path.isdir(path):
             if recursive:
                 for root, _, files in os.walk(path):
@@ -221,14 +233,18 @@ def validate_video_file(video_file: str) -> None:
         sys.exit(1)
 
 
-def create_output_directory(base_output_dir: Optional[str], video_file: str, dry_run: bool) -> str:
+def create_output_directory(
+    base_output_dir: Optional[str], video_file: str, dry_run: bool
+) -> str:
     """
     Creates the output directory for the video if it does not exist.
     The directory is named after the video file (without extension) inside the base output directory.
     """
     if base_output_dir is None:
         base_output_dir = os.getcwd()
-        logging.info(f"No output directory specified. Using current working directory: '{base_output_dir}'")
+        logging.info(
+            f"No output directory specified. Using current working directory: '{base_output_dir}'"
+        )
 
     video_name = os.path.splitext(os.path.basename(video_file))[0]
     output_dir = os.path.join(base_output_dir, video_name)
@@ -248,7 +264,9 @@ def download_model(model_url: str, model_path: str) -> None:
     Downloads the YOLOv8 model from the specified URL to the given path.
     """
     try:
-        logging.info(f"Downloading YOLOv8 model from '{model_url}' to '{model_path}'...")
+        logging.info(
+            f"Downloading YOLOv8 model from '{model_url}' to '{model_path}'..."
+        )
         urllib.request.urlretrieve(model_url, model_path)
         logging.info("Model downloaded successfully.")
     except Exception as e:
@@ -293,7 +311,9 @@ def load_yolov8_model() -> Tuple[YOLO, List[str]]:
     return model, class_names
 
 
-def validate_class_names(specified_classes: Optional[List[str]], available_classes: List[str]) -> None:
+def validate_class_names(
+    specified_classes: Optional[List[str]], available_classes: List[str]
+) -> None:
     """
     Validates that the specified class names are available in the model's class list.
     """
@@ -302,7 +322,9 @@ def validate_class_names(specified_classes: Optional[List[str]], available_class
 
     invalid_classes = [cls for cls in specified_classes if cls not in available_classes]
     if invalid_classes:
-        logging.error(f"The following specified classes are not recognized by YOLOv8: {invalid_classes}")
+        logging.error(
+            f"The following specified classes are not recognized by YOLOv8: {invalid_classes}"
+        )
         logging.error(f"Available classes are: {available_classes}")
         sys.exit(1)
     else:
@@ -358,17 +380,17 @@ def parse_timecode(time_str: Optional[str]) -> Optional[float]:
     if time_str is None:
         return None
     try:
-        parts = time_str.strip().split(':')
+        parts = time_str.strip().split(":")
         parts = [float(p) for p in parts]
         if len(parts) == 1:
             # ss
             seconds = parts[0]
         elif len(parts) == 2:
             # mm:ss
-            seconds = parts[0]*60 + parts[1]
+            seconds = parts[0] * 60 + parts[1]
         elif len(parts) == 3:
             # hh:mm:ss
-            seconds = parts[0]*3600 + parts[1]*60 + parts[2]
+            seconds = parts[0] * 3600 + parts[1] * 60 + parts[2]
         else:
             logging.error(f"Invalid time format: '{time_str}'")
             sys.exit(1)
@@ -378,7 +400,12 @@ def parse_timecode(time_str: Optional[str]) -> Optional[float]:
         sys.exit(1)
 
 
-def convert_times_to_frames(start_time: Optional[float], end_time: Optional[float], fps: float, total_frames: int) -> Tuple[int, int]:
+def convert_times_to_frames(
+    start_time: Optional[float],
+    end_time: Optional[float],
+    fps: float,
+    total_frames: int,
+) -> Tuple[int, int]:
     """
     Converts start and end times to frame numbers.
     """
@@ -395,7 +422,13 @@ def convert_times_to_frames(start_time: Optional[float], end_time: Optional[floa
     return start_frame, end_frame
 
 
-def validate_frame_numbers(start_frame: int, end_frame: int, total_frames: int, start_time: Optional[float], end_time: Optional[float]) -> None:
+def validate_frame_numbers(
+    start_frame: int,
+    end_frame: int,
+    total_frames: int,
+    start_time: Optional[float],
+    end_time: Optional[float],
+) -> None:
     """
     Validates the frame numbers.
     """
@@ -427,7 +460,12 @@ def get_cached_result(cache: OrderedDict, hash_value: str) -> Optional[List[str]
     return None
 
 
-def insert_cache(cache: OrderedDict, hash_value: str, result: List[str], max_entries: int = MAX_CACHE_ENTRIES) -> None:
+def insert_cache(
+    cache: OrderedDict,
+    hash_value: str,
+    result: List[str],
+    max_entries: int = MAX_CACHE_ENTRIES,
+) -> None:
     """
     Inserts the result into the cache.
     """
@@ -455,7 +493,7 @@ def process_video_frames(
     fps: float,
     model: YOLO,
     available_classes: List[str],
-    cache: OrderedDict
+    cache: OrderedDict,
 ) -> None:
     """
     Processes frames from the video capture.
@@ -485,14 +523,17 @@ def process_video_frames(
         logging.info(f"Processing frame {frame_number}/{total_frames}")
 
         process_result = process_frame(
-            frame, frame_number, args, output_dir, model, available_classes, cache)
+            frame, frame_number, args, output_dir, model, available_classes, cache
+        )
         if process_result:
             saved_frame_count += 1
 
         frame_number += 1
 
     cap.release()
-    logging.info(f"Processing complete. Saved {saved_frame_count} frames to '{output_dir}'")
+    logging.info(
+        f"Processing complete. Saved {saved_frame_count} frames to '{output_dir}'"
+    )
 
 
 def process_frame(
@@ -502,7 +543,7 @@ def process_frame(
     output_dir: str,
     model: YOLO,
     available_classes: List[str],
-    cache: OrderedDict
+    cache: OrderedDict,
 ) -> bool:
     """
     Processes a single frame: checks blurriness, compression artifacts, content matching,
@@ -525,7 +566,9 @@ def process_frame(
         artifact_score = calculate_artifact_score(frame)
         has_artifacts = artifact_score > args.compression_threshold
         if has_artifacts:
-            logging.info(f"Frame {frame_number} has high compression artifacts (score: {artifact_score:.2f})")
+            logging.info(
+                f"Frame {frame_number} has high compression artifacts (score: {artifact_score:.2f})"
+            )
             return False
 
     # Content matching using YOLOv8 if class names are provided
@@ -546,7 +589,9 @@ def process_frame(
             result = results[0]
 
             # Extract detected class names
-            detected_classes = [available_classes[int(cls_id)] for cls_id in result.boxes.cls.tolist()]
+            detected_classes = [
+                available_classes[int(cls_id)] for cls_id in result.boxes.cls.tolist()
+            ]
 
             # Insert into cache
             insert_cache(cache, hash_value, detected_classes)
@@ -560,7 +605,9 @@ def process_frame(
 
         # Check for negative class matches
         if args.negative_class_names:
-            negative_match = any(cls in detected_classes for cls in args.negative_class_names)
+            negative_match = any(
+                cls in detected_classes for cls in args.negative_class_names
+            )
             if negative_match:
                 logging.info(f"Frame {frame_number} contains undesired classes.")
                 return False
@@ -684,14 +731,28 @@ def main() -> None:
 
         start_time = parse_timecode(args.start)
         end_time = parse_timecode(args.end)
-        start_frame, end_frame = convert_times_to_frames(start_time, end_time, fps, total_frames)
-        validate_frame_numbers(start_frame, end_frame, total_frames, start_time, end_time)
+        start_frame, end_frame = convert_times_to_frames(
+            start_time, end_time, fps, total_frames
+        )
+        validate_frame_numbers(
+            start_frame, end_frame, total_frames, start_time, end_time
+        )
 
         try:
-            process_video_frames(cap, args, output_dir, start_frame, end_frame, fps, model, available_classes, cache)
+            process_video_frames(
+                cap,
+                args,
+                output_dir,
+                start_frame,
+                end_frame,
+                fps,
+                model,
+                available_classes,
+                cache,
+            )
         finally:
             cap.release()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

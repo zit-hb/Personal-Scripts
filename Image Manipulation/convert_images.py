@@ -44,50 +44,56 @@ from typing import List
 def parse_arguments():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Convert images from one format to another.'
+        description="Convert images from one format to another."
     )
     parser.add_argument(
-        '-f', '--format',
+        "-f",
+        "--format",
         type=str,
-        default='jpeg',
-        help='Output image format.'
+        default="jpeg",
+        help="Output image format.",
     )
     parser.add_argument(
-        '-q', '--quality',
+        "-q",
+        "--quality",
         type=int,
         default=85,
-        help='Output image quality (1-100).'
+        help="Output image quality (1-100).",
     )
     parser.add_argument(
-        '-o', '--output-dir',
+        "-o",
+        "--output-dir",
         type=str,
-        help='Output directory for the converted images.'
+        help="Output directory for the converted images.",
     )
     parser.add_argument(
-        '-r', '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parser.add_argument(
-        '-n', '--dry-run',
-        action='store_true',
-        help='Show what would be done without making any changes.'
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making any changes.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        'path',
-        nargs='+',
-        help='The image file or directory to process.'
+        "path",
+        nargs="+",
+        help="The image file or directory to process.",
     )
     args = parser.parse_args()
 
     # Validate quality value
     if not (1 <= args.quality <= 100):
-        parser.error('Quality must be between 1 and 100.')
+        parser.error("Quality must be between 1 and 100.")
 
     return args
 
@@ -95,12 +101,12 @@ def parse_arguments():
 def setup_logging(verbose: bool):
     """Sets up the logging configuration."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def collect_images(paths: List[str], recursive: bool) -> List[str]:
     """Collects all image files from the provided paths."""
-    supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', '.webp')
+    supported_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif", ".webp")
     image_files = []
 
     for path in paths:
@@ -108,7 +114,9 @@ def collect_images(paths: List[str], recursive: bool) -> List[str]:
             if path.lower().endswith(supported_extensions):
                 image_files.append(path)
             else:
-                logging.warning(f"File '{path}' is not a supported image format, skipping.")
+                logging.warning(
+                    f"File '{path}' is not a supported image format, skipping."
+                )
         elif os.path.isdir(path):
             if recursive:
                 for root, _, files in os.walk(path):
@@ -120,7 +128,9 @@ def collect_images(paths: List[str], recursive: bool) -> List[str]:
                     if file.lower().endswith(supported_extensions):
                         image_files.append(os.path.join(path, file))
         else:
-            logging.warning(f"Path '{path}' is neither a file nor a directory, skipping.")
+            logging.warning(
+                f"Path '{path}' is neither a file nor a directory, skipping."
+            )
 
     if not image_files:
         logging.error("No image files found in the specified path(s).")
@@ -130,7 +140,9 @@ def collect_images(paths: List[str], recursive: bool) -> List[str]:
     return image_files
 
 
-def convert_image(img_path: str, output_format: str, quality: int, output_dir: str, dry_run: bool):
+def convert_image(
+    img_path: str, output_format: str, quality: int, output_dir: str, dry_run: bool
+):
     """Converts a single image to the specified format."""
     try:
         with Image.open(img_path) as img:
@@ -143,16 +155,18 @@ def convert_image(img_path: str, output_format: str, quality: int, output_dir: s
                 output_path = os.path.join(os.path.dirname(img_path), output_file)
 
             if dry_run:
-                logging.info(f"Would convert '{img_path}' to '{output_path}' with format '{output_format}' and quality {quality}")
+                logging.info(
+                    f"Would convert '{img_path}' to '{output_path}' with format '{output_format}' and quality {quality}"
+                )
                 return
 
-            if img.mode in ("RGBA", "LA") and output_format.lower() in ('jpg', 'jpeg'):
+            if img.mode in ("RGBA", "LA") and output_format.lower() in ("jpg", "jpeg"):
                 # JPEG doesn't support transparency; need to convert
                 background = Image.new("RGB", img.size, (255, 255, 255))
                 background.paste(img, mask=img.split()[3])  # 3 is the alpha channel
                 img = background
             else:
-                img = img.convert('RGB')
+                img = img.convert("RGB")
 
             img.save(output_path, format=output_format.upper(), quality=quality)
             logging.info(f"Converted '{img_path}' to '{output_path}'")
@@ -169,13 +183,9 @@ def main():
 
     for img_path in image_files:
         convert_image(
-            img_path,
-            args.format,
-            args.quality,
-            args.output_dir,
-            args.dry_run
+            img_path, args.format, args.quality, args.output_dir, args.dry_run
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

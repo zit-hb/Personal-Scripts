@@ -52,6 +52,7 @@ import json
 # Optional: Load environment variables from a .env file if present
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
@@ -62,22 +63,22 @@ client: Optional[OpenAI] = None  # Global OpenAI client
 
 # Mapping of file extensions to programming languages
 extension_to_language = {
-    '.py': 'Python',
-    '.js': 'JavaScript',
-    '.java': 'Java',
-    '.cpp': 'C++',
-    '.c': 'C',
-    '.cs': 'C#',
-    '.rb': 'Ruby',
-    '.go': 'Go',
-    '.php': 'PHP',
-    '.swift': 'Swift',
-    '.ts': 'TypeScript',
-    '.html': 'HTML',
-    '.css': 'CSS',
-    '.rs': 'Rust',
-    '.kt': 'Kotlin',
-    '.scala': 'Scala',
+    ".py": "Python",
+    ".js": "JavaScript",
+    ".java": "Java",
+    ".cpp": "C++",
+    ".c": "C",
+    ".cs": "C#",
+    ".rb": "Ruby",
+    ".go": "Go",
+    ".php": "PHP",
+    ".swift": "Swift",
+    ".ts": "TypeScript",
+    ".html": "HTML",
+    ".css": "CSS",
+    ".rs": "Rust",
+    ".kt": "Kotlin",
+    ".scala": "Scala",
     # Add more mappings as needed
 }
 
@@ -87,95 +88,95 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Refactor the style of code files using an LLM.'
+        description="Refactor the style of code files using an LLM."
     )
     parser.add_argument(
-        'input_path',
+        "input_path",
         type=str,
-        help='The path to the input code file or directory.'
+        help="The path to the input code file or directory.",
     )
     parser.add_argument(
-        '-o',
-        '--output-dir',
+        "-o",
+        "--output-dir",
         type=str,
-        help='Directory to save refactored code files. (default: overwrite input files)'
+        help="Directory to save refactored code files. (default: overwrite input files)",
     )
     parser.add_argument(
-        '-s',
-        '--style',
+        "-s",
+        "--style",
         type=str,
-        default='Default',
-        choices=['Default', 'Google', 'Airbnb', 'PEP8', 'Standard'],
-        help='Coding style to apply. Choices: "Default", "Google", "Airbnb", "PEP8", "Standard". (default: "Default")'
+        default="Default",
+        choices=["Default", "Google", "Airbnb", "PEP8", "Standard"],
+        help='Coding style to apply. Choices: "Default", "Google", "Airbnb", "PEP8", "Standard". (default: "Default")',
     )
     parser.add_argument(
-        '-r',
-        '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parser.add_argument(
-        '-i',
-        '--include',
+        "-i",
+        "--include",
         type=str,
-        help='Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)'
+        help='Comma-separated list of glob patterns to include (e.g., "*.py,*.js,*.java"). (default: known code extensions)',
     )
     parser.add_argument(
-        '-e',
-        '--exclude',
+        "-e",
+        "--exclude",
         type=str,
-        help='Comma-separated list of glob patterns to exclude (e.g., "*.min.js, test_*"). (default: none)'
+        help='Comma-separated list of glob patterns to exclude (e.g., "*.min.js, test_*"). (default: none)',
     )
     parser.add_argument(
-        '-m',
-        '--model',
+        "-m",
+        "--model",
         type=str,
-        default='gpt-4o',
-        help='OpenAI model to use for code refactoring. (default: "gpt-4o")'
+        default="gpt-4o",
+        help='OpenAI model to use for code refactoring. (default: "gpt-4o")',
     )
     parser.add_argument(
-        '-L',
-        '--level',
+        "-L",
+        "--level",
         type=str,
-        default='minimal',
-        choices=['minimal', 'small_fixes', 'bug_fixes', 'rewrite'],
-        help='Level of changes to apply. Choices: "minimal", "small_fixes", "bug_fixes", "rewrite". (default: "minimal")'
+        default="minimal",
+        choices=["minimal", "small_fixes", "bug_fixes", "rewrite"],
+        help='Level of changes to apply. Choices: "minimal", "small_fixes", "bug_fixes", "rewrite". (default: "minimal")',
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv',
-        '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
     parser.add_argument(
-        '-k',
-        '--api-key',
+        "-k",
+        "--api-key",
         type=str,
-        help='OpenAI API key. Can also be set via the OPENAI_API_KEY environment variable.'
+        help="OpenAI API key. Can also be set via the OPENAI_API_KEY environment variable.",
     )
     parser.add_argument(
-        '-l',
-        '--include-last-cleaned',
-        action='store_true',
-        help='Include the last refactored code in the chat history for consistency across multiple files.'
+        "-l",
+        "--include-last-cleaned",
+        action="store_true",
+        help="Include the last refactored code in the chat history for consistency across multiple files.",
     )
     args = parser.parse_args()
 
     # Parse include and exclude patterns
     if args.include:
-        args.include = [pattern.strip() for pattern in args.include.split(',')]
+        args.include = [pattern.strip() for pattern in args.include.split(",")]
     else:
         # Default to known code file extensions
-        args.include = ['*' + ext for ext in extension_to_language.keys()]
+        args.include = ["*" + ext for ext in extension_to_language.keys()]
 
     if args.exclude:
-        args.exclude = [pattern.strip() for pattern in args.exclude.split(',')]
+        args.exclude = [pattern.strip() for pattern in args.exclude.split(",")]
     else:
         args.exclude = []
 
@@ -193,7 +194,7 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     else:
         level = logging.ERROR
 
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def get_api_key(provided_key: Optional[str]) -> str:
@@ -202,9 +203,11 @@ def get_api_key(provided_key: Optional[str]) -> str:
     """
     if provided_key:
         return provided_key
-    api_key = os.getenv('OPENAI_API_KEY')
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        logging.error('OpenAI API key not provided. Use the -k/--api-key option or set the OPENAI_API_KEY environment variable.')
+        logging.error(
+            "OpenAI API key not provided. Use the -k/--api-key option or set the OPENAI_API_KEY environment variable."
+        )
         sys.exit(1)
     return api_key
 
@@ -214,7 +217,7 @@ def read_file(file_path: Path) -> Optional[str]:
     Reads the content of the file at file_path.
     """
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
         return content
     except Exception as e:
@@ -227,7 +230,7 @@ def write_file(file_path: Path, content: str) -> None:
     Writes content to the file at file_path.
     """
     try:
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
     except Exception as e:
         logging.error(f"Failed to write to file '{file_path}': {e}")
@@ -239,7 +242,7 @@ def detect_language(file_path: Path) -> str:
     Detects the programming language of the code file based on its extension.
     """
     ext = file_path.suffix.lower()
-    language = extension_to_language.get(ext, 'Plain Text')
+    language = extension_to_language.get(ext, "Plain Text")
     logging.debug(f"Detected language '{language}' for file '{file_path}'.")
     return language
 
@@ -249,9 +252,9 @@ def is_code_file(file_path: Path) -> bool:
     Determines if a file is a code file based on its content.
     """
     try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read(1024)
-            if '\0' in content:
+            if "\0" in content:
                 logging.debug(f"File '{file_path}' is binary.")
                 return False  # Binary file
             else:
@@ -261,7 +264,9 @@ def is_code_file(file_path: Path) -> bool:
         return False
 
 
-def should_include_file(file_path: Path, include_patterns: List[str], exclude_patterns: List[str]) -> bool:
+def should_include_file(
+    file_path: Path, include_patterns: List[str], exclude_patterns: List[str]
+) -> bool:
     """
     Determines if a file should be included based on include and exclude patterns.
     """
@@ -280,7 +285,12 @@ def should_include_file(file_path: Path, include_patterns: List[str], exclude_pa
     return True
 
 
-def collect_code_files(input_path: str, recursive: bool, include_patterns: List[str], exclude_patterns: List[str]) -> List[Path]:
+def collect_code_files(
+    input_path: str,
+    recursive: bool,
+    include_patterns: List[str],
+    exclude_patterns: List[str],
+) -> List[Path]:
     """
     Collects all code files from the input path.
     """
@@ -294,9 +304,9 @@ def collect_code_files(input_path: str, recursive: bool, include_patterns: List[
                 code_files.append(path)
     elif path.is_dir():
         if recursive:
-            files = list(path.rglob('*'))
+            files = list(path.rglob("*"))
         else:
-            files = list(path.glob('*'))
+            files = list(path.glob("*"))
         for file in files:
             if file.is_file() and is_code_file(file):
                 if should_include_file(file, include_patterns, exclude_patterns):
@@ -319,7 +329,7 @@ def prepare_messages(
     style: str,
     level: str,
     include_additional_info: bool,
-    example_refactored_code: Optional[str] = None
+    example_refactored_code: Optional[str] = None,
 ) -> List[Dict]:
     """
     Prepares the messages to send to the LLM.
@@ -334,38 +344,39 @@ def prepare_messages(
         "content": (
             "You are an assistant that refactors code according to specified coding styles and levels."
             " Use the provided function to return the refactored code."
-            + (" Also provide additional information if requested." if include_additional_info else "")
-        )
+            + (
+                " Also provide additional information if requested."
+                if include_additional_info
+                else ""
+            )
+        ),
     }
     messages.append(system_message)
 
     # User Message: Task Description
-    task_message_content = (
-        f"Please refactor the following {language} code according to the {style} coding style."
-    )
+    task_message_content = f"Please refactor the following {language} code according to the {style} coding style."
 
     # Add level-specific instructions
-    if level == 'minimal':
-        task_message_content += " Make minimal changes to adjust the style without altering functionality."
-    elif level == 'small_fixes':
+    if level == "minimal":
+        task_message_content += (
+            " Make minimal changes to adjust the style without altering functionality."
+        )
+    elif level == "small_fixes":
         task_message_content += " Adjust the style and fix any minor issues you find without changing the functionality."
-    elif level == 'bug_fixes':
+    elif level == "bug_fixes":
         task_message_content += " Adjust the style and fix any bugs you find if you are sure they are bugs and know how to fix them."
-    elif level == 'rewrite':
+    elif level == "rewrite":
         task_message_content += " Feel free to completely rewrite the code to improve it while preserving its functionality."
 
     task_message_content += " Please acknowledge these instructions."
 
-    task_message = {
-        "role": "user",
-        "content": task_message_content
-    }
+    task_message = {"role": "user", "content": task_message_content}
     messages.append(task_message)
 
     # Assistant Message: Acknowledgment of Task
     assistant_ack_task = {
         "role": "assistant",
-        "content": "Understood. I'm ready to receive the code you want to refactor."
+        "content": "Understood. I'm ready to receive the code you want to refactor.",
     }
     messages.append(assistant_ack_task)
 
@@ -377,39 +388,35 @@ def prepare_messages(
             f"{example_refactored_code}\n"
             "```"
         )
-        example_message = {
-            "role": "user",
-            "content": example_message_content
-        }
+        example_message = {"role": "user", "content": example_message_content}
         messages.append(example_message)
 
         # Assistant Message: Acknowledgment of Example
         assistant_ack_example = {
             "role": "assistant",
-            "content": "Got it. I'll use this example to maintain consistency in refactoring."
+            "content": "Got it. I'll use this example to maintain consistency in refactoring.",
         }
         messages.append(assistant_ack_example)
 
     # User Message: Actual Code to Refactor
-    code_message_content = f"Here is the code that needs to be refactored:\n```\n{code}\n```"
-    code_message = {
-        "role": "user",
-        "content": code_message_content
-    }
+    code_message_content = (
+        f"Here is the code that needs to be refactored:\n```\n{code}\n```"
+    )
+    code_message = {"role": "user", "content": code_message_content}
     messages.append(code_message)
 
     return messages
 
 
-def call_openai_api(messages: List[Dict], model: str, functions: Optional[List[Dict]] = None) -> Optional[Dict]:
+def call_openai_api(
+    messages: List[Dict], model: str, functions: Optional[List[Dict]] = None
+) -> Optional[Dict]:
     """
     Sends the messages to the OpenAI API and returns the response.
     """
     try:
         response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            functions=functions
+            model=model, messages=messages, functions=functions
         )
         return response
     except Exception as e:
@@ -417,7 +424,9 @@ def call_openai_api(messages: List[Dict], model: str, functions: Optional[List[D
         return None
 
 
-def get_refactored_code(messages: List[Dict], model: str, functions: Optional[List[Dict]]) -> Optional[Dict]:
+def get_refactored_code(
+    messages: List[Dict], model: str, functions: Optional[List[Dict]]
+) -> Optional[Dict]:
     """
     Calls the OpenAI API to get the refactored code, with retry logic.
     Returns the function arguments as a dict if successful, else None.
@@ -436,7 +445,10 @@ def get_refactored_code(messages: List[Dict], model: str, functions: Optional[Li
 
         assistant_message = response.choices[0].message
 
-        if hasattr(assistant_message, 'function_call') and assistant_message.function_call is not None:
+        if (
+            hasattr(assistant_message, "function_call")
+            and assistant_message.function_call is not None
+        ):
             function_call = assistant_message.function_call
             arguments = function_call.arguments
 
@@ -445,7 +457,9 @@ def get_refactored_code(messages: List[Dict], model: str, functions: Optional[Li
                 function_args = json.loads(arguments)
                 return function_args
             except json.JSONDecodeError as e:
-                logging.error(f"Failed to parse function arguments on attempt {attempt + 1}: {e}")
+                logging.error(
+                    f"Failed to parse function arguments on attempt {attempt + 1}: {e}"
+                )
                 if attempt < max_attempts - 1:
                     logging.info(f"Retrying... ({attempt + 1}/{max_attempts})")
                     continue
@@ -456,7 +470,7 @@ def get_refactored_code(messages: List[Dict], model: str, functions: Optional[Li
             if assistant_message.content:
                 refactored_code = assistant_message.content.strip()
                 if refactored_code:
-                    function_args = {'refactored_code': refactored_code}
+                    function_args = {"refactored_code": refactored_code}
                     return function_args
                 else:
                     logging.error("No content in assistant's response.")
@@ -475,7 +489,9 @@ def get_refactored_code(messages: List[Dict], model: str, functions: Optional[Li
     return None
 
 
-def determine_output_file_path(file_path: Path, output_dir: Optional[Path], input_path: str) -> Path:
+def determine_output_file_path(
+    file_path: Path, output_dir: Optional[Path], input_path: str
+) -> Path:
     """
     Determines the output file path, creating necessary directories.
     """
@@ -496,7 +512,7 @@ def process_file(
     file_path: Path,
     args: argparse.Namespace,
     output_dir: Optional[Path],
-    example_refactored_code: Optional[str] = None
+    example_refactored_code: Optional[str] = None,
 ) -> Optional[str]:
     """
     Processes a single code file: refactors and outputs the result.
@@ -519,7 +535,7 @@ def process_file(
         style=args.style,
         level=args.level,
         include_additional_info=include_additional_info,
-        example_refactored_code=example_refactored_code
+        example_refactored_code=example_refactored_code,
     )
 
     # Define functions
@@ -528,14 +544,33 @@ def process_file(
     }
 
     if include_additional_info:
-        function_properties.update({
-            "description": {"type": "string", "description": "A very short description of the code."},
-            "quality": {"type": "string", "description": "A very short assessment of code quality."},
-            "style": {"type": "string", "description": "The coding style used."},
-            "language": {"type": "string", "description": "Programming language of the code."},
-            "libraries": {"type": "array", "items": {"type": "string"}, "description": "A short list of libraries used."},
-            "frameworks": {"type": "array", "items": {"type": "string"}, "description": "A short list of frameworks used."}
-        })
+        function_properties.update(
+            {
+                "description": {
+                    "type": "string",
+                    "description": "A very short description of the code.",
+                },
+                "quality": {
+                    "type": "string",
+                    "description": "A very short assessment of code quality.",
+                },
+                "style": {"type": "string", "description": "The coding style used."},
+                "language": {
+                    "type": "string",
+                    "description": "Programming language of the code.",
+                },
+                "libraries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "A short list of libraries used.",
+                },
+                "frameworks": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "A short list of frameworks used.",
+                },
+            }
+        )
 
     functions = [
         {
@@ -545,8 +580,8 @@ def process_file(
                 "type": "object",
                 "properties": function_properties,
                 "required": ["refactored_code"],
-                "additionalProperties": False
-            }
+                "additionalProperties": False,
+            },
         }
     ]
 
@@ -556,19 +591,19 @@ def process_file(
         logging.error(f"Skipping file '{file_path}' due to errors.")
         return None
 
-    refactored_code = function_args.get('refactored_code')
+    refactored_code = function_args.get("refactored_code")
     if not refactored_code:
         logging.error("Refactored code not found in function arguments.")
         return None
 
     # Log additional information if available
     if include_additional_info:
-        description = function_args.get('description', '')
-        quality = function_args.get('quality', '')
-        used_style = function_args.get('style', '')
-        used_language = function_args.get('language', '')
-        libraries = function_args.get('libraries', [])
-        frameworks = function_args.get('frameworks', [])
+        description = function_args.get("description", "")
+        quality = function_args.get("quality", "")
+        used_style = function_args.get("style", "")
+        used_language = function_args.get("language", "")
+        libraries = function_args.get("libraries", [])
+        frameworks = function_args.get("frameworks", [])
 
         logging.info(f"File: {file_path}")
         if description:
@@ -585,13 +620,17 @@ def process_file(
             logging.info(f"Frameworks: {', '.join(frameworks)}")
 
     # Determine output file path
-    output_file_path = determine_output_file_path(file_path, output_dir, args.input_path)
+    output_file_path = determine_output_file_path(
+        file_path, output_dir, args.input_path
+    )
 
     # Write refactored code to output file
     write_file(output_file_path, refactored_code)
     logging.info(f"Refactored code written to '{output_file_path}'.")
 
-    return refactored_code  # Return the refactored code to update example_refactored_code
+    return (
+        refactored_code  # Return the refactored code to update example_refactored_code
+    )
 
 
 def main() -> None:
@@ -611,10 +650,7 @@ def main() -> None:
 
     # Collect code files
     code_files = collect_code_files(
-        args.input_path,
-        args.recursive,
-        args.include,
-        args.exclude
+        args.input_path, args.recursive, args.include, args.exclude
     )
 
     # Determine output directory
@@ -627,17 +663,10 @@ def main() -> None:
     for file_path in code_files:
         if args.include_last_cleaned:
             current_refactored_code = process_file(
-                file_path,
-                args,
-                output_dir,
-                example_refactored_code
+                file_path, args, output_dir, example_refactored_code
             )
         else:
-            current_refactored_code = process_file(
-                file_path,
-                args,
-                output_dir
-            )
+            current_refactored_code = process_file(file_path, args, output_dir)
 
         # Update the example_refactored_code if processing was successful
         if args.include_last_cleaned and current_refactored_code:
@@ -646,5 +675,5 @@ def main() -> None:
     logging.info("Code refactoring process completed.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -40,58 +40,64 @@ from enum import Enum
 from dataclasses import dataclass, field
 
 # Constants for file paths and registry keys
-LINUX_OS_RELEASE_PATH = '/etc/os-release'
-PROC_SCSI_SCSI = '/proc/scsi/scsi'
+LINUX_OS_RELEASE_PATH = "/etc/os-release"
+PROC_SCSI_SCSI = "/proc/scsi/scsi"
 
 
 class OperatingSystemType(Enum):
     """Enum representing supported operating system types."""
-    WINDOWS = 'Windows'
-    LINUX = 'Linux'
-    MACOS = 'MacOS'
-    FREEBSD = 'FreeBSD'
-    UNKNOWN = 'Unknown'
+
+    WINDOWS = "Windows"
+    LINUX = "Linux"
+    MACOS = "MacOS"
+    FREEBSD = "FreeBSD"
+    UNKNOWN = "Unknown"
 
 
 class VirtualMachineType(Enum):
     """Enum representing supported virtual machine types."""
-    VMWARE = 'VMware'
-    VIRTUALBOX = 'VirtualBox'
-    HYPERV = 'Hyper-V'
-    KVM = 'KVM'
-    XEN = 'Xen'
-    UNKNOWN = 'Unknown'
+
+    VMWARE = "VMware"
+    VIRTUALBOX = "VirtualBox"
+    HYPERV = "Hyper-V"
+    KVM = "KVM"
+    XEN = "Xen"
+    UNKNOWN = "Unknown"
 
 
 class SandboxType(Enum):
     """Enum representing supported sandbox types."""
-    DOCKER = 'Docker'
-    KUBERNETES = 'Kubernetes'
-    UNKNOWN = 'Unknown'
+
+    DOCKER = "Docker"
+    KUBERNETES = "Kubernetes"
+    UNKNOWN = "Unknown"
 
 
 @dataclass
 class OperatingSystemInfo:
     """Data class for storing operating system information."""
+
     type: OperatingSystemType = OperatingSystemType.UNKNOWN
-    version: str = ''
-    architecture: str = ''
+    version: str = ""
+    architecture: str = ""
     additional_info: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class VirtualMachineInfo:
     """Data class for storing virtual machine information."""
+
     type: VirtualMachineType = VirtualMachineType.UNKNOWN
-    version: str = ''
+    version: str = ""
     additional_info: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class SandboxInfo:
     """Data class for storing sandbox environment information."""
+
     type: SandboxType = SandboxType.UNKNOWN
-    version: str = ''
+    version: str = ""
     additional_info: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -99,35 +105,37 @@ class BaseDetector(ABC):
     """Abstract base class for detectors."""
 
     @abstractmethod
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[Any]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[Any]:
         pass
 
 
 class LinuxOperatingSystemDetector(BaseDetector):
     """Detector for Linux operating systems."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[OperatingSystemInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[OperatingSystemInfo]:
         """Detects if the operating system is Linux and identifies its distribution."""
         if not self._is_running(paranoid):
             return None
 
-        additional_info = {
-            'Distribution': self._get_distribution()
-        }
+        additional_info = {"Distribution": self._get_distribution()}
 
         if not paranoid:
             return OperatingSystemInfo(
                 type=OperatingSystemType.LINUX,
                 architecture=platform.machine(),
                 version=platform.release(),
-                additional_info=additional_info
+                additional_info=additional_info,
             )
 
         return OperatingSystemInfo(
             type=OperatingSystemType.LINUX,
             architecture=self._get_architecture(),
             version=self._get_version(),
-            additional_info=additional_info
+            additional_info=additional_info,
         )
 
     def _is_running(self, paranoid: bool = False) -> bool:
@@ -182,10 +190,14 @@ class LinuxOperatingSystemDetector(BaseDetector):
             with open(LINUX_OS_RELEASE_PATH, "r") as f:
                 os_release = self._parse_os_release(f)
                 distribution = os_release.get("NAME") + " " + os_release.get("VERSION")
-                logging.debug(f"Distribution details from {LINUX_OS_RELEASE_PATH}: {distribution}")
+                logging.debug(
+                    f"Distribution details from {LINUX_OS_RELEASE_PATH}: {distribution}"
+                )
                 return distribution
         except Exception as e:
-            logging.error(f"Error reading {LINUX_OS_RELEASE_PATH} for distribution: {e}")
+            logging.error(
+                f"Error reading {LINUX_OS_RELEASE_PATH} for distribution: {e}"
+            )
         return None
 
     def _parse_os_release(self, file) -> Dict[str, str]:
@@ -209,7 +221,9 @@ class LinuxOperatingSystemDetector(BaseDetector):
                         _, value = line.strip().split("=", 1)
                         if value.startswith('"') and value.endswith('"'):
                             value = value[1:-1]
-                        logging.debug(f"Field {field} from {LINUX_OS_RELEASE_PATH}: {value}")
+                        logging.debug(
+                            f"Field {field} from {LINUX_OS_RELEASE_PATH}: {value}"
+                        )
                         return value
         except Exception as e:
             logging.error(f"Error parsing {field} from {LINUX_OS_RELEASE_PATH}: {e}")
@@ -219,7 +233,9 @@ class LinuxOperatingSystemDetector(BaseDetector):
 class WindowsOperatingSystemDetector(BaseDetector):
     """Detector for Windows operating systems."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[OperatingSystemInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[OperatingSystemInfo]:
         """Detects if the operating system is Windows."""
         if not self._is_running(paranoid):
             return None
@@ -228,7 +244,7 @@ class WindowsOperatingSystemDetector(BaseDetector):
             return OperatingSystemInfo(
                 type=OperatingSystemType.WINDOWS,
                 architecture=platform.machine(),
-                version=self._get_version_from_platform()
+                version=self._get_version_from_platform(),
             )
 
         return OperatingSystemInfo(
@@ -240,7 +256,9 @@ class WindowsOperatingSystemDetector(BaseDetector):
     def _is_running(self, paranoid: bool = False) -> bool:
         """Detects if the system is running Windows."""
         if not paranoid:
-            return platform.system().lower() == OperatingSystemType.WINDOWS.value.lower()
+            return (
+                platform.system().lower() == OperatingSystemType.WINDOWS.value.lower()
+            )
 
         # Paranoid detection: Check for Windows-specific files
         system_root = os.environ.get("SystemRoot", "C:\\Windows")
@@ -262,13 +280,19 @@ class WindowsOperatingSystemDetector(BaseDetector):
     def _get_architecture(self) -> str:
         """Gets the machine architecture by executing specific commands."""
         try:
-            arch_output = subprocess.check_output(
-                ["wmic", "os", "get", "OSArchitecture"],
-                text=True,
-                stderr=subprocess.DEVNULL
-            ).strip().split('\n')
+            arch_output = (
+                subprocess.check_output(
+                    ["wmic", "os", "get", "OSArchitecture"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                .strip()
+                .split("\n")
+            )
             if len(arch_output) < 2:
-                logging.debug("wmic output is insufficient to determine OS architecture.")
+                logging.debug(
+                    "wmic output is insufficient to determine OS architecture."
+                )
                 return "Unknown"
             architecture = arch_output[1].strip()
             logging.debug(f"Architecture from wmic: {architecture}")
@@ -282,11 +306,15 @@ class WindowsOperatingSystemDetector(BaseDetector):
     def _get_version(self) -> str:
         """Gets the OS version by executing specific commands."""
         try:
-            version_output = subprocess.check_output(
-                ["wmic", "os", "get", "Version"],
-                text=True,
-                stderr=subprocess.DEVNULL
-            ).strip().split('\n')
+            version_output = (
+                subprocess.check_output(
+                    ["wmic", "os", "get", "Version"],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+                .strip()
+                .split("\n")
+            )
             if len(version_output) < 2:
                 logging.debug("wmic output is insufficient to determine OS version.")
                 return "Unknown"
@@ -313,7 +341,9 @@ class WindowsOperatingSystemDetector(BaseDetector):
 class MacOSOperatingSystemDetector(BaseDetector):
     """Detector for macOS operating systems."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[OperatingSystemInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[OperatingSystemInfo]:
         """Detects if the operating system is macOS."""
         if not self._is_running(paranoid):
             return None
@@ -322,7 +352,7 @@ class MacOSOperatingSystemDetector(BaseDetector):
             return OperatingSystemInfo(
                 type=OperatingSystemType.MACOS,
                 architecture=platform.machine(),
-                version=platform.mac_ver()[0]
+                version=platform.mac_ver()[0],
             )
 
         return OperatingSystemInfo(
@@ -355,7 +385,9 @@ class MacOSOperatingSystemDetector(BaseDetector):
     def _get_architecture(self) -> str:
         """Gets the machine architecture by reading specific system files or executing commands."""
         try:
-            arch = subprocess.check_output(["sysctl", "-n", "hw.machine"], text=True).strip()
+            arch = subprocess.check_output(
+                ["sysctl", "-n", "hw.machine"], text=True
+            ).strip()
             logging.debug(f"Architecture from sysctl: {arch}")
             return arch
         except subprocess.CalledProcessError as e:
@@ -367,7 +399,9 @@ class MacOSOperatingSystemDetector(BaseDetector):
     def _get_version(self) -> str:
         """Gets the OS version by executing sw_vers."""
         try:
-            version = subprocess.check_output(["sw_vers", "-productVersion"], text=True).strip()
+            version = subprocess.check_output(
+                ["sw_vers", "-productVersion"], text=True
+            ).strip()
             logging.debug(f"OS version from sw_vers: {version}")
             return version
         except subprocess.CalledProcessError as e:
@@ -380,7 +414,9 @@ class MacOSOperatingSystemDetector(BaseDetector):
 class FreeBSDOperatingSystemDetector(BaseDetector):
     """Detector for FreeBSD operating systems."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[OperatingSystemInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[OperatingSystemInfo]:
         """Detects if the operating system is FreeBSD."""
         if not self._is_running(paranoid):
             return None
@@ -389,7 +425,7 @@ class FreeBSDOperatingSystemDetector(BaseDetector):
             return OperatingSystemInfo(
                 type=OperatingSystemType.FREEBSD,
                 architecture=platform.machine(),
-                version=platform.release()
+                version=platform.release(),
             )
 
         return OperatingSystemInfo(
@@ -401,7 +437,9 @@ class FreeBSDOperatingSystemDetector(BaseDetector):
     def _is_running(self, paranoid: bool = False) -> bool:
         """Detects if the system is running FreeBSD."""
         if not paranoid:
-            return platform.system().lower() == OperatingSystemType.FREEBSD.value.lower()
+            return (
+                platform.system().lower() == OperatingSystemType.FREEBSD.value.lower()
+            )
 
         # Paranoid detection: Check for the existence of FreeBSD-specific files
         freebsd_indicators = [
@@ -422,7 +460,9 @@ class FreeBSDOperatingSystemDetector(BaseDetector):
     def _get_architecture(self) -> str:
         """Gets the machine architecture by reading specific system files or executing commands."""
         try:
-            arch = subprocess.check_output(["sysctl", "-n", "hw.machine"], text=True).strip()
+            arch = subprocess.check_output(
+                ["sysctl", "-n", "hw.machine"], text=True
+            ).strip()
             logging.debug(f"Architecture from sysctl: {arch}")
             return arch
         except subprocess.CalledProcessError as e:
@@ -446,7 +486,9 @@ class FreeBSDOperatingSystemDetector(BaseDetector):
 class VMWareVirtualMachineDetector(BaseDetector):
     """Detector for VMWare virtual machines."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[VirtualMachineInfo]:
         """Detects if the system is running on VMWare."""
         if os_info is None:
             return None
@@ -467,23 +509,23 @@ class VMWareVirtualMachineDetector(BaseDetector):
     def _detect_linux(self, paranoid: bool) -> bool:
         """Detects VMWare on Linux systems."""
         try:
-            with open('/sys/class/dmi/id/product_name', 'r', encoding='utf-8') as f:
-                if 'vmware' in f.read().lower():
+            with open("/sys/class/dmi/id/product_name", "r", encoding="utf-8") as f:
+                if "vmware" in f.read().lower():
                     return True
         except Exception as e:
             logging.debug(f"Error reading product_name: {e}")
 
         try:
-            with open('/sys/class/dmi/id/sys_vendor', 'r', encoding='utf-8') as f:
-                if 'vmware' in f.read().lower():
+            with open("/sys/class/dmi/id/sys_vendor", "r", encoding="utf-8") as f:
+                if "vmware" in f.read().lower():
                     return True
         except Exception as e:
             logging.debug(f"Error reading sys_vendor: {e}")
 
         if paranoid:
             try:
-                with open(PROC_SCSI_SCSI, 'r', encoding='utf-8') as f:
-                    if 'vmware' in f.read().lower():
+                with open(PROC_SCSI_SCSI, "r", encoding="utf-8") as f:
+                    if "vmware" in f.read().lower():
                         return True
             except Exception as e:
                 logging.debug(f"Error reading {PROC_SCSI_SCSI}: {e}")
@@ -491,17 +533,17 @@ class VMWareVirtualMachineDetector(BaseDetector):
 
     def _detect_windows(self, paranoid: bool) -> bool:
         """Detects VMWare on Windows systems."""
-        if os.name.lower() != 'nt':
+        if os.name.lower() != "nt":
             return False
         try:
-            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
             buffer_size = kernel32.GetSystemFirmwareTable(0x52534D42, 0, None, 0)
             if buffer_size == 0:
                 return False
             buffer = ctypes.create_string_buffer(buffer_size)
             if kernel32.GetSystemFirmwareTable(0x52534D42, 0, buffer, buffer_size) == 0:
                 return False
-            if b'vmware' in buffer.raw.lower():
+            if b"vmware" in buffer.raw.lower():
                 return True
         except Exception as e:
             logging.debug(f"Error detecting VMWare on Windows: {e}")
@@ -509,19 +551,27 @@ class VMWareVirtualMachineDetector(BaseDetector):
         if paranoid:
             try:
                 import winreg
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Services\Disk\Enum') as key:
-                    device0, _ = winreg.QueryValueEx(key, '0')
-                    if 'vmware' in device0.lower():
+
+                with winreg.OpenKey(
+                    winreg.HKEY_LOCAL_MACHINE,
+                    r"SYSTEM\CurrentControlSet\Services\Disk\Enum",
+                ) as key:
+                    device0, _ = winreg.QueryValueEx(key, "0")
+                    if "vmware" in device0.lower():
                         return True
             except Exception as e:
-                logging.debug(f"Error reading Windows registry for VMWare detection: {e}")
+                logging.debug(
+                    f"Error reading Windows registry for VMWare detection: {e}"
+                )
         return False
 
 
 class VirtualBoxVirtualMachineDetector(BaseDetector):
     """Detector for VirtualBox virtual machines."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[VirtualMachineInfo]:
         """Detects if the system is running on VirtualBox."""
         if os_info is None:
             return None
@@ -544,16 +594,16 @@ class VirtualBoxVirtualMachineDetector(BaseDetector):
     def _detect_linux(self, paranoid: bool) -> bool:
         """Detects VirtualBox on Linux systems."""
         try:
-            with open('/sys/class/dmi/id/product_name', 'r', encoding='utf-8') as f:
-                if 'virtualbox' in f.read().lower():
+            with open("/sys/class/dmi/id/product_name", "r", encoding="utf-8") as f:
+                if "virtualbox" in f.read().lower():
                     return True
         except Exception as e:
             logging.debug(f"Error reading product_name: {e}")
 
         if paranoid:
             try:
-                with open('/proc/modules', 'r', encoding='utf-8') as f:
-                    if 'vboxguest' in f.read().lower():
+                with open("/proc/modules", "r", encoding="utf-8") as f:
+                    if "vboxguest" in f.read().lower():
                         return True
             except Exception as e:
                 logging.debug(f"Error reading /proc/modules: {e}")
@@ -561,13 +611,17 @@ class VirtualBoxVirtualMachineDetector(BaseDetector):
 
     def _detect_windows(self, paranoid: bool) -> bool:
         """Detects VirtualBox on Windows systems."""
-        if os.name.lower() != 'nt':
+        if os.name.lower() != "nt":
             return False
         try:
             import wmi
+
             c = wmi.WMI()
             for system in c.Win32_ComputerSystem():
-                if 'virtualbox' in system.Manufacturer.lower() or 'virtualbox' in system.Model.lower():
+                if (
+                    "virtualbox" in system.Manufacturer.lower()
+                    or "virtualbox" in system.Model.lower()
+                ):
                     return True
         except ImportError:
             logging.error("wmi module not available.")
@@ -579,8 +633,11 @@ class VirtualBoxVirtualMachineDetector(BaseDetector):
         """Detects VirtualBox on macOS systems."""
         try:
             import subprocess
-            output = subprocess.check_output(['system_profiler', 'SPHardwareDataType'], encoding='utf-8')
-            if 'virtualbox' in output.lower():
+
+            output = subprocess.check_output(
+                ["system_profiler", "SPHardwareDataType"], encoding="utf-8"
+            )
+            if "virtualbox" in output.lower():
                 return True
         except Exception as e:
             logging.debug(f"Error running system_profiler: {e}")
@@ -590,7 +647,9 @@ class VirtualBoxVirtualMachineDetector(BaseDetector):
 class HyperVVirtualMachineDetector(BaseDetector):
     """Detector for Microsoft Hyper-V virtual machines."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[VirtualMachineInfo]:
         """Detects if the system is running on Hyper-V."""
         if os_info is None:
             return None
@@ -609,18 +668,21 @@ class HyperVVirtualMachineDetector(BaseDetector):
     def _detect_windows(self, paranoid: bool) -> bool:
         """Detects Hyper-V on Windows systems."""
         try:
+
             class SYSTEM_INFO(ctypes.Structure):
-                _fields_ = [("wProcessorArchitecture", ctypes.c_uint16),
-                            ("wReserved", ctypes.c_uint16),
-                            ("dwPageSize", ctypes.c_uint32),
-                            ("lpMinimumApplicationAddress", ctypes.c_void_p),
-                            ("lpMaximumApplicationAddress", ctypes.c_void_p),
-                            ("dwActiveProcessorMask", ctypes.c_void_p),
-                            ("dwNumberOfProcessors", ctypes.c_uint32),
-                            ("dwProcessorType", ctypes.c_uint32),
-                            ("dwAllocationGranularity", ctypes.c_uint32),
-                            ("wProcessorLevel", ctypes.c_uint16),
-                            ("wProcessorRevision", ctypes.c_uint16)]
+                _fields_ = [
+                    ("wProcessorArchitecture", ctypes.c_uint16),
+                    ("wReserved", ctypes.c_uint16),
+                    ("dwPageSize", ctypes.c_uint32),
+                    ("lpMinimumApplicationAddress", ctypes.c_void_p),
+                    ("lpMaximumApplicationAddress", ctypes.c_void_p),
+                    ("dwActiveProcessorMask", ctypes.c_void_p),
+                    ("dwNumberOfProcessors", ctypes.c_uint32),
+                    ("dwProcessorType", ctypes.c_uint32),
+                    ("dwAllocationGranularity", ctypes.c_uint32),
+                    ("wProcessorLevel", ctypes.c_uint16),
+                    ("wProcessorRevision", ctypes.c_uint16),
+                ]
 
             sys_info = SYSTEM_INFO()
             ctypes.windll.kernel32.GetNativeSystemInfo(ctypes.byref(sys_info))
@@ -634,7 +696,9 @@ class HyperVVirtualMachineDetector(BaseDetector):
 class KVMVirtualMachineDetector(BaseDetector):
     """Detector for KVM virtual machines."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[VirtualMachineInfo]:
         """Detects if the system is running on KVM."""
         if os_info is None:
             return None
@@ -653,16 +717,16 @@ class KVMVirtualMachineDetector(BaseDetector):
     def _detect_linux(self, paranoid: bool) -> bool:
         """Detects KVM on Linux systems."""
         try:
-            with open('/sys/class/dmi/id/product_name', 'r', encoding='utf-8') as f:
-                if 'kvm' in f.read().lower():
+            with open("/sys/class/dmi/id/product_name", "r", encoding="utf-8") as f:
+                if "kvm" in f.read().lower():
                     return True
         except Exception as e:
             logging.debug(f"Error reading product_name: {e}")
 
         if paranoid:
             try:
-                with open('/proc/cpuinfo', 'r', encoding='utf-8') as f:
-                    if 'qemu' in f.read().lower():
+                with open("/proc/cpuinfo", "r", encoding="utf-8") as f:
+                    if "qemu" in f.read().lower():
                         return True
             except Exception as e:
                 logging.debug(f"Error reading /proc/cpuinfo: {e}")
@@ -672,7 +736,9 @@ class KVMVirtualMachineDetector(BaseDetector):
 class XenVirtualMachineDetector(BaseDetector):
     """Detector for Xen virtual machines."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[VirtualMachineInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[VirtualMachineInfo]:
         """Detects if the system is running on Xen."""
         if os_info is None:
             return None
@@ -691,16 +757,16 @@ class XenVirtualMachineDetector(BaseDetector):
     def _detect_linux(self, paranoid: bool) -> bool:
         """Detects Xen on Linux systems."""
         try:
-            with open('/sys/hypervisor/type', 'r', encoding='utf-8') as f:
-                if 'xen' in f.read().lower():
+            with open("/sys/hypervisor/type", "r", encoding="utf-8") as f:
+                if "xen" in f.read().lower():
                     return True
         except Exception as e:
             logging.debug(f"Error reading /sys/hypervisor/type: {e}")
 
         if paranoid:
             try:
-                with open('/proc/xen/capabilities', 'r', encoding='utf-8') as f:
-                    if 'control_d' in f.read().lower():
+                with open("/proc/xen/capabilities", "r", encoding="utf-8") as f:
+                    if "control_d" in f.read().lower():
                         return True
             except Exception as e:
                 logging.debug(f"Error reading /proc/xen/capabilities: {e}")
@@ -710,7 +776,9 @@ class XenVirtualMachineDetector(BaseDetector):
 class DockerSandboxDetector(BaseDetector):
     """Detector for Docker sandbox environments."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[SandboxInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[SandboxInfo]:
         """Detects if the system is running inside a Docker container."""
         if os_info is None:
             return None
@@ -728,25 +796,25 @@ class DockerSandboxDetector(BaseDetector):
 
     def _detect_linux(self, paranoid: bool) -> bool:
         """Detects Docker environment."""
-        if os.path.exists('/.dockerenv'):
+        if os.path.exists("/.dockerenv"):
             return True
         try:
-            with open('/proc/1/cgroup', 'r', encoding='utf-8') as f:
+            with open("/proc/1/cgroup", "r", encoding="utf-8") as f:
                 content = f.read()
-                if 'docker' in content.lower():
+                if "docker" in content.lower():
                     return True
         except Exception as e:
             logging.debug(f"Error reading /proc/1/cgroup: {e}")
 
         if paranoid:
             try:
-                with open('/proc/self/cgroup', 'r', encoding='utf-8') as f:
+                with open("/proc/self/cgroup", "r", encoding="utf-8") as f:
                     content = f.read()
-                    if 'docker' in content.lower():
+                    if "docker" in content.lower():
                         return True
             except Exception as e:
                 logging.debug(f"Error reading /proc/self/cgroup: {e}")
-            if os.environ.get('container', '') == 'docker':
+            if os.environ.get("container", "") == "docker":
                 return True
         return False
 
@@ -754,7 +822,9 @@ class DockerSandboxDetector(BaseDetector):
 class KubernetesSandboxDetector(BaseDetector):
     """Detector for Kubernetes sandbox environments."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[SandboxInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[SandboxInfo]:
         """Detects if the system is running inside a Kubernetes container."""
         if os_info is None:
             return None
@@ -773,14 +843,14 @@ class KubernetesSandboxDetector(BaseDetector):
     def _detect_linux(self, paranoid: bool) -> bool:
         """Detects Kubernetes environment."""
         try:
-            with open('/proc/1/cgroup', 'r', encoding='utf-8') as f:
+            with open("/proc/1/cgroup", "r", encoding="utf-8") as f:
                 content = f.read()
-                if 'kubepods' in content.lower():
+                if "kubepods" in content.lower():
                     return True
         except Exception as e:
             logging.debug(f"Error reading /proc/1/cgroup: {e}")
 
-        if paranoid and os.environ.get('KUBERNETES_SERVICE_HOST'):
+        if paranoid and os.environ.get("KUBERNETES_SERVICE_HOST"):
             return True
         return False
 
@@ -788,7 +858,9 @@ class KubernetesSandboxDetector(BaseDetector):
 class GenericSandboxDetector(BaseDetector):
     """Generic detector for sandbox environments."""
 
-    def detect(self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False) -> Optional[SandboxInfo]:
+    def detect(
+        self, os_info: Optional[OperatingSystemInfo] = None, paranoid: bool = False
+    ) -> Optional[SandboxInfo]:
         """Attempts to detect if the system is running inside any sandbox environment."""
         if os_info is None:
             return None
@@ -814,7 +886,10 @@ class GenericSandboxDetector(BaseDetector):
             # Check if we are in a chroot by comparing device and inode numbers
             root_stat = os.stat("/")
             parent_stat = os.stat("/..")
-            if root_stat.st_ino != parent_stat.st_ino or root_stat.st_dev != parent_stat.st_dev:
+            if (
+                root_stat.st_ino != parent_stat.st_ino
+                or root_stat.st_dev != parent_stat.st_dev
+            ):
                 return True
         except Exception as e:
             logging.debug(f"Error checking chroot: {e}")
@@ -867,7 +942,7 @@ class GenericSandboxDetector(BaseDetector):
                 class SID_AND_ATTRIBUTES(ctypes.Structure):
                     _fields_ = [
                         ("Sid", ctypes.POINTER(ctypes.c_void_p)),
-                        ("Attributes", ctypes.c_uint32)
+                        ("Attributes", ctypes.c_uint32),
                     ]
 
                 class TOKEN_MANDATORY_LABEL(ctypes.Structure):
@@ -877,9 +952,9 @@ class GenericSandboxDetector(BaseDetector):
                 TOKEN_QUERY = 0x0008
                 token_integrity_level = 25
                 if ctypes.windll.advapi32.OpenProcessToken(
-                        ctypes.windll.kernel32.GetCurrentProcess(),
-                        TOKEN_QUERY,
-                        ctypes.byref(h_token),
+                    ctypes.windll.kernel32.GetCurrentProcess(),
+                    TOKEN_QUERY,
+                    ctypes.byref(h_token),
                 ):
                     info = TOKEN_MANDATORY_LABEL()
                     ret_len = ctypes.wintypes.DWORD()
@@ -930,7 +1005,9 @@ class DetectorManager:
         """Registers a detector."""
         self.detectors.append(detector)
 
-    def detect_all(self, os_info: Optional[OperatingSystemInfo], paranoid: bool) -> List[Any]:
+    def detect_all(
+        self, os_info: Optional[OperatingSystemInfo], paranoid: bool
+    ) -> List[Any]:
         """Runs all registered detectors."""
         results = []
         for detector in self.detectors:
@@ -982,12 +1059,16 @@ class EnvironmentDetector:
             try:
                 type_hints = typing.get_type_hints(detector.detect)
             except Exception as e:
-                logging.warning(f"Failed to get type hints for {detector.__class__.__name__}: {e}")
+                logging.warning(
+                    f"Failed to get type hints for {detector.__class__.__name__}: {e}"
+                )
                 continue
 
-            return_type = type_hints.get('return', None)
+            return_type = type_hints.get("return", None)
             if return_type is None:
-                logging.warning(f"Detector {detector.__class__.__name__} has no return type annotation.")
+                logging.warning(
+                    f"Detector {detector.__class__.__name__} has no return type annotation."
+                )
                 continue
 
             # Handle Optional[...] which is Union[..., NoneType]
@@ -1014,10 +1095,14 @@ class EnvironmentDetector:
                 elif issubclass(return_type_inner, SandboxInfo):
                     self.other_detectors.append(detector)
                 else:
-                    logging.warning(f"Detector {detector.__class__.__name__} has unknown return type {return_type_inner}.")
+                    logging.warning(
+                        f"Detector {detector.__class__.__name__} has unknown return type {return_type_inner}."
+                    )
                     self.other_detectors.append(detector)
             else:
-                logging.warning(f"Detector {detector.__class__.__name__} has non-class return type {return_type_inner}.")
+                logging.warning(
+                    f"Detector {detector.__class__.__name__} has non-class return type {return_type_inner}."
+                )
                 self.other_detectors.append(detector)
 
     def detect(self):
@@ -1027,7 +1112,9 @@ class EnvironmentDetector:
             try:
                 os_info = detector.detect(paranoid=self.paranoid)
             except Exception as e:
-                logging.error(f"Error during OS detection with {detector.__class__.__name__}: {e}")
+                logging.error(
+                    f"Error during OS detection with {detector.__class__.__name__}: {e}"
+                )
                 continue
 
             if os_info:
@@ -1041,17 +1128,25 @@ class EnvironmentDetector:
                 try:
                     result = detector.detect(self.os_info, paranoid=self.paranoid)
                 except Exception as e:
-                    logging.error(f"Error during detection with {detector.__class__.__name__}: {e}")
+                    logging.error(
+                        f"Error during detection with {detector.__class__.__name__}: {e}"
+                    )
                     continue
 
                 if isinstance(result, VirtualMachineInfo):
-                    if self.vm_info is None or self.vm_info.type == VirtualMachineType.UNKNOWN:
+                    if (
+                        self.vm_info is None
+                        or self.vm_info.type == VirtualMachineType.UNKNOWN
+                    ):
                         self.vm_info = result
                         logging.info(f"Detected Virtual Machine: {result.type.value}")
                         if not self.perform_all_checks:
                             break
                 elif isinstance(result, SandboxInfo):
-                    if self.sandbox_info is None or self.sandbox_info.type == SandboxType.UNKNOWN:
+                    if (
+                        self.sandbox_info is None
+                        or self.sandbox_info.type == SandboxType.UNKNOWN
+                    ):
                         self.sandbox_info = result
                         logging.info(f"Detected Sandbox: {result.type.value}")
                         if not self.perform_all_checks:
@@ -1066,34 +1161,39 @@ def parse_arguments() -> argparse.Namespace:
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Detect the operating system and virtualization environment.",
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
     # Global options
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv', '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
     parser.add_argument(
-        '-a', '--all',
-        action='store_true',
-        help='Perform all possible checks, including those not limited by OS type.'
+        "-a",
+        "--all",
+        action="store_true",
+        help="Perform all possible checks, including those not limited by OS type.",
     )
     parser.add_argument(
-        '-p', '--paranoid',
-        action='store_true',
-        help='Enable paranoid mode: perform untrusting OS checks.'
+        "-p",
+        "--paranoid",
+        action="store_true",
+        help="Enable paranoid mode: perform untrusting OS checks.",
     )
     parser.add_argument(
-        '-o', '--output',
+        "-o",
+        "--output",
         type=str,
-        help='Output the detection results to a specified file (JSON format).'
+        help="Output the detection results to a specified file (JSON format).",
     )
 
     return parser.parse_args()
@@ -1110,15 +1210,15 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
 
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
 def save_output(data: Dict[str, Any], filepath: str) -> bool:
     """Saves the detection results to a JSON file."""
     try:
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
         logging.info(f"Detection results saved to '{filepath}'.")
         return True
@@ -1153,26 +1253,32 @@ def display_results(data: Dict[str, Any]) -> None:
 def collect_results(detector: EnvironmentDetector) -> Dict[str, Any]:
     """Collects detection results into a dictionary."""
     system_info: Dict[str, Any] = {
-        'Operating System': {},
-        'Virtual Machine': {},
-        'Sandbox': {}
+        "Operating System": {},
+        "Virtual Machine": {},
+        "Sandbox": {},
     }
 
     if detector.os_info:
-        system_info['Operating System']['Type'] = detector.os_info.type.value
-        system_info['Operating System']['Version'] = detector.os_info.version
-        system_info['Operating System']['Architecture'] = detector.os_info.architecture
-        system_info['Operating System']['Additional Info'] = detector.os_info.additional_info
+        system_info["Operating System"]["Type"] = detector.os_info.type.value
+        system_info["Operating System"]["Version"] = detector.os_info.version
+        system_info["Operating System"]["Architecture"] = detector.os_info.architecture
+        system_info["Operating System"]["Additional Info"] = (
+            detector.os_info.additional_info
+        )
 
     if detector.vm_info:
-        system_info['Virtual Machine']['Type'] = detector.vm_info.type.value
-        system_info['Virtual Machine']['Version'] = detector.vm_info.version
-        system_info['Virtual Machine']['Additional Info'] = detector.vm_info.additional_info
+        system_info["Virtual Machine"]["Type"] = detector.vm_info.type.value
+        system_info["Virtual Machine"]["Version"] = detector.vm_info.version
+        system_info["Virtual Machine"]["Additional Info"] = (
+            detector.vm_info.additional_info
+        )
 
     if detector.sandbox_info:
-        system_info['Sandbox']['Type'] = detector.sandbox_info.type.value
-        system_info['Sandbox']['Version'] = detector.sandbox_info.version
-        system_info['Sandbox']['Additional Info'] = detector.sandbox_info.additional_info
+        system_info["Sandbox"]["Type"] = detector.sandbox_info.type.value
+        system_info["Sandbox"]["Version"] = detector.sandbox_info.version
+        system_info["Sandbox"]["Additional Info"] = (
+            detector.sandbox_info.additional_info
+        )
 
     return system_info
 
@@ -1187,16 +1293,13 @@ def run_detection(args: argparse.Namespace) -> EnvironmentDetector:
 def main():
     """Main function to orchestrate the system detection."""
     args = parse_arguments()
-    setup_logging(
-        verbose=args.verbose,
-        debug=args.debug
-    )
+    setup_logging(verbose=args.verbose, debug=args.debug)
     detector = run_detection(args)
     system_info = collect_results(detector)
     display_results(system_info)
     if args.output and not save_output(system_info, args.output):
-            logging.error("Failed to save detection results.")
-            sys.exit(1)
+        logging.error("Failed to save detection results.")
+        sys.exit(1)
     logging.info("System detection completed successfully.")
     sys.exit(0)
 

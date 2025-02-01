@@ -624,21 +624,22 @@ class FooocusHandler(http.server.SimpleHTTPRequestHandler):
       3) "/images/<hash>" -> whitelisted local images
       4) anything else -> 404
     """
+
     def __init__(self, *args, **kwargs):
-        self.server_json = kwargs.pop('server_json', [])
-        self.path_map = kwargs.pop('path_map', {})
+        self.server_json = kwargs.pop("server_json", [])
+        self.path_map = kwargs.pop("path_map", {})
         super().__init__(*args, **kwargs)
 
     def do_GET(self):
-        if self.path == '/':
+        if self.path == "/":
             self.serve_index()
             return
 
-        if self.path == '/data':
+        if self.path == "/data":
             self.serve_data()
             return
 
-        if self.path.startswith('/images/'):
+        if self.path.startswith("/images/"):
             self.serve_image()
             return
 
@@ -646,7 +647,7 @@ class FooocusHandler(http.server.SimpleHTTPRequestHandler):
 
     def serve_index(self):
         try:
-            content = EMBEDDED_INDEX_HTML.encode('utf-8')
+            content = EMBEDDED_INDEX_HTML.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
@@ -656,7 +657,7 @@ class FooocusHandler(http.server.SimpleHTTPRequestHandler):
 
     def serve_data(self):
         try:
-            data_bytes = json.dumps(self.server_json).encode('utf-8')
+            data_bytes = json.dumps(self.server_json).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -665,7 +666,7 @@ class FooocusHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(500, f"Failed to generate JSON: {e}")
 
     def serve_image(self):
-        parts = self.path.split('/')
+        parts = self.path.split("/")
         if len(parts) != 3:
             self.send_error(404, "Invalid image path")
             return
@@ -681,13 +682,13 @@ class FooocusHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         _, ext = os.path.splitext(local_path)
-        if ext.lower() in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff'):
+        if ext.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"):
             content_type = f"image/{ext.lower().strip('.')}"
         else:
             content_type = "application/octet-stream"
 
         try:
-            with open(local_path, 'rb') as f:
+            with open(local_path, "rb") as f:
                 image_data = f.read()
             self.send_response(200)
             self.send_header("Content-Type", content_type)
@@ -700,6 +701,7 @@ class FooocusHandler(http.server.SimpleHTTPRequestHandler):
 @dataclass
 class FooocusImageData:
     """Data class to store metadata for a single Fooocus-generated image."""
+
     image_path: str
     prompt: Optional[str] = None
     negative_prompt: Optional[str] = None
@@ -740,6 +742,7 @@ def parse_float_tuple(tuple_str: str):
     Returns None if parsing fails.
     """
     import ast
+
     try:
         parsed = ast.literal_eval(tuple_str)
         if isinstance(parsed, tuple):
@@ -759,6 +762,7 @@ def parse_styles(styles_str: str):
     Returns None if parsing fails.
     """
     import ast
+
     try:
         parsed = ast.literal_eval(styles_str)
         if isinstance(parsed, list):
@@ -775,11 +779,11 @@ def parse_image_metadata(image_div, base_dir: str) -> Optional[FooocusImageData]
     Given a BeautifulSoup <div class="image-container">, parse out the metadata
     and return a FooocusImageData instance. Returns None if the image file doesn't exist.
     """
-    link_tag = image_div.find('a')
-    if not link_tag or 'href' not in link_tag.attrs:
+    link_tag = image_div.find("a")
+    if not link_tag or "href" not in link_tag.attrs:
         return None
 
-    image_rel_path = link_tag['href']
+    image_rel_path = link_tag["href"]
     image_abs_path = os.path.abspath(os.path.join(base_dir, image_rel_path))
 
     if not os.path.isfile(image_abs_path):
@@ -789,73 +793,70 @@ def parse_image_metadata(image_div, base_dir: str) -> Optional[FooocusImageData]
     metadata_obj.image_dir = os.path.basename(os.path.dirname(image_abs_path))
     stat_info = os.stat(image_abs_path)
     ts = stat_info.st_mtime
-    metadata_obj.image_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
+    metadata_obj.image_date = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
 
-    metadata_table = image_div.find('table', class_='metadata')
+    metadata_table = image_div.find("table", class_="metadata")
     if not metadata_table:
         return metadata_obj
 
-    rows = metadata_table.find_all('tr')
+    rows = metadata_table.find_all("tr")
     for row in rows:
-        key_td = row.find('td', class_='label')
-        value_td = row.find('td', class_='value')
+        key_td = row.find("td", class_="label")
+        value_td = row.find("td", class_="value")
         if not key_td or not value_td:
             continue
 
         key = key_td.get_text(strip=True)
         value = value_td.get_text(strip=True)
 
-        if key == 'Prompt':
+        if key == "Prompt":
             metadata_obj.prompt = value
-        elif key == 'Negative Prompt':
+        elif key == "Negative Prompt":
             metadata_obj.negative_prompt = value
-        elif key == 'Fooocus V2 Expansion':
+        elif key == "Fooocus V2 Expansion":
             metadata_obj.fooocus_v2_expansion = value
-        elif key == 'Styles':
+        elif key == "Styles":
             metadata_obj.styles = parse_styles(value)
-        elif key == 'Performance':
+        elif key == "Performance":
             metadata_obj.performance = value
-        elif key == 'Resolution':
+        elif key == "Resolution":
             w, h = parse_resolution(value)
             metadata_obj.resolution_width = w
             metadata_obj.resolution_height = h
-        elif key == 'Sharpness':
+        elif key == "Sharpness":
             try:
                 metadata_obj.sharpness = float(value)
             except ValueError:
                 pass
-        elif key == 'Guidance Scale':
+        elif key == "Guidance Scale":
             try:
                 metadata_obj.guidance_scale = float(value)
             except ValueError:
                 pass
-        elif key == 'ADM Guidance':
+        elif key == "ADM Guidance":
             metadata_obj.adm_guidance = parse_float_tuple(value)
-        elif key == 'Base Model':
+        elif key == "Base Model":
             metadata_obj.base_model = value
-        elif key == 'Refiner Model':
+        elif key == "Refiner Model":
             metadata_obj.refiner_model = value
-        elif key == 'Refiner Switch':
+        elif key == "Refiner Switch":
             try:
                 metadata_obj.refiner_switch = float(value)
             except ValueError:
                 pass
-        elif key == 'Sampler':
+        elif key == "Sampler":
             metadata_obj.sampler = value
-        elif key == 'Scheduler':
+        elif key == "Scheduler":
             metadata_obj.scheduler = value
-        elif key == 'Seed':
+        elif key == "Seed":
             metadata_obj.seed = value
-        elif key == 'Version':
+        elif key == "Version":
             metadata_obj.version = value
-        elif key.lower().startswith('lora '):
-            parts = value.split(':', 1)
+        elif key.lower().startswith("lora "):
+            parts = value.split(":", 1)
             lora_name = parts[0].strip()
             lora_strength = parts[1].strip() if len(parts) > 1 else ""
-            metadata_obj.loras.append({
-                'name': lora_name,
-                'strength': lora_strength
-            })
+            metadata_obj.loras.append({"name": lora_name, "strength": lora_strength})
 
     return metadata_obj
 
@@ -873,10 +874,10 @@ def find_index_files(root_path: str, recursive: bool):
 
     if recursive:
         for dir_path, _, filenames in os.walk(root_path):
-            if 'log.html' in filenames:
-                index_files.append(os.path.join(dir_path, 'log.html'))
+            if "log.html" in filenames:
+                index_files.append(os.path.join(dir_path, "log.html"))
     else:
-        candidate = os.path.join(root_path, 'log.html')
+        candidate = os.path.join(root_path, "log.html")
         if os.path.isfile(candidate):
             index_files.append(candidate)
 
@@ -904,10 +905,10 @@ def parse_index_file(index_file: str):
         logging.error("BeautifulSoup is not installed")
         sys.exit(1)
 
-    with open(index_file, 'r', encoding='utf-8') as f:
-        soup = BeautifulSoup(f, 'html.parser')
+    with open(index_file, "r", encoding="utf-8") as f:
+        soup = BeautifulSoup(f, "html.parser")
 
-    image_divs = soup.find_all('div', class_='image-container')
+    image_divs = soup.find_all("div", class_="image-container")
     base_dir = os.path.dirname(index_file)
 
     for div in image_divs:
@@ -926,7 +927,7 @@ def do_parse(args):
     writes the metadata to a JSON file.
     """
     level = logging.DEBUG if args.verbose else logging.INFO
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
     index_files = find_index_files(args.path, args.recursive)
 
@@ -941,33 +942,35 @@ def do_parse(args):
 
     dicts_for_json = []
     for item in all_metadata:
-        dicts_for_json.append({
-            'image_path': item.image_path,
-            'prompt': item.prompt,
-            'negative_prompt': item.negative_prompt,
-            'fooocus_v2_expansion': item.fooocus_v2_expansion,
-            'styles': item.styles,
-            'performance': item.performance,
-            'resolution_width': item.resolution_width,
-            'resolution_height': item.resolution_height,
-            'sharpness': item.sharpness,
-            'guidance_scale': item.guidance_scale,
-            'adm_guidance': item.adm_guidance,
-            'base_model': item.base_model,
-            'refiner_model': item.refiner_model,
-            'refiner_switch': item.refiner_switch,
-            'sampler': item.sampler,
-            'scheduler': item.scheduler,
-            'seed': item.seed,
-            'version': item.version,
-            'loras': item.loras,
-            'image_dir': item.image_dir,
-            'image_date': item.image_date,
-        })
+        dicts_for_json.append(
+            {
+                "image_path": item.image_path,
+                "prompt": item.prompt,
+                "negative_prompt": item.negative_prompt,
+                "fooocus_v2_expansion": item.fooocus_v2_expansion,
+                "styles": item.styles,
+                "performance": item.performance,
+                "resolution_width": item.resolution_width,
+                "resolution_height": item.resolution_height,
+                "sharpness": item.sharpness,
+                "guidance_scale": item.guidance_scale,
+                "adm_guidance": item.adm_guidance,
+                "base_model": item.base_model,
+                "refiner_model": item.refiner_model,
+                "refiner_switch": item.refiner_switch,
+                "sampler": item.sampler,
+                "scheduler": item.scheduler,
+                "seed": item.seed,
+                "version": item.version,
+                "loras": item.loras,
+                "image_dir": item.image_dir,
+                "image_date": item.image_date,
+            }
+        )
 
     output_path = os.path.abspath(args.output)
     try:
-        with open(output_path, 'w', encoding='utf-8') as out_f:
+        with open(output_path, "w", encoding="utf-8") as out_f:
             json.dump(dicts_for_json, out_f, indent=2, ensure_ascii=False)
         logging.info(f"Metadata written to '{output_path}'")
     except Exception as e:
@@ -980,7 +983,7 @@ def hashed_path(path: str) -> str:
     referred to by /images/<hash> instead of the absolute path.
     """
     normed_path = os.path.normcase(os.path.abspath(path))
-    return hashlib.md5(normed_path.encode('utf-8')).hexdigest()
+    return hashlib.md5(normed_path.encode("utf-8")).hexdigest()
 
 
 def do_serve(args):
@@ -993,19 +996,19 @@ def do_serve(args):
         print(f"Error: JSON file '{json_file}' does not exist.")
         sys.exit(1)
 
-    with open(json_file, 'r', encoding='utf-8') as f:
+    with open(json_file, "r", encoding="utf-8") as f:
         fooocus_data = json.load(f)
 
     path_map = {}
     server_json = []
 
     for item in fooocus_data:
-        original_path = item.get('image_path', '')
+        original_path = item.get("image_path", "")
         h = hashed_path(original_path)
         path_map[h] = original_path
 
         new_item = dict(item)
-        new_item['image_path'] = f"/images/{h}"
+        new_item["image_path"] = f"/images/{h}"
         server_json.append(new_item)
 
     host = args.host
@@ -1018,9 +1021,11 @@ def do_serve(args):
     print(f"Serving Fooocus data at http://{host}:{port}")
     print("Press Ctrl+C to stop.")
 
-    handler_args = {'server_json': server_json, 'path_map': path_map}
+    handler_args = {"server_json": server_json, "path_map": path_map}
 
-    with CustomTCPServer((host, port), lambda *a, **kw: FooocusHandler(*a, **{**kw, **handler_args})) as httpd:
+    with CustomTCPServer(
+        (host, port), lambda *a, **kw: FooocusHandler(*a, **{**kw, **handler_args})
+    ) as httpd:
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
@@ -1032,63 +1037,73 @@ def do_serve(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Parse Fooocus log.html files or serve a local web interface to browse them.'
+        description="Parse Fooocus log.html files or serve a local web interface to browse them."
     )
-    subparsers = parser.add_subparsers(dest='command', required=True)
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Subcommand: parse
-    parse_parser = subparsers.add_parser('parse', help='Parse Fooocus log.html files to produce JSON metadata.')
+    parse_parser = subparsers.add_parser(
+        "parse", help="Parse Fooocus log.html files to produce JSON metadata."
+    )
     parse_parser.add_argument(
-        '-o', '--output',
+        "-o",
+        "--output",
         type=str,
-        default='fooocus_data.json',
-        help='Output JSON file for metadata.'
+        default="fooocus_data.json",
+        help="Output JSON file for metadata.",
     )
     parse_parser.add_argument(
-        '-r', '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parse_parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parse_parser.add_argument(
-        'path',
-        nargs='?',
-        default='.',
-        help='The directory to search for log.html files.'
+        "path",
+        nargs="?",
+        default=".",
+        help="The directory to search for log.html files.",
     )
 
     # Subcommand: serve
-    serve_parser = subparsers.add_parser('serve', help='Serve the JSON metadata via a local web interface.')
-    serve_parser.add_argument(
-        '-H', '--host',
-        type=str,
-        default='127.0.0.1',
-        help='Host IP to bind to.'
+    serve_parser = subparsers.add_parser(
+        "serve", help="Serve the JSON metadata via a local web interface."
     )
     serve_parser.add_argument(
-        '-p', '--port',
+        "-H",
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host IP to bind to.",
+    )
+    serve_parser.add_argument(
+        "-p",
+        "--port",
         type=int,
         default=8001,
-        help='Port to serve on.'
+        help="Port to serve on.",
     )
     serve_parser.add_argument(
-        '-i', '--input',
+        "-i",
+        "--input",
         type=str,
-        default='fooocus_data.json',
-        help='JSON file with metadata.'
+        default="fooocus_data.json",
+        help="JSON file with metadata.",
     )
 
     args = parser.parse_args()
 
-    if args.command == 'parse':
+    if args.command == "parse":
         do_parse(args)
-    elif args.command == 'serve':
+    elif args.command == "serve":
         do_serve(args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

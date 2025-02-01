@@ -57,7 +57,9 @@ from detectron2.data import MetadataCatalog
 from detectron2.engine import DefaultPredictor
 
 
-def get_predictor(model_name: str, threshold: float, use_cpu: bool = False) -> DefaultPredictor:
+def get_predictor(
+    model_name: str, threshold: float, use_cpu: bool = False
+) -> DefaultPredictor:
     """
     Initializes and returns a Detectron2 predictor.
     """
@@ -68,9 +70,11 @@ def get_predictor(model_name: str, threshold: float, use_cpu: bool = False) -> D
     try:
         cfg = get_cfg()
         cfg.merge_from_file(model_zoo.get_config_file(model_name))
-        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = threshold  # Set threshold for this model
+        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = (
+            threshold  # Set threshold for this model
+        )
         cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(model_name)
-        cfg.MODEL.DEVICE = 'cpu' if use_cpu else 'cuda'
+        cfg.MODEL.DEVICE = "cpu" if use_cpu else "cuda"
         predictor = DefaultPredictor(cfg)
         return predictor
     except Exception as e:
@@ -114,7 +118,9 @@ def get_object_classes(object_types: List[str], metadata) -> List[int]:
                 found = True
                 break
         if not found:
-            logging.warning(f"Object type '{obj_type}' not found in the model's classes.")
+            logging.warning(
+                f"Object type '{obj_type}' not found in the model's classes."
+            )
     return object_classes
 
 
@@ -122,7 +128,7 @@ def create_masks(
     image: np.ndarray,
     predictor: DefaultPredictor,
     object_classes: Optional[List[int]],
-    invert: bool = False
+    invert: bool = False,
 ) -> Optional[dict]:
     """
     Creates masks for each detected object type in the image.
@@ -153,7 +159,11 @@ def create_masks(
         if class_name not in masks:
             # Initialize the mask
             mask_shape = image.shape[:2]
-            masks[class_name] = np.zeros(mask_shape, dtype="uint8") if invert else np.ones(mask_shape, dtype="uint8") * 255
+            masks[class_name] = (
+                np.zeros(mask_shape, dtype="uint8")
+                if invert
+                else np.ones(mask_shape, dtype="uint8") * 255
+            )
 
         # Update the mask for the object type
         object_mask = pred_masks[i].cpu().numpy()
@@ -183,64 +193,64 @@ def save_masks(masks: dict, output_path: str, base_name: str):
 def main():
     # Set up argument parser
     parser = argparse.ArgumentParser(
-        description='Create object masks from an image for specific object types.'
+        description="Create object masks from an image for specific object types."
     )
     parser.add_argument(
-        'image_file',
+        "image_file",
         type=str,
-        help='The path to the input image file or directory (use --batch for directories).'
+        help="The path to the input image file or directory (use --batch for directories).",
     )
     parser.add_argument(
-        'output_file',
+        "output_file",
         type=str,
-        help='The path to save the output mask image(s) or directory (use --batch for directories).'
+        help="The path to save the output mask image(s) or directory (use --batch for directories).",
     )
     parser.add_argument(
-        '-o',
-        '--object_type',
+        "-o",
+        "--object_type",
         type=str,
-        nargs='+',
-        help='The type(s) of object(s) to detect (e.g., person, cat). If omitted, all detected object types are used.'
+        nargs="+",
+        help="The type(s) of object(s) to detect (e.g., person, cat). If omitted, all detected object types are used.",
     )
     parser.add_argument(
-        '-t',
-        '--threshold',
+        "-t",
+        "--threshold",
         type=float,
         default=0.5,
-        help='Confidence threshold for object detection (default: 0.5).'
+        help="Confidence threshold for object detection (default: 0.5).",
     )
     parser.add_argument(
-        '-m',
-        '--model',
+        "-m",
+        "--model",
         type=str,
-        default='COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml',
-        help='Model name to use (default: COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml).'
+        default="COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml",
+        help="Model name to use (default: COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml).",
     )
     parser.add_argument(
-        '--invert',
-        action='store_true',
-        help='Invert the masks (objects will be white and background black).'
+        "--invert",
+        action="store_true",
+        help="Invert the masks (objects will be white and background black).",
     )
     parser.add_argument(
-        '--batch',
-        action='store_true',
-        help='Process a batch of images in a directory.'
+        "--batch",
+        action="store_true",
+        help="Process a batch of images in a directory.",
     )
     parser.add_argument(
-        '--cpu',
-        action='store_true',
-        help='Force the model to run on CPU.'
+        "--cpu",
+        action="store_true",
+        help="Force the model to run on CPU.",
     )
     parser.add_argument(
-        '--list-objects',
-        action='store_true',
-        help='List all detectable object classes by the model and exit.'
+        "--list-objects",
+        action="store_true",
+        help="List all detectable object classes by the model and exit.",
     )
 
     args = parser.parse_args()
 
     # Set up logging
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     # Initialize predictor
     predictor = get_predictor(args.model, args.threshold, args.cpu)
@@ -259,7 +269,9 @@ def main():
     if args.object_type:
         object_classes = get_object_classes(args.object_type, metadata)
         if not object_classes:
-            logging.error("None of the specified object types were found in the model's classes.")
+            logging.error(
+                "None of the specified object types were found in the model's classes."
+            )
             sys.exit(1)
 
     # Validate and prepare paths
@@ -270,8 +282,9 @@ def main():
         if not os.path.isdir(args.output_file):
             os.makedirs(args.output_file, exist_ok=True)
         image_files = [
-            os.path.join(args.image_file, f) for f in os.listdir(args.image_file)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp'))
+            os.path.join(args.image_file, f)
+            for f in os.listdir(args.image_file)
+            if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp"))
         ]
         output_dir = args.output_file
     else:
@@ -303,7 +316,7 @@ def main():
         if args.batch:
             output_path = output_dir
         else:
-            output_path = output_dir if output_dir else '.'
+            output_path = output_dir if output_dir else "."
 
         # Save the masks
         save_masks(masks, output_path, base_name)
@@ -311,5 +324,5 @@ def main():
     logging.info("Processing completed.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

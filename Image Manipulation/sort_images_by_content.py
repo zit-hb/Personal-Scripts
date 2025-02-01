@@ -55,53 +55,57 @@ from transformers import CLIPProcessor, CLIPModel
 
 # Suppress specific warnings
 import warnings
-warnings.filterwarnings("ignore", category=UserWarning, module='torch._utils')
-warnings.filterwarnings("ignore", category=FutureWarning, module='transformers.tokenization_utils_base')
-warnings.filterwarnings("ignore", category=UserWarning, module='umap')
-warnings.filterwarnings("ignore", category=UserWarning, module='numba')
+
+warnings.filterwarnings("ignore", category=UserWarning, module="torch._utils")
+warnings.filterwarnings(
+    "ignore", category=FutureWarning, module="transformers.tokenization_utils_base"
+)
+warnings.filterwarnings("ignore", category=UserWarning, module="umap")
+warnings.filterwarnings("ignore", category=UserWarning, module="numba")
 from numba.core.errors import NumbaWarning
+
 warnings.filterwarnings("ignore", category=NumbaWarning)
 
 import nltk
 from nltk.corpus import brown, wordnet as wn
 
 # Ensure WordNet data is downloaded
-nltk.download('brown', quiet=True)
-nltk.download('universal_tagset', quiet=True)
+nltk.download("brown", quiet=True)
+nltk.download("universal_tagset", quiet=True)
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description='Organize images into hierarchical clusters based on visual similarity.'
+        description="Organize images into hierarchical clusters based on visual similarity."
     )
     parser.add_argument(
-        'source_directory',
+        "source_directory",
         type=str,
-        help='The directory containing the images to be organized.'
+        help="The directory containing the images to be organized.",
     )
     parser.add_argument(
-        '-l',
-        '--level',
+        "-l",
+        "--level",
         type=int,
         default=1,
-        help='Maximum directory depth level for sorting (default: 1).'
+        help="Maximum directory depth level for sorting (default: 1).",
     )
     parser.add_argument(
-        '--max-clusters',
+        "--max-clusters",
         type=int,
         default=10,
-        help='Maximum number of clusters per level (default: 10).'
+        help="Maximum number of clusters per level (default: 10).",
     )
     parser.add_argument(
-        '--min-cluster-size',
+        "--min-cluster-size",
         type=int,
         default=2,
-        help='Minimum cluster size for Agglomerative Clustering (default: 2).'
+        help="Minimum cluster size for Agglomerative Clustering (default: 2).",
     )
     parser.add_argument(
-        '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     args = parser.parse_args()
     return args
@@ -112,18 +116,18 @@ def setup_logging(verbose: bool):
     Sets up the logging configuration.
     """
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def load_models():
     """
     Loads the CLIP model for feature extraction.
     """
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Loading CLIP model on device: {device}")
 
     # Load CLIP model
-    clip_model_name = 'openai/clip-vit-base-patch32'
+    clip_model_name = "openai/clip-vit-base-patch32"
     logging.info(f"Loading CLIP model '{clip_model_name}' for feature extraction...")
     clip_model = CLIPModel.from_pretrained(clip_model_name).to(device)
     clip_processor = CLIPProcessor.from_pretrained(clip_model_name)
@@ -139,8 +143,8 @@ def get_common_nouns(top_n: int = 5000) -> List[str]:
     """
     logging.info("Generating a list of common nouns from the Brown Corpus...")
     noun_counts = {}
-    for word, tag in brown.tagged_words(tagset='universal'):
-        if tag == 'NOUN':
+    for word, tag in brown.tagged_words(tagset="universal"):
+        if tag == "NOUN":
             word = word.lower()
             noun_counts[word] = noun_counts.get(word, 0) + 1
 
@@ -151,7 +155,12 @@ def get_common_nouns(top_n: int = 5000) -> List[str]:
     return common_nouns
 
 
-def compute_label_embeddings(clip_model: CLIPModel, clip_processor: CLIPProcessor, device: torch.device, labels: List[str]) -> np.ndarray:
+def compute_label_embeddings(
+    clip_model: CLIPModel,
+    clip_processor: CLIPProcessor,
+    device: torch.device,
+    labels: List[str],
+) -> np.ndarray:
     """
     Computes CLIP text embeddings for a list of labels.
     """
@@ -161,12 +170,19 @@ def compute_label_embeddings(clip_model: CLIPModel, clip_processor: CLIPProcesso
         text_embeddings = clip_model.get_text_features(**inputs)
     text_embeddings = text_embeddings.cpu().numpy()
     # Normalize embeddings
-    text_embeddings = text_embeddings / np.linalg.norm(text_embeddings, axis=1, keepdims=True)
+    text_embeddings = text_embeddings / np.linalg.norm(
+        text_embeddings, axis=1, keepdims=True
+    )
     logging.info("Text embeddings computed successfully.")
     return text_embeddings
 
 
-def extract_features(model: CLIPModel, processor: CLIPProcessor, device: torch.device, image_paths: List[str]) -> (np.ndarray, List[str]):
+def extract_features(
+    model: CLIPModel,
+    processor: CLIPProcessor,
+    device: torch.device,
+    image_paths: List[str],
+) -> (np.ndarray, List[str]):
     """
     Extracts features from all images using CLIP.
     """
@@ -175,7 +191,7 @@ def extract_features(model: CLIPModel, processor: CLIPProcessor, device: torch.d
 
     for image_path in image_paths:
         try:
-            image = Image.open(image_path).convert('RGB')
+            image = Image.open(image_path).convert("RGB")
             inputs = processor(images=image, return_tensors="pt").to(device)
             with torch.no_grad():
                 image_features = model.get_image_features(**inputs)
@@ -207,15 +223,21 @@ def reduce_dimensions(features: np.ndarray) -> np.ndarray:
         sys.exit(1)
 
     # Set number of components to be smaller than the number of samples
-    n_components = min(30, n_samples // 2)  # Use half of the samples as the maximum number of components
+    n_components = min(
+        30, n_samples // 2
+    )  # Use half of the samples as the maximum number of components
 
-    logging.info(f"Reducing to {n_components} dimensions using UMAP (for {n_samples} samples).")
+    logging.info(
+        f"Reducing to {n_components} dimensions using UMAP (for {n_samples} samples)."
+    )
 
     reducer = umap.UMAP(n_components=n_components, random_state=42)
 
     try:
         reduced_features = reducer.fit_transform(features)
-        logging.info(f"UMAP reduced features to {reduced_features.shape[1]} dimensions.")
+        logging.info(
+            f"UMAP reduced features to {reduced_features.shape[1]} dimensions."
+        )
     except Exception as e:
         logging.error(f"UMAP dimensionality reduction failed: {e}")
         sys.exit(1)
@@ -223,27 +245,35 @@ def reduce_dimensions(features: np.ndarray) -> np.ndarray:
     return reduced_features
 
 
-def cluster_features(features: np.ndarray, min_cluster_size: int, max_clusters: int) -> np.ndarray:
+def cluster_features(
+    features: np.ndarray, min_cluster_size: int, max_clusters: int
+) -> np.ndarray:
     """
     Clusters the feature vectors using Agglomerative Clustering.
     Limits the number of clusters to 'max_clusters'.
     """
     n_samples = len(features)
     if n_samples < min_cluster_size:
-        logging.info("Not enough samples to form clusters. Assigning all images to a single cluster.")
+        logging.info(
+            "Not enough samples to form clusters. Assigning all images to a single cluster."
+        )
         return np.zeros(n_samples, dtype=int)
 
     # Determine the number of clusters: min(max_clusters, n_samples // min_cluster_size)
     possible_clusters = n_samples // min_cluster_size
     n_clusters = min(max_clusters, possible_clusters) if possible_clusters > 1 else 1
 
-    logging.info(f"Clustering into {n_clusters} clusters using Agglomerative Clustering.")
+    logging.info(
+        f"Clustering into {n_clusters} clusters using Agglomerative Clustering."
+    )
 
     try:
         clustering = AgglomerativeClustering(n_clusters=n_clusters)
         labels = clustering.fit_predict(features)
     except Exception as e:
-        logging.error(f"Agglomerative Clustering failed: {e}. Assigning all points to a single cluster.")
+        logging.error(
+            f"Agglomerative Clustering failed: {e}. Assigning all points to a single cluster."
+        )
         return np.zeros(n_samples, dtype=int)
 
     num_clusters = len(set(labels))
@@ -259,19 +289,21 @@ def assign_labels_to_clusters(
     clip_processor: CLIPProcessor,
     device: torch.device,
     text_embeddings: np.ndarray,
-    cluster_id: int
+    cluster_id: int,
 ) -> str:
     """
     Assigns a label to a cluster based on the most similar label from the label list.
     Prepends the cluster ID to ensure directory names are unique.
     """
-    logging.debug(f"Assigning label for cluster {cluster_id} with {len(cluster_image_paths)} images.")
+    logging.debug(
+        f"Assigning label for cluster {cluster_id} with {len(cluster_image_paths)} images."
+    )
 
     # Compute the centroid of the cluster's feature vectors
     cluster_features = []
     for image_path in cluster_image_paths:
         try:
-            image = Image.open(image_path).convert('RGB')
+            image = Image.open(image_path).convert("RGB")
             inputs = clip_processor(images=image, return_tensors="pt").to(device)
             with torch.no_grad():
                 image_feature = clip_model.get_image_features(**inputs)
@@ -280,11 +312,15 @@ def assign_labels_to_clusters(
             image_feature /= np.linalg.norm(image_feature)
             cluster_features.append(image_feature)
         except Exception as e:
-            logging.error(f"Error processing image '{image_path}' for centroid computation: {e}")
+            logging.error(
+                f"Error processing image '{image_path}' for centroid computation: {e}"
+            )
 
     if not cluster_features:
         label = f"{cluster_id}_unlabeled"
-        logging.warning(f"No features available for cluster {cluster_id}. Using label '{label}'.")
+        logging.warning(
+            f"No features available for cluster {cluster_id}. Using label '{label}'."
+        )
         return label
 
     cluster_centroid = np.mean(cluster_features, axis=0)
@@ -300,7 +336,7 @@ def assign_labels_to_clusters(
         label = f"{cluster_id}_unlabeled"
     else:
         # Replace spaces with underscores for directory naming
-        label = best_label.replace(' ', '_')
+        label = best_label.replace(" ", "_")
 
     # Prepend cluster ID to ensure uniqueness
     unique_label = f"{cluster_id}_{label}"
@@ -324,7 +360,7 @@ def build_hierarchy(
     max_level: int,
     max_clusters: int,
     min_cluster_size: int,
-    used_labels: Set[str]
+    used_labels: Set[str],
 ) -> Dict[str, Any]:
     """
     Recursively builds the hierarchical clustering and labeling.
@@ -341,18 +377,20 @@ def build_hierarchy(
     # Organize images into clusters
     clusters = {}
     for idx, label in enumerate(labels):
-        clusters.setdefault(label, {'features': [], 'image_paths': []})
-        clusters[label]['features'].append(features[idx])
-        clusters[label]['image_paths'].append(image_paths[idx])
+        clusters.setdefault(label, {"features": [], "image_paths": []})
+        clusters[label]["features"].append(features[idx])
+        clusters[label]["image_paths"].append(image_paths[idx])
 
     hierarchy = {}
     current_cluster_id = cluster_id_start
 
     for label_id, cluster_data in clusters.items():
-        cluster_features_array = np.array(cluster_data['features'])
-        cluster_image_paths = cluster_data['image_paths']
+        cluster_features_array = np.array(cluster_data["features"])
+        cluster_image_paths = cluster_data["image_paths"]
 
-        logging.info(f"Level {level} Cluster {label_id} contains {len(cluster_image_paths)} images.")
+        logging.info(
+            f"Level {level} Cluster {label_id} contains {len(cluster_image_paths)} images."
+        )
 
         # Assign a unique label to the cluster
         cluster_label = assign_labels_to_clusters(
@@ -362,10 +400,12 @@ def build_hierarchy(
             clip_processor,
             device,
             text_embeddings,
-            cluster_id=current_cluster_id
+            cluster_id=current_cluster_id,
         )
 
-        logging.info(f"Cluster {label_id} at level {level} labeled as '{cluster_label}'.")
+        logging.info(
+            f"Cluster {label_id} at level {level} labeled as '{cluster_label}'."
+        )
 
         # Recursively build hierarchy
         subtree = build_hierarchy(
@@ -382,7 +422,7 @@ def build_hierarchy(
             max_level=max_level,
             max_clusters=max_clusters,
             min_cluster_size=min_cluster_size,
-            used_labels=used_labels
+            used_labels=used_labels,
         )
 
         hierarchy[cluster_label] = subtree
@@ -429,8 +469,10 @@ def organize_images(args):
 
     # Collect image paths
     image_files = [
-        os.path.join(source_dir, f) for f in os.listdir(source_dir)
-        if os.path.isfile(os.path.join(source_dir, f)) and f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif'))
+        os.path.join(source_dir, f)
+        for f in os.listdir(source_dir)
+        if os.path.isfile(os.path.join(source_dir, f))
+        and f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif"))
     ]
 
     if not image_files:
@@ -441,7 +483,9 @@ def organize_images(args):
 
     # Extract features using CLIP
     logging.info("Extracting features from images...")
-    features, valid_image_paths = extract_features(clip_model, clip_processor, device, image_files)
+    features, valid_image_paths = extract_features(
+        clip_model, clip_processor, device, image_files
+    )
 
     if features.size == 0:
         logging.error("No valid images to process.")
@@ -456,7 +500,9 @@ def organize_images(args):
     label_list = get_common_nouns(top_n=5000)  # Adjust top_n as needed
 
     # Compute text embeddings for labels
-    label_embeddings = compute_label_embeddings(clip_model, clip_processor, device, label_list)
+    label_embeddings = compute_label_embeddings(
+        clip_model, clip_processor, device, label_list
+    )
 
     # Build hierarchical clustering and labeling
     logging.info("Building hierarchical clustering and labeling...")
@@ -472,12 +518,12 @@ def organize_images(args):
         text_embeddings=label_embeddings,
         cluster_id_start=cluster_id_start,
         device=device,
-        method='agglomerative',
+        method="agglomerative",
         level=1,
         max_level=args.level,
         max_clusters=args.max_clusters,
         min_cluster_size=args.min_cluster_size,
-        used_labels=used_labels
+        used_labels=used_labels,
     )
 
     # Move images to their final destinations
@@ -493,5 +539,5 @@ def main():
     organize_images(args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

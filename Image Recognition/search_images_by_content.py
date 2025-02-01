@@ -61,12 +61,19 @@ from dataclasses import dataclass
 
 import torch
 from PIL import Image
-from transformers import BlipProcessor, BlipForConditionalGeneration, CLIPProcessor, CLIPModel
+from transformers import (
+    BlipProcessor,
+    BlipForConditionalGeneration,
+    CLIPProcessor,
+    CLIPModel,
+)
 from sentence_transformers import SentenceTransformer, util
 
-warnings.filterwarnings("ignore", category=UserWarning, module='torch._utils')
-warnings.filterwarnings("ignore", category=FutureWarning, module='transformers.tokenization_utils_base')
-warnings.filterwarnings("ignore", category=UserWarning, module='PIL')
+warnings.filterwarnings("ignore", category=UserWarning, module="torch._utils")
+warnings.filterwarnings(
+    "ignore", category=FutureWarning, module="transformers.tokenization_utils_base"
+)
+warnings.filterwarnings("ignore", category=UserWarning, module="PIL")
 
 
 @dataclass
@@ -97,73 +104,85 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Search images by content using BLIP, Sentence Transformers, and CLIP.'
+        description="Search images by content using BLIP, Sentence Transformers, and CLIP."
     )
     parser.add_argument(
-        'source_directory',
+        "source_directory",
         type=str,
-        help='The directory containing the images to be searched.'
+        help="The directory containing the images to be searched.",
     )
     parser.add_argument(
-        '-q', '--query',
+        "-q",
+        "--query",
         type=str,
-        action='append',
-        help='Positive query string. Multiple queries can be provided.'
+        action="append",
+        help="Positive query string. Multiple queries can be provided.",
     )
     parser.add_argument(
-        '-Q', '--negative-query',
+        "-Q",
+        "--negative-query",
         type=str,
-        action='append',
-        help='Negative query string. Multiple queries can be provided.'
+        action="append",
+        help="Negative query string. Multiple queries can be provided.",
     )
     parser.add_argument(
-        '-C', '--caption-weight',
+        "-C",
+        "--caption-weight",
         type=float,
         default=1.0,
-        help='Weight for the caption-based semantic similarity.'
+        help="Weight for the caption-based semantic similarity.",
     )
     parser.add_argument(
-        '-M', '--clip-weight',
+        "-M",
+        "--clip-weight",
         type=float,
         default=1.0,
-        help='Weight for the CLIP similarity score.'
+        help="Weight for the CLIP similarity score.",
     )
     parser.add_argument(
-        '-PT', '--positive-threshold',
+        "-PT",
+        "--positive-threshold",
         type=float,
         default=0.3,
-        help='Similarity threshold for positive queries.'
+        help="Similarity threshold for positive queries.",
     )
     parser.add_argument(
-        '-NT', '--negative-threshold',
+        "-NT",
+        "--negative-threshold",
         type=float,
         default=0.3,
-        help='Similarity threshold for negative queries.'
+        help="Similarity threshold for negative queries.",
     )
     parser.add_argument(
-        '-n', '--names-only',
-        action='store_true',
-        help='Output only the file names of matched images.'
+        "-n",
+        "--names-only",
+        action="store_true",
+        help="Output only the file names of matched images.",
     )
     parser.add_argument(
-        '-r', '--recursive',
-        action='store_true',
-        help='Recursively search for images in subdirectories.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Recursively search for images in subdirectories.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        '-vv', '--debug',
-        action='store_true',
-        help='Enable debug logging.'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging.",
     )
 
     args = parser.parse_args()
     if not args.query and not args.negative_query:
-        parser.error("At least one of --query (-q) or --negative-query (-Q) must be provided.")
+        parser.error(
+            "At least one of --query (-q) or --negative-query (-Q) must be provided."
+        )
     return args
 
 
@@ -178,7 +197,7 @@ def setup_logging(verbose: bool, debug: bool) -> None:
     else:
         level = logging.ERROR
 
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def get_image_paths(source_dir: str, recursive: bool) -> List[str]:
@@ -186,7 +205,7 @@ def get_image_paths(source_dir: str, recursive: bool) -> List[str]:
     Retrieves a list of image file paths from the source directory.
     If recursive is True, searches subdirectories recursively.
     """
-    supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')
+    supported_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")
     image_paths = []
 
     if recursive:
@@ -207,7 +226,9 @@ def get_image_paths(source_dir: str, recursive: bool) -> List[str]:
     return image_paths
 
 
-def load_blip_model(device: torch.device) -> Tuple[BlipProcessor, BlipForConditionalGeneration]:
+def load_blip_model(
+    device: torch.device,
+) -> Tuple[BlipProcessor, BlipForConditionalGeneration]:
     """
     Loads the BLIP model and processor for image captioning.
     """
@@ -223,7 +244,7 @@ def generate_captions(
     image_paths: List[str],
     processor: BlipProcessor,
     model: BlipForConditionalGeneration,
-    device: torch.device
+    device: torch.device,
 ) -> List[CaptionResult]:
     """
     Generates captions for each image using BLIP.
@@ -233,7 +254,7 @@ def generate_captions(
     logging.info("Generating captions for images...")
     for img_path in image_paths:
         try:
-            image = Image.open(img_path).convert('RGB')
+            image = Image.open(img_path).convert("RGB")
             inputs = processor(images=image, return_tensors="pt").to(device)
             with torch.no_grad():
                 out = model.generate(**inputs, max_length=50)
@@ -272,7 +293,7 @@ def compute_clip_text_embeddings(
     clip_processor: CLIPProcessor,
     clip_model: CLIPModel,
     device: torch.device,
-    texts: Optional[List[str]]
+    texts: Optional[List[str]],
 ) -> Optional[torch.Tensor]:
     """
     Computes CLIP text embeddings for a list of text queries.
@@ -290,12 +311,12 @@ def compute_clip_image_embedding(
     clip_processor: CLIPProcessor,
     clip_model: CLIPModel,
     device: torch.device,
-    img_path: str
+    img_path: str,
 ) -> torch.Tensor:
     """
     Computes the CLIP image embedding for a single image.
     """
-    image = Image.open(img_path).convert('RGB')
+    image = Image.open(img_path).convert("RGB")
     inputs = clip_processor(images=image, return_tensors="pt").to(device)
     with torch.no_grad():
         img_emb = clip_model.get_image_features(**inputs)
@@ -303,7 +324,9 @@ def compute_clip_image_embedding(
     return img_emb
 
 
-def combine_scores(st_score: float, clip_score: float, caption_weight: float, clip_weight: float) -> float:
+def combine_scores(
+    st_score: float, clip_score: float, caption_weight: float, clip_weight: float
+) -> float:
     """
     Combines the semantic similarity (ST) score and CLIP score using provided weights.
     """
@@ -320,21 +343,35 @@ def encode_queries(
     clip_model: CLIPModel,
     device: torch.device,
     queries: Optional[List[str]],
-    negative_queries: Optional[List[str]]
+    negative_queries: Optional[List[str]],
 ) -> Tuple[
     Optional[torch.Tensor],
     Optional[torch.Tensor],
     Optional[torch.Tensor],
-    Optional[torch.Tensor]
+    Optional[torch.Tensor],
 ]:
     """
     Encodes positive and negative queries into ST and CLIP embeddings.
     """
     query_emb_st = st_model.encode(queries, convert_to_tensor=True) if queries else None
-    neg_query_emb_st = st_model.encode(negative_queries, convert_to_tensor=True) if negative_queries else None
+    neg_query_emb_st = (
+        st_model.encode(negative_queries, convert_to_tensor=True)
+        if negative_queries
+        else None
+    )
 
-    query_emb_clip = compute_clip_text_embeddings(clip_processor, clip_model, device, queries) if queries else None
-    neg_query_emb_clip = compute_clip_text_embeddings(clip_processor, clip_model, device, negative_queries) if negative_queries else None
+    query_emb_clip = (
+        compute_clip_text_embeddings(clip_processor, clip_model, device, queries)
+        if queries
+        else None
+    )
+    neg_query_emb_clip = (
+        compute_clip_text_embeddings(
+            clip_processor, clip_model, device, negative_queries
+        )
+        if negative_queries
+        else None
+    )
 
     return query_emb_st, neg_query_emb_st, query_emb_clip, neg_query_emb_clip
 
@@ -349,7 +386,7 @@ def compute_image_similarities(
     st_model: SentenceTransformer,
     clip_model: CLIPModel,
     clip_processor: CLIPProcessor,
-    device: torch.device
+    device: torch.device,
 ) -> SimilarityScores:
     """
     Computes ST and CLIP similarities for positive and negative queries for a single image.
@@ -358,18 +395,38 @@ def compute_image_similarities(
     caption_emb_st = st_model.encode([caption], convert_to_tensor=True)
 
     try:
-        image_emb_clip = compute_clip_image_embedding(clip_processor, clip_model, device, img_path)
+        image_emb_clip = compute_clip_image_embedding(
+            clip_processor, clip_model, device, img_path
+        )
     except Exception as e:
         logging.error(f"Failed to compute CLIP embedding for '{img_path}': {e}")
         return SimilarityScores([], [], [], [], False)
 
-    st_pos_sims = util.cos_sim(caption_emb_st, query_emb_st).cpu().numpy()[0].tolist() if query_emb_st is not None else []
-    st_neg_sims = util.cos_sim(caption_emb_st, neg_query_emb_st).cpu().numpy()[0].tolist() if neg_query_emb_st is not None else []
+    st_pos_sims = (
+        util.cos_sim(caption_emb_st, query_emb_st).cpu().numpy()[0].tolist()
+        if query_emb_st is not None
+        else []
+    )
+    st_neg_sims = (
+        util.cos_sim(caption_emb_st, neg_query_emb_st).cpu().numpy()[0].tolist()
+        if neg_query_emb_st is not None
+        else []
+    )
 
-    clip_pos_sims = (image_emb_clip @ query_emb_clip.T).cpu().numpy()[0].tolist() if query_emb_clip is not None else []
-    clip_neg_sims = (image_emb_clip @ neg_query_emb_clip.T).cpu().numpy()[0].tolist() if neg_query_emb_clip is not None else []
+    clip_pos_sims = (
+        (image_emb_clip @ query_emb_clip.T).cpu().numpy()[0].tolist()
+        if query_emb_clip is not None
+        else []
+    )
+    clip_neg_sims = (
+        (image_emb_clip @ neg_query_emb_clip.T).cpu().numpy()[0].tolist()
+        if neg_query_emb_clip is not None
+        else []
+    )
 
-    return SimilarityScores(st_pos_sims, st_neg_sims, clip_pos_sims, clip_neg_sims, True)
+    return SimilarityScores(
+        st_pos_sims, st_neg_sims, clip_pos_sims, clip_neg_sims, True
+    )
 
 
 def combine_all_scores(
@@ -380,7 +437,7 @@ def combine_all_scores(
     clip_pos_sims: List[float],
     clip_neg_sims: List[float],
     caption_weight: float,
-    clip_weight: float
+    clip_weight: float,
 ) -> Tuple[List[float], List[float]]:
     """
     Combines ST and CLIP similarities for positive and negative queries.
@@ -408,7 +465,7 @@ def check_image_match_criteria(
     pos_sims_combined: List[float],
     neg_sims_combined: List[float],
     pos_threshold: float,
-    neg_threshold: float
+    neg_threshold: float,
 ) -> bool:
     """
     Checks if an image meets the criteria for positive and negative thresholds.
@@ -436,7 +493,7 @@ def compute_similarity(
     st_model: SentenceTransformer,
     clip_model: CLIPModel,
     clip_processor: CLIPProcessor,
-    device: torch.device
+    device: torch.device,
 ) -> List[MatchedImageResult]:
     """
     Computes the similarity for each image against the provided positive and negative queries.
@@ -451,10 +508,16 @@ def compute_similarity(
 
     for caption_data in captions_list:
         scores = compute_image_similarities(
-            caption_data.image_path, caption_data.caption,
-            query_emb_st, neg_query_emb_st,
-            query_emb_clip, neg_query_emb_clip,
-            st_model, clip_model, clip_processor, device
+            caption_data.image_path,
+            caption_data.caption,
+            query_emb_st,
+            neg_query_emb_st,
+            query_emb_clip,
+            neg_query_emb_clip,
+            st_model,
+            clip_model,
+            clip_processor,
+            device,
         )
         if not scores.success:
             continue
@@ -467,17 +530,25 @@ def compute_similarity(
             scores.clip_pos_sims,
             scores.clip_neg_sims,
             caption_weight,
-            clip_weight
+            clip_weight,
         )
 
-        if check_image_match_criteria(pos_sims_combined, neg_sims_combined, pos_threshold, neg_threshold):
-            avg_sim = sum(pos_sims_combined) / len(pos_sims_combined) if pos_sims_combined else 0.0
-            matched_images.append(MatchedImageResult(
-                image_path=caption_data.image_path,
-                avg_similarity=avg_sim,
-                pos_sims=pos_sims_combined,
-                neg_sims=neg_sims_combined
-            ))
+        if check_image_match_criteria(
+            pos_sims_combined, neg_sims_combined, pos_threshold, neg_threshold
+        ):
+            avg_sim = (
+                sum(pos_sims_combined) / len(pos_sims_combined)
+                if pos_sims_combined
+                else 0.0
+            )
+            matched_images.append(
+                MatchedImageResult(
+                    image_path=caption_data.image_path,
+                    avg_similarity=avg_sim,
+                    pos_sims=pos_sims_combined,
+                    neg_sims=neg_sims_combined,
+                )
+            )
             logging.debug(
                 f"Matched '{caption_data.image_path}' with avg similarity {avg_sim:.4f} "
                 f"Pos: {pos_sims_combined}, Neg: {neg_sims_combined}"
@@ -490,7 +561,7 @@ def compute_similarity(
 def display_matched_images(
     matched_images: List[MatchedImageResult],
     positive_queries: List[str],
-    negative_queries: List[str]
+    negative_queries: List[str],
 ) -> None:
     """
     Displays the list of matched images with their similarity scores and file info.
@@ -506,7 +577,7 @@ def display_matched_images(
             result.pos_sims,
             result.neg_sims,
             positive_queries,
-            negative_queries
+            negative_queries,
         )
 
 
@@ -516,24 +587,34 @@ def display_single_image_result(
     pos_sims: List[float],
     neg_sims: List[float],
     positive_queries: List[str],
-    negative_queries: List[str]
+    negative_queries: List[str],
 ) -> None:
     """
     Displays information for a single matched image.
     """
     try:
         stats = os.stat(image_path)
-        creation_time = datetime.fromtimestamp(stats.st_ctime).strftime('%Y-%m-%d %H:%M:%S')
-        modification_time = datetime.fromtimestamp(stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+        creation_time = datetime.fromtimestamp(stats.st_ctime).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        modification_time = datetime.fromtimestamp(stats.st_mtime).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
         print(f"File: {image_path}")
         print(f"  Average Combined Similarity (Positive Queries): {avg_similarity:.4f}")
 
         for idx, (query, sim) in enumerate(zip(positive_queries, pos_sims), start=1):
-            print(f"    Positive Query [{idx}]: '{query}' | Combined Similarity: {sim:.4f}")
+            print(
+                f"    Positive Query [{idx}]: '{query}' | Combined Similarity: {sim:.4f}"
+            )
 
         if negative_queries:
-            for idx, (query, sim) in enumerate(zip(negative_queries, neg_sims), start=1):
-                print(f"    Negative Query [{idx}]: '{query}' | Combined Similarity: {sim:.4f}")
+            for idx, (query, sim) in enumerate(
+                zip(negative_queries, neg_sims), start=1
+            ):
+                print(
+                    f"    Negative Query [{idx}]: '{query}' | Combined Similarity: {sim:.4f}"
+                )
 
         print(f"  Created: {creation_time}")
         print(f"  Modified: {modification_time}")
@@ -565,7 +646,7 @@ def main() -> None:
         logging.error(f"Source directory '{args.source_directory}' does not exist.")
         sys.exit(1)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.debug(f"Using device: {device}")
 
     # Get images
@@ -591,7 +672,7 @@ def main() -> None:
         st_model=st_model,
         clip_model=clip_model,
         clip_processor=clip_processor,
-        device=device
+        device=device,
     )
 
     # Output results
@@ -601,9 +682,9 @@ def main() -> None:
         display_matched_images(
             matched_images=matched_images,
             positive_queries=args.query if args.query else [],
-            negative_queries=args.negative_query if args.negative_query else []
+            negative_queries=args.negative_query if args.negative_query else [],
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -63,108 +63,108 @@ def parse_arguments():
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Detect faces in an image using OpenCV.'
+        description="Detect faces in an image using OpenCV."
     )
     parser.add_argument(
-        'image_file',
+        "image_file",
         type=str,
-        help='The path to the image file to check for faces.'
+        help="The path to the image file to check for faces.",
     )
     parser.add_argument(
-        '-s',
-        '--scale-factor',
+        "-s",
+        "--scale-factor",
         type=float,
         default=1.1,
-        help='Parameter specifying how much the image size is reduced at each image scale.'
+        help="Parameter specifying how much the image size is reduced at each image scale.",
     )
     parser.add_argument(
-        '-n',
-        '--min-neighbors',
+        "-n",
+        "--min-neighbors",
         type=int,
         default=5,
-        help='Parameter specifying how many neighbors each candidate rectangle should have to retain it.'
+        help="Parameter specifying how many neighbors each candidate rectangle should have to retain it.",
     )
     parser.add_argument(
-        '-m',
-        '--min-size',
+        "-m",
+        "--min-size",
         type=str,
-        default='30,30',
-        help='Minimum possible object size. Objects smaller than that are ignored. Format: width,height'
+        default="30,30",
+        help="Minimum possible object size. Objects smaller than that are ignored. Format: width,height",
     )
     parser.add_argument(
-        '-e',
-        '--exact',
+        "-e",
+        "--exact",
         type=int,
-        help='Exit successfully if exactly NUM faces are found.'
+        help="Exit successfully if exactly NUM faces are found.",
     )
     parser.add_argument(
-        '-l',
-        '--less-than',
+        "-l",
+        "--less-than",
         type=int,
-        help='Exit successfully if less than NUM faces are found.'
+        help="Exit successfully if less than NUM faces are found.",
     )
     parser.add_argument(
-        '-g',
-        '--more-than',
+        "-g",
+        "--more-than",
         type=int,
-        help='Exit successfully if more than NUM faces are found.'
+        help="Exit successfully if more than NUM faces are found.",
     )
     parser.add_argument(
-        '-c',
-        '--cascade-path',
+        "-c",
+        "--cascade-path",
         type=str,
-        default='/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml',
-        help='Path to the Haar cascade file.'
+        default="/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml",
+        help="Path to the Haar cascade file.",
     )
     parser.add_argument(
-        '-o',
-        '--output-path',
+        "-o",
+        "--output-path",
         type=str,
-        help='Path to save the output image with detected faces drawn.'
+        help="Path to save the output image with detected faces drawn.",
     )
     parser.add_argument(
-        '-f',
-        '--face-coordinates',
-        action='store_true',
-        help='Output the coordinates of detected faces.'
+        "-f",
+        "--face-coordinates",
+        action="store_true",
+        help="Output the coordinates of detected faces.",
     )
     parser.add_argument(
-        '-F',
-        '--output-format',
+        "-F",
+        "--output-format",
         type=str,
-        choices=['text', 'json', 'csv'],
-        default='text',
-        help='Specify the output format for face coordinates.'
+        choices=["text", "json", "csv"],
+        default="text",
+        help="Specify the output format for face coordinates.",
     )
     parser.add_argument(
-        '-r',
-        '--resize',
+        "-r",
+        "--resize",
         type=str,
-        help='Resize the input image before processing. Format: width,height'
+        help="Resize the input image before processing. Format: width,height",
     )
     parser.add_argument(
-        '-R',
-        '--rotate',
+        "-R",
+        "--rotate",
         type=float,
-        help='Rotate the image before processing. Specify angle in degrees.'
+        help="Rotate the image before processing. Specify angle in degrees.",
     )
     parser.add_argument(
-        '-d',
-        '--display',
-        action='store_true',
-        help='Display the image with detected faces.'
+        "-d",
+        "--display",
+        action="store_true",
+        help="Display the image with detected faces.",
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging.",
     )
     parser.add_argument(
-        '-q',
-        '--quiet',
-        action='store_true',
-        help='Suppress non-error output.'
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress non-error output.",
     )
     return parser.parse_args()
 
@@ -179,23 +179,26 @@ def setup_logging(verbose: bool, quiet: bool):
         level = logging.INFO
     else:
         level = logging.WARNING
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def output_face_coordinates(faces, output_format):
     """
     Outputs the coordinates of detected faces in the specified format.
     """
-    if output_format == 'text':
-        for (x, y, w, h) in faces:
+    if output_format == "text":
+        for x, y, w, h in faces:
             print(f"Face at x:{x}, y:{y}, width:{w}, height:{h}")
-    elif output_format == 'json':
-        faces_list = [{'x': int(x), 'y': int(y), 'width': int(w), 'height': int(h)} for (x, y, w, h) in faces]
+    elif output_format == "json":
+        faces_list = [
+            {"x": int(x), "y": int(y), "width": int(w), "height": int(h)}
+            for (x, y, w, h) in faces
+        ]
         print(json.dumps(faces_list))
-    elif output_format == 'csv':
+    elif output_format == "csv":
         writer = csv.writer(sys.stdout)
-        writer.writerow(['x', 'y', 'width', 'height'])
-        for (x, y, w, h) in faces:
+        writer.writerow(["x", "y", "width", "height"])
+        for x, y, w, h in faces:
             writer.writerow([x, y, w, h])
 
 
@@ -215,7 +218,7 @@ def main():
     # If resize is specified, resize the image
     if args.resize:
         try:
-            resize_dims = tuple(map(int, args.resize.split(',')))
+            resize_dims = tuple(map(int, args.resize.split(",")))
             image = cv2.resize(image, resize_dims)
             logging.info(f"Image resized to {resize_dims}")
         except Exception as e:
@@ -228,7 +231,9 @@ def main():
             angle = args.rotate
             image_center = tuple(np.array(image.shape[1::-1]) / 2)
             rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
-            image = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
+            image = cv2.warpAffine(
+                image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR
+            )
             logging.info(f"Image rotated by {angle} degrees")
         except Exception as e:
             logging.error(f"Failed to rotate image: {e}")
@@ -249,7 +254,7 @@ def main():
 
     # Parse min-size argument
     try:
-        min_size = tuple(map(int, args.min_size.split(',')))
+        min_size = tuple(map(int, args.min_size.split(",")))
     except Exception as e:
         logging.error(f"Invalid format for min-size: {e}")
         sys.exit(6)
@@ -260,7 +265,7 @@ def main():
             gray,
             scaleFactor=args.scale_factor,
             minNeighbors=args.min_neighbors,
-            minSize=min_size
+            minSize=min_size,
         )
     except Exception as e:
         logging.error(f"Error during face detection: {e}")
@@ -278,7 +283,7 @@ def main():
     # If output_path is specified, draw rectangles and save image
     if args.output_path or args.display:
         # Draw rectangles around faces
-        for (x, y, w, h) in faces:
+        for x, y, w, h in faces:
             cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
         if args.output_path:
             cv2.imwrite(args.output_path, image)
@@ -286,7 +291,7 @@ def main():
 
     # If display is True, show the image
     if args.display:
-        cv2.imshow('Detected Faces', image)
+        cv2.imshow("Detected Faces", image)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
@@ -305,5 +310,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

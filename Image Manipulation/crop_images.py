@@ -51,76 +51,88 @@ from typing import List, Tuple, Optional
 def parse_arguments():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Batch-crop images by removing specified pixels or percentages from each side.'
+        description="Batch-crop images by removing specified pixels or percentages from each side."
     )
     parser.add_argument(
-        '-T', '--top',
+        "-T",
+        "--top",
         type=str,
-        default='0',
-        help='Number of pixels or percentage to crop from the top.'
+        default="0",
+        help="Number of pixels or percentage to crop from the top.",
     )
     parser.add_argument(
-        '-B', '--bottom',
+        "-B",
+        "--bottom",
         type=str,
-        default='0',
-        help='Number of pixels or percentage to crop from the bottom.'
+        default="0",
+        help="Number of pixels or percentage to crop from the bottom.",
     )
     parser.add_argument(
-        '-L', '--left',
+        "-L",
+        "--left",
         type=str,
-        default='0',
-        help='Number of pixels or percentage to crop from the left.'
+        default="0",
+        help="Number of pixels or percentage to crop from the left.",
     )
     parser.add_argument(
-        '-R', '--right',
+        "-R",
+        "--right",
         type=str,
-        default='0',
-        help='Number of pixels or percentage to crop from the right.'
+        default="0",
+        help="Number of pixels or percentage to crop from the right.",
     )
     parser.add_argument(
-        '-p', '--percentage',
-        action='store_true',
-        help='Interpret crop values as percentages.'
+        "-p",
+        "--percentage",
+        action="store_true",
+        help="Interpret crop values as percentages.",
     )
     parser.add_argument(
-        '-W', '--required-width',
+        "-W",
+        "--required-width",
         type=str,
-        help='Limit input images to certain width (e.g., 1024, >1024, <1024).'
+        help="Limit input images to certain width (e.g., 1024, >1024, <1024).",
     )
     parser.add_argument(
-        '-H', '--required-height',
+        "-H",
+        "--required-height",
         type=str,
-        help='Limit input images to certain height (e.g., 768, >768, <768).'
+        help="Limit input images to certain height (e.g., 768, >768, <768).",
     )
     parser.add_argument(
-        '-o', '--output-dir',
+        "-o",
+        "--output-dir",
         type=str,
-        help='Output directory for the cropped images.'
+        help="Output directory for the cropped images.",
     )
     parser.add_argument(
-        '-k', '--backup',
-        action='store_true',
-        help='Keep a backup of the original images.'
+        "-k",
+        "--backup",
+        action="store_true",
+        help="Keep a backup of the original images.",
     )
     parser.add_argument(
-        '-n', '--dry-run',
-        action='store_true',
-        help='Show what would be done without making any changes.'
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making any changes.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        '-r', '--recursive',
-        action='store_true',
-        help='Process directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Process directories recursively.",
     )
     parser.add_argument(
-        'path',
+        "path",
         type=str,
-        help='The image file or directory to process.'
+        help="The image file or directory to process.",
     )
     args = parser.parse_args()
     return args
@@ -129,12 +141,12 @@ def parse_arguments():
 def setup_logging(verbose: bool):
     """Sets up the logging configuration."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def collect_images(path: str, recursive: bool) -> List[str]:
     """Collects all image files from the provided path."""
-    supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', '.webp')
+    supported_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif", ".webp")
     image_files = []
 
     if os.path.isfile(path):
@@ -168,28 +180,34 @@ def collect_images(path: str, recursive: bool) -> List[str]:
 def parse_crop_value(value_str: str) -> Tuple[float, bool]:
     """Parses a crop value string to determine if it's a pixel or percentage value."""
     is_percentage = False
-    if value_str.endswith('%'):
+    if value_str.endswith("%"):
         is_percentage = True
         value_str = value_str[:-1]
 
     try:
         value = float(value_str)
     except ValueError:
-        logging.error(f"Invalid crop value '{value_str}'. Must be a number or percentage.")
+        logging.error(
+            f"Invalid crop value '{value_str}'. Must be a number or percentage."
+        )
         sys.exit(1)
 
     return value, is_percentage
 
 
-def calculate_crop_pixels(img_size: Tuple[int, int], crop_values: dict, percentage_mode: bool) -> dict:
+def calculate_crop_pixels(
+    img_size: Tuple[int, int], crop_values: dict, percentage_mode: bool
+) -> dict:
     """Calculates the number of pixels to crop from each side."""
     width, height = img_size
     crop_pixels = {}
 
-    for side in ['top', 'bottom', 'left', 'right']:
+    for side in ["top", "bottom", "left", "right"]:
         value, is_percentage = parse_crop_value(crop_values[side])
         if percentage_mode or is_percentage:
-            pixels = int((value / 100) * (height if side in ['top', 'bottom'] else width))
+            pixels = int(
+                (value / 100) * (height if side in ["top", "bottom"] else width)
+            )
         else:
             pixels = int(value)
         crop_pixels[side] = pixels
@@ -197,22 +215,32 @@ def calculate_crop_pixels(img_size: Tuple[int, int], crop_values: dict, percenta
     return crop_pixels
 
 
-def crop_image(img_path: str, crop_pixels: dict, output_dir: Optional[str], dry_run: bool, backup: bool):
+def crop_image(
+    img_path: str,
+    crop_pixels: dict,
+    output_dir: Optional[str],
+    dry_run: bool,
+    backup: bool,
+):
     """Crops a single image based on the specified pixel values."""
     try:
         with Image.open(img_path) as img:
             width, height = img.size
-            new_left = crop_pixels['left']
-            new_upper = crop_pixels['top']
-            new_right = width - crop_pixels['right']
-            new_lower = height - crop_pixels['bottom']
+            new_left = crop_pixels["left"]
+            new_upper = crop_pixels["top"]
+            new_right = width - crop_pixels["right"]
+            new_lower = height - crop_pixels["bottom"]
 
             if new_left >= new_right or new_upper >= new_lower:
-                logging.error(f"Crop values too large for image '{img_path}', skipping.")
+                logging.error(
+                    f"Crop values too large for image '{img_path}', skipping."
+                )
                 return
 
             if dry_run:
-                logging.info(f"Would crop '{img_path}' to box ({new_left}, {new_upper}, {new_right}, {new_lower}).")
+                logging.info(
+                    f"Would crop '{img_path}' to box ({new_left}, {new_upper}, {new_right}, {new_lower})."
+                )
                 return
 
             cropped_img = img.crop((new_left, new_upper, new_right, new_lower))
@@ -224,11 +252,13 @@ def crop_image(img_path: str, crop_pixels: dict, output_dir: Optional[str], dry_
                 output_path = img_path
 
             if backup and output_path == img_path:
-                backup_path = img_path + '.bak'
+                backup_path = img_path + ".bak"
                 if not os.path.exists(backup_path):
                     os.rename(img_path, backup_path)
                 else:
-                    logging.warning(f"Backup file '{backup_path}' already exists, skipping backup.")
+                    logging.warning(
+                        f"Backup file '{backup_path}' already exists, skipping backup."
+                    )
                 cropped_img.save(img_path)
             else:
                 cropped_img.save(output_path)
@@ -241,34 +271,38 @@ def crop_image(img_path: str, crop_pixels: dict, output_dir: Optional[str], dry_
 
 def parse_dimension_requirement(requirement_str: str) -> Tuple[str, int]:
     """Parses a dimension requirement string into an operator and value."""
-    match = re.match(r'(<=|>=|<|>|=)?\s*(\d+)', requirement_str.strip())
+    match = re.match(r"(<=|>=|<|>|=)?\s*(\d+)", requirement_str.strip())
     if not match:
         logging.error(f"Invalid dimension requirement '{requirement_str}'.")
         sys.exit(1)
 
-    operator = match.group(1) if match.group(1) else '='
+    operator = match.group(1) if match.group(1) else "="
     value = int(match.group(2))
     return operator, value
 
 
 def check_dimension(dimension: int, operator: str, value: int) -> bool:
     """Checks if a dimension satisfies the requirement."""
-    if operator == '>':
+    if operator == ">":
         return dimension > value
-    elif operator == '<':
+    elif operator == "<":
         return dimension < value
-    elif operator == '=':
+    elif operator == "=":
         return dimension == value
-    elif operator == '>=':
+    elif operator == ">=":
         return dimension >= value
-    elif operator == '<=':
+    elif operator == "<=":
         return dimension <= value
     else:
         logging.error(f"Unknown operator '{operator}'.")
         sys.exit(1)
 
 
-def filter_images_by_size(img_path: str, width_requirement: Optional[Tuple[str, int]], height_requirement: Optional[Tuple[str, int]]) -> bool:
+def filter_images_by_size(
+    img_path: str,
+    width_requirement: Optional[Tuple[str, int]],
+    height_requirement: Optional[Tuple[str, int]],
+) -> bool:
     """Determines whether an image meets the dimension requirements."""
     try:
         with Image.open(img_path) as img:
@@ -299,10 +333,10 @@ def main():
     setup_logging(args.verbose)
 
     crop_values = {
-        'top': args.top,
-        'bottom': args.bottom,
-        'left': args.left,
-        'right': args.right
+        "top": args.top,
+        "bottom": args.bottom,
+        "left": args.left,
+        "right": args.right,
     }
 
     # Parse dimension requirements
@@ -333,14 +367,8 @@ def main():
             logging.error(f"Failed to open image '{img_path}': {e}")
             continue
 
-        crop_image(
-            img_path,
-            crop_pixels,
-            args.output_dir,
-            args.dry_run,
-            args.backup
-        )
+        crop_image(img_path, crop_pixels, args.output_dir, args.dry_run, args.backup)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

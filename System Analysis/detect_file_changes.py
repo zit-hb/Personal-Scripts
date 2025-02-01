@@ -55,6 +55,7 @@ from dataclasses import dataclass, asdict
 # Try to import pretty table or fallback to plain formatting
 try:
     from prettytable import PrettyTable
+
     USE_PRETTYTABLE = True
 except ImportError:
     USE_PRETTYTABLE = False
@@ -65,6 +66,7 @@ class FileMetadata:
     """
     Dataclass to store file metadata.
     """
+
     path: str
     size: int
     ctime: float
@@ -80,98 +82,98 @@ def parse_arguments() -> argparse.Namespace:
     Returns an argparse.Namespace object containing the parsed arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Check for file changes by comparing metadata.'
+        description="Check for file changes by comparing metadata."
     )
 
     parser.add_argument(
-        'directories',
+        "directories",
         type=str,
-        nargs='*',
-        help='Path(s) to the directory(ies) to scan. Defaults to current directory.'
+        nargs="*",
+        help="Path(s) to the directory(ies) to scan. Defaults to current directory.",
     )
     parser.add_argument(
-        '-i',
-        '--input',
+        "-i",
+        "--input",
         type=str,
-        help='Path to the JSON file containing old metadata for comparison.'
+        help="Path to the JSON file containing old metadata for comparison.",
     )
     parser.add_argument(
-        '-o',
-        '--output',
+        "-o",
+        "--output",
         type=str,
-        help='Path to the JSON file where new metadata should be written.'
+        help="Path to the JSON file where new metadata should be written.",
     )
     parser.add_argument(
-        '-a',
-        '--algorithm',
+        "-a",
+        "--algorithm",
         type=str,
-        action='append',
+        action="append",
         default=[],
-        help='Hashing algorithm(s) to use.'
+        help="Hashing algorithm(s) to use.",
     )
     parser.add_argument(
-        '-I',
-        '--include',
+        "-I",
+        "--include",
         type=str,
-        action='append',
+        action="append",
         default=[],
-        help='Regex pattern(s) to include.'
+        help="Regex pattern(s) to include.",
     )
     parser.add_argument(
-        '-E',
-        '--exclude',
+        "-E",
+        "--exclude",
         type=str,
-        action='append',
+        action="append",
         default=[],
-        help='Regex pattern(s) to exclude.'
+        help="Regex pattern(s) to exclude.",
     )
     parser.add_argument(
-        '-r',
-        '--recursive',
-        action='store_true',
-        help='Scan directories recursively.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Scan directories recursively.",
     )
     parser.add_argument(
-        '-s',
-        '--check-size',
-        action='store_true',
-        help='Only check changes in file size.'
+        "-s",
+        "--check-size",
+        action="store_true",
+        help="Only check changes in file size.",
     )
     parser.add_argument(
-        '-t',
-        '--check-time',
-        action='store_true',
-        help='Only check changes in file creation and modification times.'
+        "-t",
+        "--check-time",
+        action="store_true",
+        help="Only check changes in file creation and modification times.",
     )
     parser.add_argument(
-        '-p',
-        '--check-permissions',
-        action='store_true',
-        help='Only check changes in file permissions.'
+        "-p",
+        "--check-permissions",
+        action="store_true",
+        help="Only check changes in file permissions.",
     )
     parser.add_argument(
-        '-l',
-        '--check-capabilities',
-        action='store_true',
-        help='Only check changes in file capabilities.'
+        "-l",
+        "--check-capabilities",
+        action="store_true",
+        help="Only check changes in file capabilities.",
     )
     parser.add_argument(
-        '-m',
-        '--check-hash',
-        action='store_true',
-        help='Only check changes in file content hash(es).'
+        "-m",
+        "--check-hash",
+        action="store_true",
+        help="Only check changes in file content hash(es).",
     )
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv',
-        '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
 
     args = parser.parse_args()
@@ -204,14 +206,14 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     else:
         level = logging.WARNING
 
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def collect_files(
     directories: List[str],
     recursive: bool,
     include_patterns: List[str],
-    exclude_patterns: List[str]
+    exclude_patterns: List[str],
 ) -> List[Path]:
     """
     Collects all files from the given directories (one or more),
@@ -219,12 +221,20 @@ def collect_files(
     """
     all_files: List[Path] = []
 
-    include_regexes = [re.compile(pattern) for pattern in include_patterns] if include_patterns else []
-    exclude_regexes = [re.compile(pattern) for pattern in exclude_patterns] if exclude_patterns else []
+    include_regexes = (
+        [re.compile(pattern) for pattern in include_patterns]
+        if include_patterns
+        else []
+    )
+    exclude_regexes = (
+        [re.compile(pattern) for pattern in exclude_patterns]
+        if exclude_patterns
+        else []
+    )
 
     # If no directories are specified, default to current directory
     if not directories:
-        directories = ['.']
+        directories = ["."]
 
     def matches_any_regex(text: str, regex_list: List[re.Pattern]) -> bool:
         """
@@ -239,19 +249,25 @@ def collect_files(
             logging.error(f"'{dir_str}' does not exist or is not a directory.")
             continue
 
-        files_iter = path.rglob('*') if recursive else path.glob('*')
+        files_iter = path.rglob("*") if recursive else path.glob("*")
 
         for f in files_iter:
             if f.is_file():
                 full_path_str = str(f.resolve())
 
                 # If includes are specified, at least one must match
-                if include_regexes and not matches_any_regex(full_path_str, include_regexes):
-                    logging.debug(f"Excluding '{full_path_str}' (no match for --include).")
+                if include_regexes and not matches_any_regex(
+                    full_path_str, include_regexes
+                ):
+                    logging.debug(
+                        f"Excluding '{full_path_str}' (no match for --include)."
+                    )
                     continue
 
                 # If excludes are specified, none may match
-                if exclude_regexes and matches_any_regex(full_path_str, exclude_regexes):
+                if exclude_regexes and matches_any_regex(
+                    full_path_str, exclude_regexes
+                ):
                     logging.debug(f"Excluding '{full_path_str}' (matched --exclude).")
                     continue
 
@@ -276,10 +292,7 @@ def get_file_capabilities(file_path: Path) -> Optional[str]:
     """
     try:
         result = subprocess.run(
-            ["getcap", str(file_path)],
-            capture_output=True,
-            text=True,
-            check=False
+            ["getcap", str(file_path)], capture_output=True, text=True, check=False
         )
         if result.returncode == 0 and result.stdout.strip():
             # Example output: "/path/to/file = cap_net_bind_service+ep"
@@ -313,7 +326,9 @@ def compute_hashes(file_path: Path, algorithms: List[str]) -> Dict[str, str]:
     return hashes_result
 
 
-def gather_metadata(files: List[Path], algorithms: List[str]) -> Dict[str, FileMetadata]:
+def gather_metadata(
+    files: List[Path], algorithms: List[str]
+) -> Dict[str, FileMetadata]:
     """
     Gathers and returns metadata (size, times, permissions, capabilities, hashes) for a list of files.
     The return value is a dict keyed by absolute file path (string) -> FileMetadata object.
@@ -329,7 +344,7 @@ def gather_metadata(files: List[Path], algorithms: List[str]) -> Dict[str, FileM
                 mtime=st.st_mtime,
                 permissions=get_file_permissions(f),
                 capabilities=get_file_capabilities(f),
-                hashes=compute_hashes(f, algorithms)
+                hashes=compute_hashes(f, algorithms),
             )
             metadata[md.path] = md
         except OSError as e:
@@ -344,7 +359,7 @@ def load_metadata_from_json(json_path: Path) -> Dict[str, FileMetadata]:
     If loading fails, returns an empty dict.
     """
     try:
-        with json_path.open('r', encoding='utf-8') as f:
+        with json_path.open("r", encoding="utf-8") as f:
             raw_data = json.load(f)
         loaded_md: Dict[str, FileMetadata] = {}
         for path_str, md_dict in raw_data.get("metadata", {}).items():
@@ -355,7 +370,7 @@ def load_metadata_from_json(json_path: Path) -> Dict[str, FileMetadata]:
                 mtime=md_dict["mtime"],
                 permissions=md_dict["permissions"],
                 capabilities=md_dict["capabilities"],
-                hashes=md_dict["hashes"]
+                hashes=md_dict["hashes"],
             )
         return loaded_md
     except (OSError, json.JSONDecodeError) as e:
@@ -370,7 +385,7 @@ def detect_changes(
     check_time: bool,
     check_perms: bool,
     check_caps: bool,
-    check_hash: bool
+    check_hash: bool,
 ) -> List[Dict[str, Any]]:
     """
     Detects added, removed, and changed files by comparing 'old' metadata to 'new' metadata.
@@ -395,18 +410,10 @@ def detect_changes(
     removed = old_paths - new_paths
 
     for path_str in added:
-        changes.append({
-            'path': path_str,
-            'type': 'added',
-            'details': {}
-        })
+        changes.append({"path": path_str, "type": "added", "details": {}})
 
     for path_str in removed:
-        changes.append({
-            'path': path_str,
-            'type': 'removed',
-            'details': {}
-        })
+        changes.append({"path": path_str, "type": "removed", "details": {}})
 
     # Files present in both => potentially 'changed'
     intersected = old_paths & new_paths
@@ -421,15 +428,13 @@ def detect_changes(
             check_time=check_time,
             check_perms=check_perms,
             check_caps=check_caps,
-            check_hash=check_hash
+            check_hash=check_hash,
         )
 
         if detail_changes:
-            changes.append({
-                'path': path_str,
-                'type': 'changed',
-                'details': detail_changes
-            })
+            changes.append(
+                {"path": path_str, "type": "changed", "details": detail_changes}
+            )
 
     return changes
 
@@ -441,7 +446,7 @@ def compare_file_metadata(
     check_time: bool,
     check_perms: bool,
     check_caps: bool,
-    check_hash: bool
+    check_hash: bool,
 ) -> Dict[str, Any]:
     """
     Compares two FileMetadata objects (old_md vs. new_md) for a single file.
@@ -450,40 +455,42 @@ def compare_file_metadata(
     If none of the check_* flags are set, all fields are compared by default.
     """
     detail_changes: Dict[str, Any] = {}
-    compare_all = all_not_explicit(check_size, check_time, check_perms, check_caps, check_hash)
+    compare_all = all_not_explicit(
+        check_size, check_time, check_perms, check_caps, check_hash
+    )
 
     # Compare size
     if check_size or compare_all:
         size_diff = compare_field(old_md.size, new_md.size)
         if size_diff:
-            detail_changes['size'] = size_diff
+            detail_changes["size"] = size_diff
 
     # Compare ctime/mtime
     if check_time or compare_all:
         ctime_diff = compare_field(old_md.ctime, new_md.ctime)
         if ctime_diff:
-            detail_changes['ctime'] = ctime_diff
+            detail_changes["ctime"] = ctime_diff
         mtime_diff = compare_field(old_md.mtime, new_md.mtime)
         if mtime_diff:
-            detail_changes['mtime'] = mtime_diff
+            detail_changes["mtime"] = mtime_diff
 
     # Compare permissions
     if check_perms or compare_all:
         perms_diff = compare_field(old_md.permissions, new_md.permissions)
         if perms_diff:
-            detail_changes['permissions'] = perms_diff
+            detail_changes["permissions"] = perms_diff
 
     # Compare capabilities
     if check_caps or compare_all:
         caps_diff = compare_field(old_md.capabilities, new_md.capabilities)
         if caps_diff:
-            detail_changes['capabilities'] = caps_diff
+            detail_changes["capabilities"] = caps_diff
 
     # Compare hashes
     if check_hash or compare_all:
         hash_diffs = compare_hashes(old_md.hashes, new_md.hashes)
         if hash_diffs:
-            detail_changes['hashes'] = hash_diffs
+            detail_changes["hashes"] = hash_diffs
 
     return detail_changes
 
@@ -498,7 +505,9 @@ def compare_field(old_val: Any, new_val: Any) -> Optional[tuple]:
     return None
 
 
-def compare_hashes(old_hashes: Dict[str, str], new_hashes: Dict[str, str]) -> Dict[str, tuple]:
+def compare_hashes(
+    old_hashes: Dict[str, str], new_hashes: Dict[str, str]
+) -> Dict[str, tuple]:
     """
     Compares two hash dictionaries, returning a dict of all algorithms whose values differ.
     Format: {algo: (old_val, new_val), ...}
@@ -518,7 +527,7 @@ def all_not_explicit(
     check_time: bool,
     check_perms: bool,
     check_caps: bool,
-    check_hash: bool
+    check_hash: bool,
 ) -> bool:
     """
     Returns True if none of the "check_*" flags are set, meaning we check all fields by default.
@@ -547,19 +556,15 @@ def expand_change_details(changes: List[Dict[str, Any]]) -> List[Dict[str, str]]
     """
     expanded = []
     for c in changes:
-        ctype = c['type']
-        path = c['path']
-        details = c.get('details', {})
+        ctype = c["type"]
+        path = c["path"]
+        details = c.get("details", {})
 
         # If file is added/removed => single row, no attributes.
-        if ctype in ('added', 'removed'):
-            expanded.append({
-                'path': path,
-                'type': ctype,
-                'attribute': '',
-                'old': '',
-                'new': ''
-            })
+        if ctype in ("added", "removed"):
+            expanded.append(
+                {"path": path, "type": ctype, "attribute": "", "old": "", "new": ""}
+            )
             continue
 
         # For changed, we create one row for each differing attribute.
@@ -570,26 +575,30 @@ def expand_change_details(changes: List[Dict[str, Any]]) -> List[Dict[str, str]]
         #       'hashes': { 'md5': (old_val, new_val), 'sha512': (old_val, new_val) }
         #   }
         for attr, diff in details.items():
-            if attr == 'hashes':
+            if attr == "hashes":
                 # For multiple changed hashes, produce multiple rows
                 for algo, algo_diff in diff.items():
                     old_val, new_val = algo_diff
-                    expanded.append({
-                        'path': path,
-                        'type': ctype,
-                        'attribute': f"hash:{algo}",
-                        'old': str(old_val) if old_val is not None else '',
-                        'new': str(new_val) if new_val is not None else ''
-                    })
+                    expanded.append(
+                        {
+                            "path": path,
+                            "type": ctype,
+                            "attribute": f"hash:{algo}",
+                            "old": str(old_val) if old_val is not None else "",
+                            "new": str(new_val) if new_val is not None else "",
+                        }
+                    )
             else:
                 old_val, new_val = diff
-                expanded.append({
-                    'path': path,
-                    'type': ctype,
-                    'attribute': attr,
-                    'old': str(old_val),
-                    'new': str(new_val)
-                })
+                expanded.append(
+                    {
+                        "path": path,
+                        "type": ctype,
+                        "attribute": attr,
+                        "old": str(old_val),
+                        "new": str(new_val),
+                    }
+                )
 
     return expanded
 
@@ -608,15 +617,17 @@ def print_changes(changes: List[Dict[str, Any]]) -> None:
 
     if USE_PRETTYTABLE:
         table = PrettyTable()
-        table.field_names = ["Path", "Change Type", "Attribute", "Old Value", "New Value"]
+        table.field_names = [
+            "Path",
+            "Change Type",
+            "Attribute",
+            "Old Value",
+            "New Value",
+        ]
         for row in rows:
-            table.add_row([
-                row['path'],
-                row['type'],
-                row['attribute'],
-                row['old'],
-                row['new']
-            ])
+            table.add_row(
+                [row["path"], row["type"], row["attribute"], row["old"], row["new"]]
+            )
         print(table)
 
     else:
@@ -624,7 +635,7 @@ def print_changes(changes: List[Dict[str, Any]]) -> None:
         for row in rows:
             print(f"Path: {row['path']}")
             print(f"  Type: {row['type']}")
-            if row['attribute']:
+            if row["attribute"]:
                 print(f"  Attribute: {row['attribute']}")
                 print(f"    Old: {row['old']}")
                 print(f"    New: {row['new']}")
@@ -634,7 +645,7 @@ def print_changes(changes: List[Dict[str, Any]]) -> None:
 def save_metadata_to_json(
     json_path: Path,
     metadata: Dict[str, FileMetadata],
-    changes: Optional[List[Dict[str, Any]]] = None
+    changes: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """
     Saves the given metadata (and optional changes) to a JSON file at 'json_path'.
@@ -654,7 +665,7 @@ def save_metadata_to_json(
         data_to_save["changes"] = changes
 
     try:
-        with json_path.open('w', encoding='utf-8') as f:
+        with json_path.open("w", encoding="utf-8") as f:
             json.dump(data_to_save, f, indent=2)
         logging.info(f"Successfully wrote metadata to '{json_path}'.")
     except OSError as e:
@@ -672,7 +683,7 @@ def main() -> None:
         directories=args.directories,
         recursive=args.recursive,
         include_patterns=args.include,
-        exclude_patterns=args.exclude
+        exclude_patterns=args.exclude,
     )
 
     new_metadata = gather_metadata(files, args.algorithm)
@@ -687,7 +698,7 @@ def main() -> None:
             check_time=args.check_time,
             check_perms=args.check_permissions,
             check_caps=args.check_capabilities,
-            check_hash=args.check_hash
+            check_hash=args.check_hash,
         )
         print_changes(changes)
 
@@ -700,5 +711,5 @@ def main() -> None:
         sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

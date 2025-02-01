@@ -55,7 +55,9 @@ from typing import Any, Dict, List, Optional
 try:
     from openai import OpenAI
 except ImportError:
-    print("The 'openai' module is not installed. Install it using 'pip install openai'.")
+    print(
+        "The 'openai' module is not installed. Install it using 'pip install openai'."
+    )
     sys.exit(1)
 
 from jsonschema import validate, ValidationError
@@ -93,10 +95,10 @@ FUNCTION_DEFINITION_BASE_SCHEMA = {
                 "properties": {"type": "object"},
                 "required": {"type": "array", "items": {"type": "string"}},
             },
-            "additionalProperties": True
+            "additionalProperties": True,
         },
     },
-    "additionalProperties": True
+    "additionalProperties": True,
 }
 
 # Definition generation data
@@ -111,8 +113,7 @@ EXAMPLE_PROMPT_1 = (
     "Input will be code. I want a list of all modules and libraries. And the language."
 )
 
-EXAMPLE_DEFINITION_1 = (
-    """
+EXAMPLE_DEFINITION_1 = """
     {
         "name": "analyze_code_output",
         "description": "Analyze the provided code to determine its programming language and extract a list of all imported modules and libraries.",
@@ -137,14 +138,10 @@ EXAMPLE_DEFINITION_1 = (
         }
     }
     """
-)
 
-EXAMPLE_PROMPT_2 = (
-    "I want to extract the mood, style, and language of a text."
-)
+EXAMPLE_PROMPT_2 = "I want to extract the mood, style, and language of a text."
 
-EXAMPLE_DEFINITION_2 = (
-    """
+EXAMPLE_DEFINITION_2 = """
     {
         "name": "analyze_text_output",
         "description": "Analyze the provided text to determine its mood, style, and language.",
@@ -169,7 +166,6 @@ EXAMPLE_DEFINITION_2 = (
         }
     }
     """
-)
 
 MAX_RETRIES = 3  # Number of retries for generating valid function definitions
 
@@ -180,82 +176,100 @@ def parse_arguments() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         description="OpenAI Function Definition Manager",
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
     # Global options
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv', '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
 
-    subparsers = parser.add_subparsers(dest='command', required=True, help='Sub-commands')
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, help="Sub-commands"
+    )
 
     # Subparser for generating definitions
-    gen_parser = subparsers.add_parser('gen-def', aliases=['g'], help='Generate a function definition schema.')
+    gen_parser = subparsers.add_parser(
+        "gen-def", aliases=["g"], help="Generate a function definition schema."
+    )
     gen_parser.add_argument(
-        '-p', '--prompt',
+        "-p",
+        "--prompt",
         type=str,
         required=True,
-        help='A prompt for generating the function definition.'
+        help="A prompt for generating the function definition.",
     )
     gen_parser.add_argument(
-        '-o', '--output-file',
+        "-o",
+        "--output-file",
         type=str,
-        help='Store the generated function definition in a JSON file.'
+        help="Store the generated function definition in a JSON file.",
     )
     gen_parser.add_argument(
-        '-k', '--api-key',
+        "-k",
+        "--api-key",
         type=str,
-        help='Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).'
+        help="Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).",
     )
     gen_parser.add_argument(
-        '-m', '--model',
+        "-m",
+        "--model",
         type=str,
-        default='gpt-4o',
-        help='OpenAI model to use (default: "gpt-4o").'
+        default="gpt-4o",
+        help='OpenAI model to use (default: "gpt-4o").',
     )
 
     # Subparser for using definitions
-    use_parser = subparsers.add_parser('use-def', aliases=['u'], help='Use a function definition to process a prompt.')
+    use_parser = subparsers.add_parser(
+        "use-def", aliases=["u"], help="Use a function definition to process a prompt."
+    )
     use_parser.add_argument(
-        '-i', '--functions-file',
+        "-i",
+        "--functions-file",
         type=str,
         required=True,
-        help='Path to the JSON file containing the function definition.'
+        help="Path to the JSON file containing the function definition.",
     )
     use_parser.add_argument(
-        '-p', '--prompt',
+        "-p",
+        "--prompt",
         type=str,
-        help='The prompt to process using the function definition.'
+        help="The prompt to process using the function definition.",
     )
     use_parser.add_argument(
-        '-P', '--prompt-file',
+        "-P",
+        "--prompt-file",
         type=str,
-        help='Path to a file containing additional prompt content to append.'
+        help="Path to a file containing additional prompt content to append.",
     )
     use_parser.add_argument(
-        '-o', '--output-file',
+        "-o",
+        "--output-file",
         type=str,
-        metavar='FILE',
-        help='Store the assistant\'s response in a JSON file.'
+        metavar="FILE",
+        help="Store the assistant's response in a JSON file.",
     )
     use_parser.add_argument(
-        '-k', '--api-key',
+        "-k",
+        "--api-key",
         type=str,
-        help='Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).'
+        help="Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).",
     )
     use_parser.add_argument(
-        '-m', '--model',
+        "-m",
+        "--model",
         type=str,
-        default='gpt-4o',
-        help='OpenAI model to use (default: "gpt-4o").'
+        default="gpt-4o",
+        help='OpenAI model to use (default: "gpt-4o").',
     )
 
     return parser.parse_args()
@@ -274,8 +288,8 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
 
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
@@ -288,14 +302,18 @@ def initialize_console() -> Optional[Console]:
     return None
 
 
-def generate_function_definition(client: OpenAI, prompt: str, model: str) -> Optional[Dict[str, Any]]:
+def generate_function_definition(
+    client: OpenAI, prompt: str, model: str
+) -> Optional[Dict[str, Any]]:
     """
     Generates a function definition based on the provided prompt.
     Ensures that the definition is valid according to the base schema.
     """
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            logging.debug(f"Generating function definition for prompt: {prompt} (Attempt {attempt})")
+            logging.debug(
+                f"Generating function definition for prompt: {prompt} (Attempt {attempt})"
+            )
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -304,8 +322,8 @@ def generate_function_definition(client: OpenAI, prompt: str, model: str) -> Opt
                     {"role": "assistant", "content": EXAMPLE_DEFINITION_1},
                     {"role": "user", "content": EXAMPLE_PROMPT_2},
                     {"role": "assistant", "content": EXAMPLE_DEFINITION_2},
-                    {"role": "user", "content": prompt}
-                ]
+                    {"role": "user", "content": prompt},
+                ],
             )
 
             message = response.choices[0].message
@@ -320,17 +338,24 @@ def generate_function_definition(client: OpenAI, prompt: str, model: str) -> Opt
                 return func_def
             else:
                 logging.warning(
-                    f"Validation failed for generated function definition on attempt {attempt}. Retrying...")
+                    f"Validation failed for generated function definition on attempt {attempt}. Retrying..."
+                )
         except json.JSONDecodeError as e:
             logging.error(f"JSON decoding failed on attempt {attempt}: {e}")
         except Exception as e:
-            logging.error(f"Error generating function definition on attempt {attempt}: {e}")
+            logging.error(
+                f"Error generating function definition on attempt {attempt}: {e}"
+            )
 
-    logging.error(f"Failed to generate a valid function definition for prompt after {MAX_RETRIES} attempts.")
+    logging.error(
+        f"Failed to generate a valid function definition for prompt after {MAX_RETRIES} attempts."
+    )
     return None
 
 
-def validate_function_definition(function: Dict[str, Any], verbose: bool = True) -> bool:
+def validate_function_definition(
+    function: Dict[str, Any], verbose: bool = True
+) -> bool:
     """
     Validates the function definition against the base schema.
     """
@@ -338,7 +363,8 @@ def validate_function_definition(function: Dict[str, Any], verbose: bool = True)
         validate(instance=function, schema=FUNCTION_DEFINITION_BASE_SCHEMA)
         if function["parameters"]["type"] != "object":
             logging.error(
-                f"Function '{function['name']}' has invalid 'parameters.type'. Expected 'object', got '{function['parameters']['type']}'")
+                f"Function '{function['name']}' has invalid 'parameters.type'. Expected 'object', got '{function['parameters']['type']}'"
+            )
             return False
         if verbose:
             logging.info("Function definition is valid.")
@@ -355,7 +381,7 @@ def save_definition(function: Dict[str, Any], filename: str) -> bool:
     Saves the function definition to a JSON file.
     """
     try:
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filename, "w", encoding="utf-8") as f:
             json.dump(function, f, indent=4)
         logging.info(f"Function definition saved to '{filename}'.")
         return True
@@ -364,7 +390,9 @@ def save_definition(function: Dict[str, Any], filename: str) -> bool:
         return False
 
 
-def display_definition(function: Dict[str, Any], console: Optional[Console] = None) -> None:
+def display_definition(
+    function: Dict[str, Any], console: Optional[Console] = None
+) -> None:
     """
     Displays the function definition with name and description, focusing on properties.
     """
@@ -413,14 +441,16 @@ def load_definition(filepath: str) -> Optional[List[Dict[str, Any]]]:
         logging.error(f"Function definition file '{filepath}' does not exist.")
         return None
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             definition = json.load(f)
         if isinstance(definition, dict):
             definitions = [definition]
         elif isinstance(definition, list):
             definitions = definition
         else:
-            logging.error("Function definition file must contain a JSON object or a list of objects.")
+            logging.error(
+                "Function definition file must contain a JSON object or a list of objects."
+            )
             return None
         logging.info(f"Function definition loaded from '{filepath}'.")
         return definitions
@@ -431,8 +461,14 @@ def load_definition(filepath: str) -> Optional[List[Dict[str, Any]]]:
     return None
 
 
-def use_function_definition(client: OpenAI, functions: List[Dict[str, Any]], prompt: str, model: str,
-                            output_file: Optional[str] = None, console: Optional[Console] = None) -> None:
+def use_function_definition(
+    client: OpenAI,
+    functions: List[Dict[str, Any]],
+    prompt: str,
+    model: str,
+    output_file: Optional[str] = None,
+    console: Optional[Console] = None,
+) -> None:
     """
     Uses the provided function definition to process the user prompt and extract information.
     """
@@ -443,7 +479,7 @@ def use_function_definition(client: OpenAI, functions: List[Dict[str, Any]], pro
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt}
+        {"role": "user", "content": prompt},
     ]
 
     # Validate that 'functions' is a list of dictionaries
@@ -457,22 +493,27 @@ def use_function_definition(client: OpenAI, functions: List[Dict[str, Any]], pro
             sys.exit(1)
         required_keys = {"name", "description", "parameters"}
         if not required_keys.issubset(func.keys()):
-            logging.error(f"Function at index {idx} is missing required keys: {required_keys - func.keys()}")
+            logging.error(
+                f"Function at index {idx} is missing required keys: {required_keys - func.keys()}"
+            )
             sys.exit(1)
-        if not isinstance(func["name"], str) or not isinstance(func["description"], str):
-            logging.error(f"Function at index {idx} has invalid 'name' or 'description' types. Both should be strings.")
+        if not isinstance(func["name"], str) or not isinstance(
+            func["description"], str
+        ):
+            logging.error(
+                f"Function at index {idx} has invalid 'name' or 'description' types. Both should be strings."
+            )
             sys.exit(1)
         if not isinstance(func["parameters"], dict):
-            logging.error(f"Function at index {idx} has invalid 'parameters' type. It should be a dictionary.")
+            logging.error(
+                f"Function at index {idx} has invalid 'parameters' type. It should be a dictionary."
+            )
             sys.exit(1)
 
     try:
         logging.debug("Sending user prompt to OpenAI for processing.")
         response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            functions=functions,
-            function_call="auto"
+            model=model, messages=messages, functions=functions, function_call="auto"
         )
 
         message = response.choices[0].message
@@ -497,7 +538,7 @@ def process_assistant_response(message: Any, console: Optional[Console] = None) 
         logging.warning("No response message to process.")
         return
 
-    if hasattr(message, 'function_call') and message.function_call:
+    if hasattr(message, "function_call") and message.function_call:
         arguments = message.function_call.arguments
         logging.debug(f"Processing function call arguments: {arguments}")
         try:
@@ -506,11 +547,15 @@ def process_assistant_response(message: Any, console: Optional[Console] = None) 
         except json.JSONDecodeError:
             logging.error("Failed to parse function call arguments.")
     else:
-        logging.warning("Assistant did not provide a function call. Displaying the content.")
+        logging.warning(
+            "Assistant did not provide a function call. Displaying the content."
+        )
         display_assistant_response(message, console)
 
 
-def display_extracted_information(extracted_info: Dict[str, Any], console: Optional[Console] = None) -> None:
+def display_extracted_information(
+    extracted_info: Dict[str, Any], console: Optional[Console] = None
+) -> None:
     """
     Displays the extracted valuable information from the assistant's function call.
     """
@@ -528,7 +573,9 @@ def display_extracted_information(extracted_info: Dict[str, Any], console: Optio
                 # Check if the list contains dictionaries
                 if all(isinstance(item, dict) for item in value):
                     # Convert each dictionary to a JSON-formatted string
-                    value_str = "\n".join([json.dumps(item, indent=2) for item in value])
+                    value_str = "\n".join(
+                        [json.dumps(item, indent=2) for item in value]
+                    )
                 else:
                     # Assume the list contains strings or other serializable types
                     value_str = "\n".join(map(str, value))
@@ -544,7 +591,9 @@ def display_extracted_information(extracted_info: Dict[str, Any], console: Optio
         for key, value in extracted_info.items():
             if isinstance(value, list):
                 if all(isinstance(item, dict) for item in value):
-                    value_str = "\n".join([json.dumps(item, indent=2) for item in value])
+                    value_str = "\n".join(
+                        [json.dumps(item, indent=2) for item in value]
+                    )
                 else:
                     value_str = "\n".join(map(str, value))
             elif isinstance(value, dict):
@@ -577,15 +626,17 @@ def save_assistant_response(response: Any, filepath: str) -> None:
     Saves the assistant's response to a JSON file.
     """
     try:
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             # Convert the message object to a dictionary for serialization
             response_dict = {
                 "content": response.content,
                 "function_call": {
                     "name": response.function_call.name,
-                    "arguments": response.function_call.arguments
-                } if hasattr(response, 'function_call') and response.function_call else None,
-                "role": response.role
+                    "arguments": response.function_call.arguments,
+                }
+                if hasattr(response, "function_call") and response.function_call
+                else None,
+                "role": response.role,
             }
             json.dump(response_dict, f, indent=4)
         logging.info(f"Assistant's response saved to '{filepath}'.")
@@ -593,7 +644,9 @@ def save_assistant_response(response: Any, filepath: str) -> None:
         logging.error(f"Error saving assistant's response: {e}")
 
 
-def handle_gen_def_command(args: argparse.Namespace, console: Optional[Console]) -> None:
+def handle_gen_def_command(
+    args: argparse.Namespace, console: Optional[Console]
+) -> None:
     """
     Handles the 'gen-def' command.
     """
@@ -618,7 +671,9 @@ def handle_gen_def_command(args: argparse.Namespace, console: Optional[Console])
         sys.exit(1)
 
 
-def handle_use_def_command(args: argparse.Namespace, console: Optional[Console]) -> None:
+def handle_use_def_command(
+    args: argparse.Namespace, console: Optional[Console]
+) -> None:
     """
     Handles the 'use-def' command.
     """
@@ -648,18 +703,22 @@ def handle_use_def_command(args: argparse.Namespace, console: Optional[Console])
             logging.error(f"Prompt file '{args.prompt_file}' does not exist.")
             sys.exit(1)
         try:
-            with open(args.prompt_file, 'r', encoding='utf-8') as f:
+            with open(args.prompt_file, "r", encoding="utf-8") as f:
                 additional_prompt = f.read().strip()
             if final_prompt:
                 final_prompt += "\n\n"
             final_prompt += additional_prompt
-            logging.info(f"Appended content from prompt file '{args.prompt_file}' to the prompt.")
+            logging.info(
+                f"Appended content from prompt file '{args.prompt_file}' to the prompt."
+            )
         except Exception as e:
             logging.error(f"Error reading prompt file '{args.prompt_file}': {e}")
             sys.exit(1)
 
     if not final_prompt:
-        logging.error("No prompt provided. Use '-p/--prompt' or '-P/--prompt-file' to provide a prompt.")
+        logging.error(
+            "No prompt provided. Use '-p/--prompt' or '-P/--prompt-file' to provide a prompt."
+        )
         sys.exit(1)
 
     # Use function definition to process the prompt
@@ -669,7 +728,7 @@ def handle_use_def_command(args: argparse.Namespace, console: Optional[Console])
         prompt=final_prompt,
         model=args.model,
         output_file=args.output_file,
-        console=console
+        console=console,
     )
 
 
@@ -678,22 +737,21 @@ def main() -> None:
     Main function to orchestrate the CLI commands.
     """
     args = parse_arguments()
-    setup_logging(
-        verbose=args.verbose,
-        debug=args.debug
-    )
+    setup_logging(verbose=args.verbose, debug=args.debug)
     console = initialize_console()
 
     # Retrieve the API key from arguments or environment variable
-    args.api_key = args.api_key or os.getenv('OPENAI_API_KEY')
+    args.api_key = args.api_key or os.getenv("OPENAI_API_KEY")
     if not args.api_key:
-        print("Error: API key not provided via command-line argument or environment variable OPENAI_API_KEY.")
+        print(
+            "Error: API key not provided via command-line argument or environment variable OPENAI_API_KEY."
+        )
         sys.exit(1)
 
-    if args.command in ['gen-def', 'g']:
+    if args.command in ["gen-def", "g"]:
         handle_gen_def_command(args, console)
 
-    elif args.command in ['use-def', 'u']:
+    elif args.command in ["use-def", "u"]:
         handle_use_def_command(args, console)
 
     else:

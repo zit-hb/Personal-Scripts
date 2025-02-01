@@ -52,54 +52,63 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Remove images with high compression artifacts based on threshold or percentage.'
+        description="Remove images with high compression artifacts based on threshold or percentage."
     )
     parser.add_argument(
-        'directory',
+        "directory",
         type=str,
-        help='The path to the directory containing images.'
+        help="The path to the directory containing images.",
     )
     parser.add_argument(
-        '-t', '--threshold',
+        "-t",
+        "--threshold",
         type=float,
-        help='Threshold for compression artifact detection. Images above this score are removed.'
+        help="Threshold for compression artifact detection. Images above this score are removed.",
     )
     parser.add_argument(
-        '-p', '--percentage',
+        "-p",
+        "--percentage",
         type=float,
-        help='Remove this percentage of the highest scoring (worst) images.'
+        help="Remove this percentage of the highest scoring (worst) images.",
     )
     parser.add_argument(
-        '-D', '--per-directory',
-        action='store_true',
-        help='If using percentage mode, remove worst images per directory (default is global).'
+        "-D",
+        "--per-directory",
+        action="store_true",
+        help="If using percentage mode, remove worst images per directory (default is global).",
     )
     parser.add_argument(
-        '-n', '--dry-run',
-        action='store_true',
-        help='Simulate the removal of images with high artifacts without deleting them.'
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help="Simulate the removal of images with high artifacts without deleting them.",
     )
     parser.add_argument(
-        '-r', '--recursive',
-        action='store_true',
-        help='Recursively traverse through subdirectories.'
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Recursively traverse through subdirectories.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose logging (INFO level).'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        '-vv', '--debug',
-        action='store_true',
-        help='Enable debug logging (DEBUG level).'
+        "-vv",
+        "--debug",
+        action="store_true",
+        help="Enable debug logging (DEBUG level).",
     )
 
     args = parser.parse_args()
 
     # Validate arguments
     if args.percentage is not None and args.threshold is not None:
-        parser.error("You cannot specify both --threshold and --percentage at the same time.")
+        parser.error(
+            "You cannot specify both --threshold and --percentage at the same time."
+        )
 
     # Set default threshold if neither threshold nor percentage is provided
     if args.percentage is None and args.threshold is None:
@@ -119,17 +128,14 @@ def setup_logging(verbose: bool, debug: bool) -> None:
     else:
         level = logging.WARNING
 
-    logging.basicConfig(
-        level=level,
-        format='%(levelname)s: %(message)s'
-    )
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def get_image_files(directory: str, recursive: bool = False) -> List[str]:
     """
     Retrieves a list of image file paths from the specified directory.
     """
-    supported_extensions: Tuple[str, ...] = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp')
+    supported_extensions: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".tiff", ".bmp")
     image_files: List[str] = []
 
     if recursive:
@@ -237,7 +243,9 @@ def remove_image(image_path: str, dry_run: bool = False) -> None:
             logging.error(f"Failed to remove '{image_path}': {e}")
 
 
-def remove_by_threshold(image_files: List[str], threshold: float, dry_run: bool) -> None:
+def remove_by_threshold(
+    image_files: List[str], threshold: float, dry_run: bool
+) -> None:
     """
     Removes images that have artifact scores above the given threshold.
     """
@@ -247,23 +255,32 @@ def remove_by_threshold(image_files: List[str], threshold: float, dry_run: bool)
         if score is None:
             continue
         has_artifacts = score > threshold
-        status: str = 'high_artifacts' if has_artifacts else 'low_artifacts'
-        logging.debug(f"Image '{img_path}' -> Score: {score:.2f}, Threshold: {threshold}, Status: {status}")
+        status: str = "high_artifacts" if has_artifacts else "low_artifacts"
+        logging.debug(
+            f"Image '{img_path}' -> Score: {score:.2f}, Threshold: {threshold}, Status: {status}"
+        )
         if has_artifacts:
             any_removed = True
             remove_image(img_path, dry_run)
 
     if any_removed:
         if dry_run:
-            logging.info("Some images would be removed due to high compression artifacts (dry run).")
+            logging.info(
+                "Some images would be removed due to high compression artifacts (dry run)."
+            )
         else:
             logging.info("Some images were removed due to high compression artifacts.")
     else:
         logging.info("No images with high compression artifacts found.")
 
 
-def remove_by_percentage(image_files: List[str], percentage: float, dry_run: bool,
-                         per_directory: bool, base_directory: str) -> None:
+def remove_by_percentage(
+    image_files: List[str],
+    percentage: float,
+    dry_run: bool,
+    per_directory: bool,
+    base_directory: str,
+) -> None:
     """
     Removes a certain percentage of the highest scoring (worst) images.
     If per_directory is True, this is done for each directory separately.
@@ -311,12 +328,16 @@ def remove_by_percentage(image_files: List[str], percentage: float, dry_run: boo
             count_to_remove = int(len(imgs) * (percentage / 100.0))
             images_to_remove = imgs[:count_to_remove]
             for img_path, score in images_to_remove:
-                logging.debug(f"Removing (per-directory) '{img_path}' in '{d}' -> Score: {score:.2f}")
+                logging.debug(
+                    f"Removing (per-directory) '{img_path}' in '{d}' -> Score: {score:.2f}"
+                )
                 remove_image(img_path, dry_run)
             total_removed += count_to_remove
 
         if total_removed > 0:
-            logging.info(f"Removed {total_removed} images ({percentage}% per directory).")
+            logging.info(
+                f"Removed {total_removed} images ({percentage}% per directory)."
+            )
         else:
             logging.info("No images removed.")
 
@@ -351,7 +372,9 @@ def main() -> None:
         mode_description = "threshold mode"
         mode_details = f"threshold: {threshold}"
 
-    logging.info(f"Processing {len(image_files)} image(s) in '{directory}' in {mode_description} ({mode_details}).")
+    logging.info(
+        f"Processing {len(image_files)} image(s) in '{directory}' in {mode_description} ({mode_details})."
+    )
 
     if percentage is not None:
         # Percentage-based removal (highest artifact scores)
@@ -361,5 +384,5 @@ def main() -> None:
         remove_by_threshold(image_files, threshold, dry_run)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

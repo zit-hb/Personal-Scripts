@@ -44,41 +44,46 @@ Image.MAX_IMAGE_PIXELS = 9000000000
 def parse_arguments():
     """Parses command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Split a single image into smaller tiles of specified size.'
+        description="Split a single image into smaller tiles of specified size."
     )
     parser.add_argument(
-        '-H', '--height',
+        "-H",
+        "--height",
         type=int,
         default=1024,
-        help='Height of each tile in pixels.'
+        help="Height of each tile in pixels.",
     )
     parser.add_argument(
-        '-W', '--width',
+        "-W",
+        "--width",
         type=int,
         default=1024,
-        help='Width of each tile in pixels.'
+        help="Width of each tile in pixels.",
     )
     parser.add_argument(
-        '-o', '--output-dir',
+        "-o",
+        "--output-dir",
         type=str,
-        default='tiles',
-        help='Output directory for the tiles.'
+        default="tiles",
+        help="Output directory for the tiles.",
     )
     parser.add_argument(
-        '-f', '--filename-format',
+        "-f",
+        "--filename-format",
         type=str,
-        default='{row}_{column}.{extension}',
-        help='Filename format for the tiles.'
+        default="{row}_{column}.{extension}",
+        help="Filename format for the tiles.",
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Enable verbose output.'
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
     )
     parser.add_argument(
-        'image_path',
+        "image_path",
         type=str,
-        help='The image file to process.'
+        help="The image file to process.",
     )
     args = parser.parse_args()
     return args
@@ -87,7 +92,7 @@ def parse_arguments():
 def setup_logging(verbose: bool):
     """Sets up the logging configuration."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def validate_image_path(image_path: str) -> None:
@@ -96,7 +101,7 @@ def validate_image_path(image_path: str) -> None:
         logging.error(f"The path '{image_path}' does not exist or is not a file.")
         sys.exit(1)
 
-    supported_extensions = ('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', '.webp')
+    supported_extensions = (".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif", ".webp")
     if not image_path.lower().endswith(supported_extensions):
         logging.error(f"File '{image_path}' is not a supported image format.")
         sys.exit(1)
@@ -123,10 +128,7 @@ def generate_filename(format_str: str, row: int, column: int, extension: str) ->
 
 
 def split_image_into_tiles(
-        img_path: str,
-        tile_size: Tuple[int, int],
-        output_dir: str,
-        filename_format: str
+    img_path: str, tile_size: Tuple[int, int], output_dir: str, filename_format: str
 ):
     """Splits a single image into tiles and saves them."""
     try:
@@ -134,10 +136,14 @@ def split_image_into_tiles(
             img_width, img_height = img.size
             tile_width, tile_height = tile_size
 
-            logging.debug(f"Processing image '{img_path}' with size {img_width}x{img_height}.")
+            logging.debug(
+                f"Processing image '{img_path}' with size {img_width}x{img_height}."
+            )
 
             if not validate_tile_size((img_width, img_height), tile_size):
-                logging.error(f"Cannot split image '{img_path}' into tiles of size {tile_width}x{tile_height}.")
+                logging.error(
+                    f"Cannot split image '{img_path}' into tiles of size {tile_width}x{tile_height}."
+                )
                 sys.exit(1)
 
             os.makedirs(output_dir, exist_ok=True)
@@ -146,7 +152,7 @@ def split_image_into_tiles(
             columns = img_width // tile_width
 
             _, ext = os.path.splitext(os.path.basename(img_path))
-            ext = ext.lstrip('.').lower()
+            ext = ext.lstrip(".").lower()
 
             for row in range(rows):
                 for column in range(columns):
@@ -157,16 +163,15 @@ def split_image_into_tiles(
 
                     tile = img.crop((left, upper, right, lower))
                     tile_filename = generate_filename(
-                        filename_format,
-                        row=row,
-                        column=column,
-                        extension=ext
+                        filename_format, row=row, column=column, extension=ext
                     )
                     tile_path = os.path.join(output_dir, tile_filename)
                     tile.save(tile_path)
                     logging.debug(f"Saved tile '{tile_path}'.")
 
-            logging.info(f"Created {rows * columns} tiles for image '{img_path}' in '{output_dir}'.")
+            logging.info(
+                f"Created {rows * columns} tiles for image '{img_path}' in '{output_dir}'."
+            )
 
     except Exception as e:
         logging.error(f"Failed to process image '{img_path}': {e}")
@@ -194,11 +199,11 @@ def main():
         img_path=args.image_path,
         tile_size=tile_size,
         output_dir=args.output_dir,
-        filename_format=args.filename_format
+        filename_format=args.filename_format,
     )
 
     logging.info("Tile creation process completed successfully.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
