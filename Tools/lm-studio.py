@@ -24,7 +24,7 @@
 # Options:
 #   -a, --arch ARCH           LM Studio architecture (default: x64)
 #   -r, --release RELEASE     LM Studio version (default: 0.3.9-6)
-#   -d, --data-dir DIR        Host directory for persistent LM Studio data (default: ~/.lmstudio)
+#   -d, --data-dir DIR        Host directory for persistent LM Studio data (default: ~/.cache/buchwald/lm-studio/data)
 #   -u, --user-id UID         UID of the 'lmstudio' user inside the container (default: current user's UID)
 #   -G, --no-gpu              Disable NVIDIA GPU usage (enabled by default)
 #   -s, --skip-build          Skip building the Docker image (use existing image)
@@ -127,8 +127,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "-d",
         "--data-dir",
-        default="~/.lmstudio",
-        help="Host directory for persistent LM Studio data (default: ~/.lmstudio).",
+        default="~/.cache/buchwald/lm-studio/data",
+        help="Host directory for persistent LM Studio data (default: ~/.cache/buchwald/lm-studio/data).",
     )
     parser.add_argument(
         "-u",

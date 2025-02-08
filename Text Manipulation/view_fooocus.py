@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # -------------------------------------------------------
-# Script: fooocus.py
+# Script: view_fooocus.py
 #
 # Description:
 # This script offers two primary functionalities:
@@ -9,7 +9,7 @@
 # 2. Serving a local web interface to browse images based on the provided JSON metadata.
 #
 # Usage:
-# ./fooocus.py [command] [options]
+# ./view_fooocus.py [command] [options]
 #
 # Commands:
 #   - parse    Parse Fooocus `log.html` files and generate JSON metadata.
