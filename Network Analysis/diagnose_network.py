@@ -66,6 +66,10 @@
 #   -w, --work-dir              Specify the working directory to mount into the container (default: working directory).
 #   --                          Pass additional arguments to the script inside the container.
 #
+# Requirements:
+#   - urllib3 (install via: pip install urllib3==2.3.0)
+#   - requests (install via: pip install requests)
+#
 # Requirements with container:
 #   - Docker (install via: apt-get install -y docker.io)
 #
@@ -74,7 +78,6 @@
 #     - traceroute (install via: apt-get install -y traceroute)
 #
 #   - Diagnose Command:
-#     - requests (install via: pip install requests)
 #     - nmap (install via: apt-get install -y nmap)
 #     - Nikto Check (native):
 #       - nikto (install via: apt-get install -y nikto)

@@ -151,10 +151,10 @@ class OConfig(QConfig):
     def __init__(
         self,
         command: Optional[str] = None,
-        aliases: Optional[List[Tuple[str, str]]] = None,
+        aliases: Optional[List[Tuple[str, List[str]]]] = None,
     ) -> None:
         self.command = command
-        # Each alias is (pattern, replacement)
+        # Each alias is (pattern, list_of_replacements)
         self.aliases = aliases if aliases is not None else []
 
     @classmethod
@@ -166,27 +166,32 @@ class OConfig(QConfig):
                 "Invalid 'aliases' type in config. Expected list; using empty."
             )
             aliases_data = []
-        # Ensure each item is a tuple of (pattern, replacement)
-        clean_aliases: List[Tuple[str, str]] = []
+        clean_aliases: List[Tuple[str, List[str]]] = []
         for item in aliases_data:
-            if (isinstance(item, list) or isinstance(item, tuple)) and len(item) == 2:
-                pattern, replacement = item
-                if isinstance(pattern, str) and isinstance(replacement, str):
-                    clean_aliases.append((pattern, replacement))
+            # We now expect item to be at least [pattern, ...]
+            if isinstance(item, list) and len(item) >= 1:
+                pattern = item[0]
+                # The rest are replacements
+                replacements = item[1:]
+                if isinstance(pattern, str) and all(
+                    isinstance(r, str) for r in replacements
+                ):
+                    clean_aliases.append((pattern, replacements))
                 else:
                     logging.warning(
-                        "Alias pattern and replacement must be strings. Skipping malformed alias."
+                        "Alias pattern must be a string and replacements must be strings. Skipping malformed alias."
                     )
             else:
                 logging.warning(
-                    "Alias entry must be a [pattern, replacement] pair. Skipping."
+                    "Alias entry must be [pattern, replacement(s)...]. Skipping."
                 )
         return cls(command=command, aliases=clean_aliases)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "command": self.command,
-            "aliases": self.aliases,  # list of [pattern, replacement]
+            # Convert (pattern, [r1, r2, ...]) -> [pattern, r1, r2, ...]
+            "aliases": [[pattern] + repls for (pattern, repls) in self.aliases],
         }
 
 
@@ -225,7 +230,7 @@ class OSubcommand(QSubcommand):
     """
     Subcommand to open a file/path/URL (or apply regex-based alias) using a configured command.
     Defaults to "xdg-open" if no command is explicitly set.
-    Aliases are stored as list of (pattern, replacement) pairs.
+    Aliases are stored as list of (pattern, [replacement1, replacement2, ...]) pairs.
     By default, the command is executed detached with no output.
     Use the '--foreground' (or '-F') option to run in foreground and print output.
     """
@@ -259,8 +264,7 @@ class OSubcommand(QSubcommand):
         parser.add_argument(
             "-a",
             "--alias",
-            nargs=2,
-            metavar=("PATTERN", "REPLACEMENT"),
+            nargs=argparse.REMAINDER,
             help="Create an alias. Example: -a ^foo$ http://example.org",
         )
         parser.add_argument(
@@ -309,9 +313,10 @@ class OSubcommand(QSubcommand):
 
         # Add alias if requested
         if args.alias:
-            pattern, replacement = args.alias
-            logging.debug(f"Adding alias pattern '{pattern}' -> '{replacement}'.")
-            self.config.aliases.append((pattern, replacement))
+            pattern = args.alias[0]
+            replacements = args.alias[1:]
+            logging.debug(f"Adding alias pattern '{pattern}' -> {replacements}.")
+            self.config.aliases.append((pattern, replacements))
             config_changed = True
 
         # Remove alias if requested (by index)
@@ -334,36 +339,55 @@ class OSubcommand(QSubcommand):
         # List aliases if requested
         if args.list_aliases:
             if self.config.aliases:
-                logging.info("Listing aliases (index, pattern, replacement):")
-                for i, (pat, repl) in enumerate(self.config.aliases):
-                    print(f"{i}\t{pat}\t{repl}")
+                logging.info("Listing aliases (index, pattern, replacements):")
+                for i, (pat, repls) in enumerate(self.config.aliases):
+                    print(f"{i}\t{pat}\t{repls}")
             else:
                 logging.info("No aliases are currently configured.")
 
         # Open the file/path if given
         if args.file_or_alias:
+            # Expand the single argument into possibly multiple if an alias matches
             if args.disable_aliases:
-                resolved_arg = args.file_or_alias
+                resolved_args = [args.file_or_alias]
             else:
-                resolved_arg = self._apply_aliases(
-                    self.config.aliases, args.file_or_alias
+                resolved_args = self._apply_aliases_to_arglist(
+                    self.config.aliases, [args.file_or_alias]
                 )
 
             cmd = self.config.command if self.config.command is not None else "xdg-open"
-            logging.info(f"Opening '{resolved_arg}' using '{cmd}'")
-            self._open_with_command(cmd, resolved_arg, args.foreground)
+
+            if not resolved_args:
+                logging.info("Alias expansion produced no argument. Nothing to open.")
+            else:
+                # If multiple arguments result, open each in turn
+                for rarg in resolved_args:
+                    logging.info(f"Opening '{rarg}' using '{cmd}'")
+                    self._open_with_command(cmd, rarg, args.foreground)
         else:
             logging.info("No path specified, not opening anything")
 
     @staticmethod
-    def _apply_aliases(aliases: List[Tuple[str, str]], argument: str) -> str:
+    def _apply_aliases_to_arglist(
+        aliases: List[Tuple[str, List[str]]], args_list: List[str]
+    ) -> List[str]:
         """
-        Apply each (pattern, replacement) alias as a regex substitution
-        to the argument in sequence.
+        For each argument in args_list, if it fully matches the pattern of
+        an alias, replace that single argument with the list of replacements.
+        Returns the new list of arguments after all expansions.
         """
-        for pattern, replacement in aliases:
-            argument = re.sub(pattern, replacement, argument)
-        return argument
+        result = []
+        for arg in args_list:
+            replaced = False
+            for pattern, replacements in aliases:
+                # Use a full match so that '^foo$' won't partially match
+                if re.fullmatch(pattern, arg):
+                    result.extend(replacements)
+                    replaced = True
+                    break
+            if not replaced:
+                result.append(arg)
+        return result
 
     @staticmethod
     def _open_with_command(command: str, target: str, foreground: bool = False) -> None:
@@ -409,8 +433,8 @@ class SConfig(QConfig):
     def SUBCOMMAND_KEY(self) -> str:
         return "s"
 
-    def __init__(self, aliases: Optional[List[Tuple[str, str]]] = None) -> None:
-        # Each alias is (pattern, replacement)
+    def __init__(self, aliases: Optional[List[Tuple[str, List[str]]]] = None) -> None:
+        # Each alias is (pattern, list_of_replacements)
         self.aliases = aliases if aliases is not None else []
 
     @classmethod
@@ -421,25 +445,30 @@ class SConfig(QConfig):
                 "Invalid 'aliases' type in config. Expected list; using empty."
             )
             aliases_data = []
-        clean_aliases: List[Tuple[str, str]] = []
+        clean_aliases: List[Tuple[str, List[str]]] = []
         for item in aliases_data:
-            if (isinstance(item, list) or isinstance(item, tuple)) and len(item) == 2:
-                pattern, replacement = item
-                if isinstance(pattern, str) and isinstance(replacement, str):
-                    clean_aliases.append((pattern, replacement))
+            # We now expect item to be at least [pattern, ...]
+            if isinstance(item, list) and len(item) >= 1:
+                pattern = item[0]
+                replacements = item[1:]
+                if isinstance(pattern, str) and all(
+                    isinstance(r, str) for r in replacements
+                ):
+                    clean_aliases.append((pattern, replacements))
                 else:
                     logging.warning(
-                        "Alias pattern and replacement must be strings. Skipping malformed alias."
+                        "Alias pattern must be a string and replacements must be strings. Skipping malformed alias."
                     )
             else:
                 logging.warning(
-                    "Alias entry must be a [pattern, replacement] pair. Skipping."
+                    "Alias entry must be [pattern, replacement(s)...]. Skipping."
                 )
         return cls(aliases=clean_aliases)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "aliases": self.aliases,  # list of [pattern, replacement]
+            # Convert (pattern, [r1, r2, ...]) -> [pattern, r1, r2, ...]
+            "aliases": [[pattern] + repls for (pattern, repls) in self.aliases],
         }
 
 
@@ -448,7 +477,8 @@ class SConfig(QConfig):
 # -------------------------------------------------------
 class SSubcommand(QSubcommand):
     """
-    Subcommand that manages personal scripts from GitHub or runs them.
+    Subcommand that manages personal scripts from GitHub or runs them
+    with optional aliases and Docker usage.
     """
 
     SCRIPTS_DIR: Path = Path.home() / ".cache" / "buchwald" / "q" / "scripts"
@@ -459,16 +489,13 @@ class SSubcommand(QSubcommand):
     def register_parser(self, subparsers: argparse._SubParsersAction) -> None:
         parser = subparsers.add_parser(
             "s",
-            help=(
-                "Run personal scripts (regex-substituted) with optional aliases and Docker usage."
-            ),
+            help=("Run personal scripts with optional aliases and Docker usage."),
         )
         parser.add_argument(
             "-a",
             "--alias",
-            nargs=2,
-            metavar=("PATTERN", "REPLACEMENT"),
-            help="Create an alias. Example: -a ^foo$ /some/replacement",
+            nargs=argparse.REMAINDER,
+            help="Create an alias. Example: -a ^foo$ /some/replacement -h",
         )
         parser.add_argument(
             "-A",
@@ -492,18 +519,6 @@ class SSubcommand(QSubcommand):
             ),
         )
         parser.add_argument(
-            "-D",
-            "--disable-docker",
-            action="store_true",
-            help="Disable docker.py usage and run the script directly.",
-        )
-        parser.add_argument(
-            "-d",
-            "--enable-docker",
-            action="store_true",
-            help="Force the usage of docker.py.",
-        )
-        parser.add_argument(
             "-X",
             "--disable-aliases",
             action="store_true",
@@ -516,13 +531,15 @@ class SSubcommand(QSubcommand):
             help="List all available scripts in SCRIPTS_DIR in a tree-like structure.",
         )
         parser.add_argument(
+            "-m",
+            "--execution-mode",
+            choices=["docker", "venv", "direct"],
+            help="Set the execution mode: 'docker', 'venv', or 'direct'. If omitted, the script attempts Docker if possible, then venv, then direct.",
+        )
+        parser.add_argument(
             "args",
-            nargs="*",
-            help=(
-                "Optional arguments. By default, leading dash arguments go to Docker. "
-                "The first non-dash argument is treated as the script name. The remainder go to the script. "
-                "If you include a separate '--', everything before it goes to Docker, everything after it is [script name + script args]."
-            ),
+            nargs=argparse.REMAINDER,
+            help="Script and arguments to run.",
         )
         parser.set_defaults(subcommand_obj=self)
 
@@ -533,9 +550,10 @@ class SSubcommand(QSubcommand):
 
         # Add alias if requested
         if args.alias:
-            pattern, replacement = args.alias
-            logging.debug(f"Adding alias pattern '{pattern}' -> '{replacement}'.")
-            self.config.aliases.append((pattern, replacement))
+            pattern = args.alias[0]
+            replacements = args.alias[1:]
+            logging.debug(f"Adding alias pattern '{pattern}' -> {replacements}.")
+            self.config.aliases.append((pattern, replacements))
             config_changed = True
 
         # Remove alias if requested (by index)
@@ -558,9 +576,9 @@ class SSubcommand(QSubcommand):
         # List aliases if requested
         if args.list_aliases:
             if self.config.aliases:
-                logging.info("Listing aliases (index, pattern, replacement):")
-                for i, (pat, repl) in enumerate(self.config.aliases):
-                    print(f"{i}\t{pat}\t{repl}")
+                logging.info("Listing aliases (index, pattern, replacements):")
+                for i, (pat, repls) in enumerate(self.config.aliases):
+                    print(f"{i}\t{pat}\t{repls}")
             else:
                 logging.info("No aliases are currently configured.")
 
@@ -589,37 +607,54 @@ class SSubcommand(QSubcommand):
             # Parse out docker-like arguments, the script name, and script arguments
             docker_args, script, script_args = self._parse_script_args(args.args)
 
-            # Apply regex-based aliases unless disabled
             if not args.disable_aliases:
-                docker_args = [
-                    self._apply_aliases(self.config.aliases, x) for x in docker_args
-                ]
-                script = self._apply_aliases(self.config.aliases, script)
-                script_args = [
-                    self._apply_aliases(self.config.aliases, x) for x in script_args
-                ]
+                # Apply alias expansion to docker_args
+                docker_args = self._apply_aliases_to_arglist(
+                    self.config.aliases, docker_args
+                )
+
+                # Combine script + script_args for alias expansion so that if script matches,
+                # we can expand it to multiple arguments.
+                script_plus_args = [script] + script_args
+                script_plus_args = self._apply_aliases_to_arglist(
+                    self.config.aliases, script_plus_args
+                )
+
+                if not script_plus_args:
+                    logging.error("No script specified after alias expansion.")
+                    return
+
+                script = script_plus_args[0]
+                script_args = script_plus_args[1:]
 
             if not script:
                 logging.error("No script specified. Provide a script name or alias.")
                 return
 
-            # Determine whether we should attempt to use Docker
-            should_use_docker = False
+            # Determine execution mode
+            execution_mode = args.execution_mode
             can_use_docker = shutil.which("docker") is not None
+            venv_available = False
+            try:
+                import venv  # noqa
 
-            if args.disable_docker:
-                should_use_docker = False
-            elif args.enable_docker and can_use_docker:
-                should_use_docker = True
-            elif can_use_docker:
-                # Check if the script file has '# Template:' line
-                if self._script_has_template(self.SCRIPTS_DIR / script):
-                    should_use_docker = True
+                venv_available = True
+            except ImportError:
+                pass
+
+            # If no execution mode set, fallback logic
+            if execution_mode is None:
+                if can_use_docker and self._script_has_template(
+                    self.SCRIPTS_DIR / script
+                ):
+                    execution_mode = "docker"
+                elif venv_available:
+                    execution_mode = "venv"
                 else:
-                    should_use_docker = False
+                    execution_mode = "direct"
 
-            # Now run either docker.py or script locally
-            if should_use_docker:
+            # Execute according to chosen mode
+            if execution_mode == "docker":
                 docker_script = self.SCRIPTS_DIR / "Meta" / "docker.py"
                 if not docker_script.is_file():
                     logging.error(
@@ -628,7 +663,16 @@ class SSubcommand(QSubcommand):
                     )
                     return
                 self._run_docker_script(docker_script, docker_args, script, script_args)
-            else:
+            elif execution_mode == "venv":
+                venver_script = self.SCRIPTS_DIR / "Meta" / "venver.py"
+                if not venver_script.is_file():
+                    logging.error(
+                        "Cannot find 'venver.py' in the 'Meta' directory. "
+                        "Please run 'q s --install' again or check the repository structure."
+                    )
+                    return
+                self._run_venver_script(venver_script, docker_args, script, script_args)
+            else:  # "direct"
                 self._run_local_script(script, docker_args, script_args)
 
     def _parse_script_args(
@@ -703,6 +747,34 @@ class SSubcommand(QSubcommand):
         except Exception as e:
             logging.error(f"Error running '{docker_script.name}': {e}")
 
+    def _run_venver_script(
+        self,
+        venver_script: Path,
+        venver_args: List[str],
+        script: str,
+        script_args: List[str],
+    ) -> None:
+        """
+        Run venver.py with the combined arguments:
+          venver.py [venver_args] [script] [script_args]
+        """
+        try:
+            os.chdir(self.SCRIPTS_DIR)
+        except Exception as e:
+            logging.error(f"Failed to change directory to '{self.SCRIPTS_DIR}': {e}")
+            return
+
+        cmd = [str(venver_script)] + venver_args + [script] + script_args
+        logging.info(f"Running Venver script command: {cmd}")
+        try:
+            result = subprocess.run(cmd)
+            if result.returncode != 0:
+                logging.error(
+                    f"'venver.py' exited with return code {result.returncode}"
+                )
+        except Exception as e:
+            logging.error(f"Error running '{venver_script.name}': {e}")
+
     def _run_local_script(
         self,
         script: str,
@@ -710,7 +782,7 @@ class SSubcommand(QSubcommand):
         script_args: List[str],
     ) -> None:
         """
-        Run a script locally (without docker.py). We still change to SCRIPTS_DIR,
+        Run a script locally (without docker.py or venver.py). We still change to SCRIPTS_DIR,
         then execute the script with all arguments appended.
         """
         script_path = self.SCRIPTS_DIR / script
@@ -810,18 +882,29 @@ class SSubcommand(QSubcommand):
             except OSError:
                 pass
 
-        logging.info("Scripts installed successfully.")
+        print("Scripts installed successfully.")
         return True
 
     @staticmethod
-    def _apply_aliases(aliases: List[Tuple[str, str]], argument: str) -> str:
+    def _apply_aliases_to_arglist(
+        aliases: List[Tuple[str, List[str]]], args_list: List[str]
+    ) -> List[str]:
         """
-        Apply each (pattern, replacement) alias as a regex substitution
-        to the argument in sequence.
+        For each argument in args_list, if it fully matches the pattern of
+        an alias, replace that single argument with the list of replacements.
+        Returns the new list of arguments after all expansions.
         """
-        for pattern, replacement in aliases:
-            argument = re.sub(pattern, replacement, argument)
-        return argument
+        result = []
+        for arg in args_list:
+            replaced = False
+            for pattern, replacements in aliases:
+                if re.fullmatch(pattern, arg):
+                    result.extend(replacements)
+                    replaced = True
+                    break
+            if not replaced:
+                result.append(arg)
+        return result
 
     @staticmethod
     def _script_has_template(script_path: Path) -> bool:
