@@ -16,12 +16,12 @@ q s --install
 
 **Basic Usage:**
 
-To run a script (through `docker.py` or natively), simply use the following command:
+To run a script, simply use the following command:
 ```bash
 q [q_options] s [s_options] -- [docker_options] <script.py> [script_args]
 ```
 
-You can use `--` to separate `docker.py` options from `q` options:
+You can use `--` to separate `docker.py`/`venver.py` options from `q` options:
 ```bash
 q s -- -v 'System Analysis/detect_hardware.py' -h
 ```
@@ -34,10 +34,16 @@ q s --alias '^dn$' 'Network Analysis/diagnose_network.py'
 q s dn co si
 ```
 
+**Update:**
+
+You can update `q.py` by running:
+```bash
+q u
+```
 
 ## Using `docker.py`
 
-`docker.py` runs the other scripts inside a Docker container, automatically setting up the environment based on the script’s header.
+`docker.py` runs the supported scripts inside a Docker container, automatically setting up the environment based on the script’s header.
 Simply mount your data, specify needed options, and execute.
 
 **Basic Usage:**

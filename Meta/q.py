@@ -295,8 +295,30 @@ class OSubcommand(QSubcommand):
         parser.set_defaults(subcommand_obj=self)
 
     def run(self, args: argparse.Namespace) -> None:
+        """
+        Execute the "o" subcommand logic given parsed command-line arguments.
+        """
         config_path = Path(args.config)
         self.config = OConfig.load(config_path)
+
+        # Handle configuration updates
+        config_changed = self._handle_config_updates(args)
+
+        # Save config if any changes were made
+        if config_changed:
+            self.config.save(config_path)
+
+        # Possibly list aliases
+        self._list_aliases_if_requested(args)
+
+        # Possibly open file/path/URL
+        self._open_file_or_alias_if_requested(args)
+
+    def _handle_config_updates(self, args: argparse.Namespace) -> bool:
+        """
+        Handle additions, removals, or updates to the configuration based on CLI arguments.
+        Returns True if the configuration was changed, False otherwise.
+        """
         config_changed = False
 
         # Clear command if requested
@@ -332,11 +354,12 @@ class OSubcommand(QSubcommand):
             except ValueError:
                 logging.warning(f"Alias index must be an integer: {args.remove_alias}")
 
-        # Save config if any changes were made
-        if config_changed:
-            self.config.save(config_path)
+        return config_changed
 
-        # List aliases if requested
+    def _list_aliases_if_requested(self, args: argparse.Namespace) -> None:
+        """
+        If --list-aliases is requested, prints the currently configured aliases.
+        """
         if args.list_aliases:
             if self.config.aliases:
                 logging.info("Listing aliases (index, pattern, replacements):")
@@ -345,27 +368,33 @@ class OSubcommand(QSubcommand):
             else:
                 logging.info("No aliases are currently configured.")
 
-        # Open the file/path if given
-        if args.file_or_alias:
-            # Expand the single argument into possibly multiple if an alias matches
-            if args.disable_aliases:
-                resolved_args = [args.file_or_alias]
-            else:
-                resolved_args = self._apply_aliases_to_arglist(
-                    self.config.aliases, [args.file_or_alias]
-                )
-
-            cmd = self.config.command if self.config.command is not None else "xdg-open"
-
-            if not resolved_args:
-                logging.info("Alias expansion produced no argument. Nothing to open.")
-            else:
-                # If multiple arguments result, open each in turn
-                for rarg in resolved_args:
-                    logging.info(f"Opening '{rarg}' using '{cmd}'")
-                    self._open_with_command(cmd, rarg, args.foreground)
-        else:
+    def _open_file_or_alias_if_requested(self, args: argparse.Namespace) -> None:
+        """
+        If a file/path/URL (or alias) was provided, open it with the configured command.
+        Applies alias expansions unless explicitly disabled.
+        """
+        if not args.file_or_alias:
             logging.info("No path specified, not opening anything")
+            return
+
+        # Expand the single argument into possibly multiple if an alias matches
+        if args.disable_aliases:
+            resolved_args = [args.file_or_alias]
+        else:
+            resolved_args = self._apply_aliases_to_arglist(
+                self.config.aliases, [args.file_or_alias]
+            )
+
+        cmd = self.config.command if self.config.command is not None else "xdg-open"
+
+        if not resolved_args:
+            logging.info("Alias expansion produced no argument. Nothing to open.")
+            return
+
+        # If multiple arguments result, open each in turn
+        for rarg in resolved_args:
+            logging.info(f"Opening '{rarg}' using '{cmd}'")
+            self._open_with_command(cmd, rarg, args.foreground)
 
     @staticmethod
     def _apply_aliases_to_arglist(
@@ -544,8 +573,40 @@ class SSubcommand(QSubcommand):
         parser.set_defaults(subcommand_obj=self)
 
     def run(self, args: argparse.Namespace) -> None:
+        """
+        Execute the "s" subcommand logic given parsed command-line arguments.
+        """
         config_path = Path(args.config)
         self.config = SConfig.load(config_path)
+
+        # Handle config updates (aliases)
+        config_changed = self._handle_config_updates(args)
+        if config_changed:
+            self.config.save(config_path)
+
+        # Possibly list aliases
+        self._list_aliases_if_requested(args)
+
+        # Possibly list scripts
+        if args.list_scripts:
+            self._list_scripts()
+            return
+
+        # Possibly install scripts
+        if args.install:
+            logging.info("Installing scripts from GitHub...")
+            if not self._install_scripts():
+                return
+
+        # Run script if there are arguments
+        if args.args:
+            self._run_script_with_arguments(args)
+
+    def _handle_config_updates(self, args: argparse.Namespace) -> bool:
+        """
+        Handle alias additions and removals from CLI arguments.
+        Returns True if the configuration was changed, False otherwise.
+        """
         config_changed = False
 
         # Add alias if requested
@@ -569,11 +630,12 @@ class SSubcommand(QSubcommand):
             except ValueError:
                 logging.warning(f"Alias index must be an integer: {args.remove_alias}")
 
-        # Save config if any changes were made
-        if config_changed:
-            self.config.save(config_path)
+        return config_changed
 
-        # List aliases if requested
+    def _list_aliases_if_requested(self, args: argparse.Namespace) -> None:
+        """
+        If --list-aliases is requested, prints the currently configured aliases.
+        """
         if args.list_aliases:
             if self.config.aliases:
                 logging.info("Listing aliases (index, pattern, replacements):")
@@ -582,142 +644,129 @@ class SSubcommand(QSubcommand):
             else:
                 logging.info("No aliases are currently configured.")
 
-        # List scripts if requested
-        if args.list_scripts:
-            self._list_scripts()
+    def _run_script_with_arguments(self, args: argparse.Namespace) -> None:
+        """
+        Run a script using the provided command-line arguments. Handles:
+         - Checking if scripts directory exists
+         - Applying aliases (unless disabled)
+         - Determining the actual script vs. docker-like arguments
+         - Checking for # Template
+         - Determining execution mode
+         - Invoking script via Docker, venv, or directly
+        """
+        # We need a valid scripts directory
+        if not self.SCRIPTS_DIR.is_dir():
+            logging.error(
+                f"The scripts directory '{self.SCRIPTS_DIR}' does not exist. "
+                "Please run 'q s --install' first."
+            )
             return
 
-        # Handle install
-        if args.install:
-            logging.info("Installing scripts from GitHub...")
-            if not self._install_scripts():
-                # If installation failed, bail out
-                return
+        # Apply alias expansion to all arguments (unless disabled)
+        all_args = args.args
+        all_args = [a for a in all_args if a != "--"]
+        if not args.disable_aliases:
+            all_args = self._apply_aliases_to_arglist(self.config.aliases, all_args)
 
-        # If there are arguments, handle running scripts
-        if args.args:
-            # We need a valid scripts directory
-            if not self.SCRIPTS_DIR.is_dir():
+        # Parse out docker-like arguments, the script name, and script arguments
+        docker_args, script, script_args = self._parse_script_args(all_args)
+
+        if not script:
+            logging.error("No valid Python script found in arguments. Aborting.")
+            return
+
+        # Determine execution mode
+        execution_mode = args.execution_mode
+        can_use_docker = shutil.which("docker") is not None
+        venv_available = False
+        try:
+            import venv  # noqa
+
+            venv_available = True
+        except ImportError:
+            pass
+
+        # Check if the script has a 'Template:' line to decide Docker usage automatically if no mode specified
+        script_path = Path(script)
+        if not script_path.is_absolute():
+            script_path = self.SCRIPTS_DIR / script
+
+        if execution_mode is None:
+            if can_use_docker and self._script_has_template(script_path):
+                execution_mode = "docker"
+            elif venv_available:
+                execution_mode = "venv"
+            else:
+                execution_mode = "direct"
+
+        # Execute according to chosen mode
+        if execution_mode == "docker":
+            docker_script = self.SCRIPTS_DIR / "Meta" / "docker.py"
+            if not docker_script.is_file():
                 logging.error(
-                    f"The scripts directory '{self.SCRIPTS_DIR}' does not exist. "
-                    "Please run 'q s --install' first."
+                    "Cannot find 'docker.py' in the 'Meta' directory. "
+                    "Please run 'q s --install' again or check the repository structure."
                 )
                 return
-
-            # Parse out docker-like arguments, the script name, and script arguments
-            docker_args, script, script_args = self._parse_script_args(args.args)
-
-            if not args.disable_aliases:
-                # Apply alias expansion to docker_args
-                docker_args = self._apply_aliases_to_arglist(
-                    self.config.aliases, docker_args
+            self._run_docker_script(docker_script, docker_args, script, script_args)
+        elif execution_mode == "venv":
+            venver_script = self.SCRIPTS_DIR / "Meta" / "venver.py"
+            if not venver_script.is_file():
+                logging.error(
+                    "Cannot find 'venver.py' in the 'Meta' directory. "
+                    "Please run 'q s --install' again or check the repository structure."
                 )
-
-                # Combine script + script_args for alias expansion so that if script matches,
-                # we can expand it to multiple arguments.
-                script_plus_args = [script] + script_args
-                script_plus_args = self._apply_aliases_to_arglist(
-                    self.config.aliases, script_plus_args
-                )
-
-                if not script_plus_args:
-                    logging.error("No script specified after alias expansion.")
-                    return
-
-                script = script_plus_args[0]
-                script_args = script_plus_args[1:]
-
-            if not script:
-                logging.error("No script specified. Provide a script name or alias.")
                 return
-
-            # Determine execution mode
-            execution_mode = args.execution_mode
-            can_use_docker = shutil.which("docker") is not None
-            venv_available = False
-            try:
-                import venv  # noqa
-
-                venv_available = True
-            except ImportError:
-                pass
-
-            # If no execution mode set, fallback logic
-            if execution_mode is None:
-                if can_use_docker and self._script_has_template(
-                    self.SCRIPTS_DIR / script
-                ):
-                    execution_mode = "docker"
-                elif venv_available:
-                    execution_mode = "venv"
-                else:
-                    execution_mode = "direct"
-
-            # Execute according to chosen mode
-            if execution_mode == "docker":
-                docker_script = self.SCRIPTS_DIR / "Meta" / "docker.py"
-                if not docker_script.is_file():
-                    logging.error(
-                        "Cannot find 'docker.py' in the 'Meta' directory. "
-                        "Please run 'q s --install' again or check the repository structure."
-                    )
-                    return
-                self._run_docker_script(docker_script, docker_args, script, script_args)
-            elif execution_mode == "venv":
-                venver_script = self.SCRIPTS_DIR / "Meta" / "venver.py"
-                if not venver_script.is_file():
-                    logging.error(
-                        "Cannot find 'venver.py' in the 'Meta' directory. "
-                        "Please run 'q s --install' again or check the repository structure."
-                    )
-                    return
-                self._run_venver_script(venver_script, docker_args, script, script_args)
-            else:  # "direct"
-                self._run_local_script(script, docker_args, script_args)
+            self._run_venver_script(venver_script, docker_args, script, script_args)
+        else:  # "direct"
+            self._run_local_script(script, docker_args, script_args)
 
     def _parse_script_args(
         self, all_args: List[str]
     ) -> Tuple[List[str], str, List[str]]:
         """
-        Split the provided arguments into:
-          - docker_args
-          - script (the first non-dash argument, or the first argument after '--')
-          - script_args
+        Determine the first argument that corresponds to a file (absolute or relative
+        to SCRIPTS_DIR) which exists and whose first line contains 'python'. Everything
+        before that file is treated as docker-like arguments, and everything after it
+        is script arguments.
 
-        If '--' is present, everything before it is considered docker_args,
-        everything after it is [script + script_args].
-        If '--' is not present, the first non-dash token is the script,
-        and any tokens after that go to script_args; dash tokens before that script are docker_args.
+        Returns:
+            (docker_args, script, script_args)
+            script will be an empty string if no valid Python script was found.
         """
-        if "--" in all_args:
-            dd_idx = all_args.index("--")
-            docker_args = all_args[:dd_idx]
-            script_section = all_args[dd_idx + 1 :]
-            if not script_section:
-                # There's nothing after '--', so no script
-                return docker_args, "", []
-            script = script_section[0]
-            script_args = script_section[1:]
-            return docker_args, script, script_args
-        else:
-            docker_args: List[str] = []
-            script = ""
-            script_args: List[str] = []
+        docker_args = []
+        script = ""
+        script_args = []
+        script_found = False
 
-            i = 0
-            while i < len(all_args):
-                if all_args[i].startswith("-"):
-                    # treat as docker arg
-                    docker_args.append(all_args[i])
-                    i += 1
-                else:
-                    # first non-dash is script name
-                    script = all_args[i]
-                    i += 1
-                    script_args = all_args[i:]
-                    break
+        for i, arg in enumerate(all_args):
+            # Check if arg is a path (absolute or relative to SCRIPTS_DIR) that exists
+            candidate_path = Path(arg)
+            if not candidate_path.is_absolute():
+                candidate_path = self.SCRIPTS_DIR / arg
 
-            return docker_args, script, script_args
+            if candidate_path.is_file():
+                # Read the first line to see if it contains 'python'
+                try:
+                    with candidate_path.open("r", encoding="utf-8") as f:
+                        first_line = f.readline()
+                    if "python" in first_line:
+                        script = arg
+                        script_args = all_args[i + 1 :]
+                        script_found = True
+                        break
+                    else:
+                        docker_args.append(arg)
+                except Exception:
+                    docker_args.append(arg)
+            else:
+                docker_args.append(arg)
+
+        if not script_found:
+            # If we never found a valid Python script, just return
+            return (all_args, "", [])
+
+        return (docker_args, script, script_args)
 
     def _run_docker_script(
         self,
@@ -785,7 +834,10 @@ class SSubcommand(QSubcommand):
         Run a script locally (without docker.py or venver.py). We still change to SCRIPTS_DIR,
         then execute the script with all arguments appended.
         """
-        script_path = self.SCRIPTS_DIR / script
+        script_path = Path(script)
+        if not script_path.is_absolute():
+            script_path = self.SCRIPTS_DIR / script
+
         if not script_path.is_file():
             logging.error(f"Script file '{script_path}' not found.")
             return
@@ -823,7 +875,7 @@ class SSubcommand(QSubcommand):
                 logging.error(f"Failed to remove existing scripts directory: {e}")
                 return False
 
-        # Attempt to create the scripts directory (with parents)
+        # Attempt to create the scripts directory
         try:
             self.SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
         except PermissionError as e:
@@ -1043,32 +1095,42 @@ class USubcommand(QSubcommand):
         local_path = Path(__file__).resolve()
         logging.debug(f"Local script path: {local_path}")
 
-        # Download remote script data
         remote_data = self._download_remote_script()
         if remote_data is None:
             logging.error("Failed to download the remote script.")
             return
 
-        # Calculate hashes
         local_hash = self._calculate_sha512_file(local_path)
         remote_hash = self._calculate_sha512_data(remote_data)
-
         logging.debug(f"Local sha512:  {local_hash}")
         logging.debug(f"Remote sha512: {remote_hash}")
 
-        # Compare
+        self._compare_and_update_if_needed(
+            args, local_path, remote_data, local_hash, remote_hash
+        )
+
+    def _compare_and_update_if_needed(
+        self,
+        args: argparse.Namespace,
+        local_path: Path,
+        remote_data: bytes,
+        local_hash: str,
+        remote_hash: str,
+    ) -> None:
+        """
+        Compare the local and remote hashes. If they differ, handle update
+        logic depending on the --only-check argument.
+        """
         if local_hash == remote_hash:
             print("Your script is already up to date.")
         else:
             print("A new version is available.")
             if args.only_check:
                 return
-
-            # Perform the update
-            if not self._update_local_script(local_path, remote_data):
-                logging.error("Failed to update the local script.")
-            else:
+            if self._update_local_script(local_path, remote_data):
                 print("Script updated successfully.")
+            else:
+                logging.error("Failed to update the local script.")
 
     @staticmethod
     def _download_remote_script() -> Optional[bytes]:
