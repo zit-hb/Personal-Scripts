@@ -10,7 +10,7 @@
 # template and builds and runs the Docker container.
 #
 # Usage:
-# ./docker.py [options] [target_script] -- [script_args]
+# ./docker.py [options] [target_script] [script_args]
 #
 # Arguments:
 #   - [target_script]: The path to the target script to execute inside the Docker container.
@@ -112,12 +112,6 @@ def parse_arguments() -> argparse.Namespace:
         description="Docker wrapper script to execute a script inside a Docker container."
     )
     parser.add_argument(
-        "target_script",
-        type=str,
-        nargs="?",
-        help="The target script to execute inside the Docker container.",
-    )
-    parser.add_argument(
         "-T",
         "--test",
         type=str,
@@ -210,16 +204,12 @@ def parse_arguments() -> argparse.Namespace:
         help="Forward ports from the Docker container (e.g., 8080:8080). Can be specified multiple times.",
     )
     parser.add_argument(
-        "script_args",
+        "target_script_and_args",
         nargs=argparse.REMAINDER,
-        help="Arguments to pass to the target script inside the Docker container.",
+        help="The target script plus any arguments to pass inside the Docker container.",
     )
 
-    args = parser.parse_args()
-    if args.script_args and args.script_args[0] == "--":
-        args.script_args = args.script_args[1:]
-
-    return args
+    return parser.parse_args()
 
 
 def setup_logging(verbose: bool, debug: bool) -> None:
@@ -637,16 +627,24 @@ def main() -> None:
     # Determine TTY mode: enabled if not no-tty and stdout is a TTY
     tty_mode = (not args.no_tty) and sys.stdout.isatty()
 
-    if not args.target_script and not args.test:
-        logging.error("No target script specified. Please provide a script to execute.")
-        sys.exit(2)
-    elif args.test:
+    # Check for test mode
+    if args.test:
         failures = test_scripts(args)
         if failures > 0:
             sys.exit(1)
         else:
             sys.exit(0)
 
+    # If not test mode, we expect a script plus arguments in target_script_and_args
+    if not args.target_script_and_args:
+        logging.error("No target script specified. Please provide a script to execute.")
+        sys.exit(2)
+
+    # Separate the script from its arguments
+    args.target_script = args.target_script_and_args[0]
+    args.script_args = args.target_script_and_args[1:]
+
+    # Prepare and build Dockerfile/image, then run the container
     with tempfile.TemporaryDirectory() as tmpdir:
         prep = prepare_dockerfile(args, tmpdir)
         image_tag = normalize_script_name(os.path.basename(args.target_script))

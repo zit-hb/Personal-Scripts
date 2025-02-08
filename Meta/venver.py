@@ -10,7 +10,7 @@
 # within this environment.
 #
 # Usage:
-#   ./venver.py [options] [target_script] -- [script_args]
+#   ./venver.py [options] [target_script] [script_args]
 #
 # Arguments:
 #   - [target_script]: The path to the Python script to execute inside the venv.
@@ -22,7 +22,7 @@
 #                            in the cache directory.
 #   -c, --cache PATH         Path to a directory to use as a cache (default: ~/.cache/buchwald).
 #   -s, --skip-install       Do not install any dependencies. Just use the existing venv.
-#   -v, --verbose            Enable verbose logging (INFO level) and show pip output.
+#   -v, --verbose            Enable verbose logging (INFO level).
 #   -vv, --debug             Enable debug logging (DEBUG level).
 #   -N, --no-cache           Remove the existing venv directory if it exists, then create a new one.
 #   -f, --force              Force removal of the existing venv directory even if it doesn't look like a venv.
@@ -38,7 +38,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 from typing import List
 from dataclasses import dataclass
 
@@ -57,12 +56,6 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run a Python script in a virtual environment, installing "
         "pip requirements from the script header."
-    )
-    parser.add_argument(
-        "target_script",
-        type=str,
-        nargs="?",
-        help="The target Python script to execute inside the venv.",
     )
     parser.add_argument(
         "-V",
@@ -111,19 +104,12 @@ def parse_arguments() -> argparse.Namespace:
         help="Force removal of the existing venv directory even if it doesn't look like a venv.",
     )
     parser.add_argument(
-        "script_args",
+        "target_script_and_args",
         nargs=argparse.REMAINDER,
-        help="Arguments to pass to the target script inside the venv.",
+        help="The path to the Python script and any arguments to pass to it.",
     )
 
-    args = parser.parse_args()
-
-    # If the user used '--' before specifying the script, treat the first item in script_args
-    # as the target_script if target_script wasn't set.
-    if not args.target_script and args.script_args:
-        args.target_script = args.script_args.pop(0)
-
-    return args
+    return parser.parse_args()
 
 
 def setup_logging(verbose: bool, debug: bool) -> None:
@@ -278,7 +264,7 @@ def create_or_load_venv(
                     text=True,
                 )
         except subprocess.CalledProcessError as e:
-            if not show_pip_output and e.stderr:
+            if not show_pip_output and hasattr(e, "stderr") and e.stderr:
                 logging.error(e.stderr)
             raise
 
@@ -317,7 +303,7 @@ def install_packages(
                         text=True,
                     )
             except subprocess.CalledProcessError as e:
-                if not show_pip_output and e.stderr:
+                if not show_pip_output and hasattr(e, "stderr") and e.stderr:
                     logging.error(e.stderr)
                 raise
         else:
@@ -406,9 +392,14 @@ def main() -> None:
     args = parse_arguments()
     setup_logging(args.verbose, args.debug)
 
-    if not args.target_script:
+    # Ensure we have something to run
+    if not args.target_script_and_args:
         logging.error("No target script specified.")
         sys.exit(2)
+
+    # Split off the first as the script path, the rest as script args
+    args.target_script = args.target_script_and_args[0]
+    args.script_args = args.target_script_and_args[1:]
 
     # Determine the effective venv path: either user-specified or within the cache.
     effective_venv_path = get_venv_path(args.venv, args.cache, args.target_script)

@@ -21,7 +21,7 @@ To run a script (through `docker.py` or natively), simply use the following comm
 q [q_options] s [s_options] -- [docker_options] <script.py> [script_args]
 ```
 
-Make sure to use `--` to separate script options from `q` options:
+You can use `--` to separate `docker.py` options from `q` options:
 ```bash
 q s -- -v 'System Analysis/detect_hardware.py' -h
 ```
@@ -42,7 +42,7 @@ Simply mount your data, specify needed options, and execute.
 
 **Basic Usage:**
 ```bash
-./docker.py [options] -- <script.py> [script_args]
+./docker.py [options] <script.py> [script_args]
 ```
 
 **Examples:**
