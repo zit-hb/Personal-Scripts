@@ -30,8 +30,8 @@ q s -- -v 'System Analysis/detect_hardware.py' -h
 
 You can add aliases to run scripts with even fewer characters:
 ```bash
-q s --alias '^dn$' 'Network Analysis/diagnose_network.py'
-q s dn co si
+q s --alias '^si$' 'Network Analysis/diagnose_network.py' co si
+q s si -h
 ```
 
 **Update:**
