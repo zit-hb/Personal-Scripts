@@ -36,7 +36,7 @@
 #
 # Requirements:
 #   - OpenCV (install via: apt-get install -y python3-opencv opencv-data)
-#   - Pillow (install via: pip install Pillow==11.0.0)
+#   - Pillow (install via: pip install Pillow==11.1.0)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

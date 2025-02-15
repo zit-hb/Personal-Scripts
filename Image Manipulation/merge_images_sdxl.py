@@ -39,11 +39,11 @@
 # Template: cuda12.4.1-ubuntu22.04
 #
 # Requirements:
-#   - Pillow (install via: pip install Pillow==11.0.0)
+#   - Pillow (install via: pip install Pillow==11.1.0)
 #   - PyTorch (install via: pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1)
-#   - Hugging Face Diffusers and Transformers (install via: pip install diffusers==0.31.0 transformers==4.46.3)
-#   - Scikit-Image (install via: pip install scikit-image==0.24.0)
-#   - Xformers (optional, for memory efficient attention) (install via: pip install xformers==0.0.28)
+#   - Hugging Face Diffusers and Transformers (install via: pip install diffusers==0.32.2 transformers==4.48.3)
+#   - Scikit-Image (install via: pip install scikit-image==0.25.1)
+#   - Xformers (optional, for memory efficient attention) (install via: pip install xformers==0.0.29)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

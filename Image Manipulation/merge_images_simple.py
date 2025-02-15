@@ -27,10 +27,10 @@
 #   -o OUTPUT_FILE, --output OUTPUT_FILE
 #                              Output file name for the merged image (default: "merged_image.png").
 #
-# Template: ubuntu22.04
+# Template: ubuntu24.04
 #
 # Requirements:
-#   - Pillow (install via: pip install Pillow==11.0.0)
+#   - Pillow (install via: pip install Pillow==11.1.0)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
