@@ -8,7 +8,7 @@
 # for performing common tasks in Linux systems with as
 # few keystrokes as possible.
 #
-# Template: ubuntu22.04
+# Template: ubuntu24.04
 #
 # -------------------------------------------------------
 # © 2025 Hendrik Buchwald. All rights reserved.

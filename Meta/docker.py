@@ -64,6 +64,21 @@ WORKDIR /app
 ENTRYPOINT ["python3"]
 """,
     },
+    "ubuntu24.04": {
+        "docker_run_options": [],
+        "dockerfile_template": """
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y python3 python3-pip python3-venv
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --upgrade pip
+[INSTALL_COMMANDS]
+WORKDIR /app
+ENTRYPOINT ["python3"]
+""",
+    },
     "cuda12.4.1-ubuntu22.04": {
         "docker_run_options": [],
         "dockerfile_template": """
