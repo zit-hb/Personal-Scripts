@@ -33,7 +33,7 @@
 #   -R, --argon2-parallelism P   Argon2 parallelism (default: 2).
 #   -L, --argon2-hash-len L      Argon2 output length in bytes (default: 32).
 #
-# Template: ubuntu22.04
+# Template: ubuntu24.04
 #
 # Requirements:
 #   - cryptography (install via: pip install cryptography==44.0.1)

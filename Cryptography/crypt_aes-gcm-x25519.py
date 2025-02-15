@@ -44,7 +44,7 @@
 #                                (default: "private.pem")
 #   -p, --passphrase TEXT        Passphrase for your private key (if encrypted).
 #
-# Template: ubuntu22.04
+# Template: ubuntu24.04
 #
 # Requirements:
 #   - cryptography (install via: pip install cryptography==44.0.1)
