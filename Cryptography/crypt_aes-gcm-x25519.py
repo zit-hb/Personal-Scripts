@@ -205,16 +205,6 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
-def scrub_passphrase_in_argv() -> None:
-    """
-    Overwrites any passphrase in sys.argv to reduce leakage.
-    """
-    for i, arg in enumerate(sys.argv):
-        if arg in ("-p", "--passphrase"):
-            if i + 1 < len(sys.argv):
-                sys.argv[i + 1] = "********"
-
-
 def read_input_data(input_path: str) -> bytes:
     """
     Reads data from a file or stdin (binary-safe).
@@ -495,7 +485,6 @@ def main() -> None:
     Main function to handle subcommands: key generation, encryption, or decryption.
     """
     args = parse_arguments()
-    scrub_passphrase_in_argv()
     setup_logging(verbose=args.verbose, debug=args.debug)
 
     if args.command == "genkey":

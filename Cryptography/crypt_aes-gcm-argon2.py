@@ -181,17 +181,6 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
-def scrub_passphrase_in_argv() -> None:
-    """
-    Overwrites any passphrase in sys.argv to reduce leakage in
-    process listings. Not guaranteed on all OSes, but helps on many Unix-like systems.
-    """
-    for i, arg in enumerate(sys.argv):
-        if arg in ("-p", "--passphrase"):
-            if i + 1 < len(sys.argv):
-                sys.argv[i + 1] = "********"
-
-
 def get_passphrase(passphrase_arg: Optional[str]) -> str:
     """
     If a passphrase is provided as an argument, return it. Otherwise,
@@ -423,7 +412,6 @@ def main() -> None:
     storing salt, Argon2 parameters, nonce, ciphertext, tag, and gzip state in a JSON structure.
     """
     args = parse_arguments()
-    scrub_passphrase_in_argv()
 
     setup_logging(verbose=args.verbose, debug=args.debug)
     logging.info(
