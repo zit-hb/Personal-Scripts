@@ -22,7 +22,7 @@
 #   -vv, --debug                  Enable debug logging (DEBUG level).
 #   -n, --dry-run                 Perform a dry run without deleting any files.
 #
-# Template: ubuntu22.04
+# Template: ubuntu24.04
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.

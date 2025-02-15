@@ -20,7 +20,7 @@
 #   -v, --verbose                 Enable verbose logging (INFO level).
 #   -vv, --debug                  Enable debug logging (DEBUG level).
 #
-# Template: ubuntu22.04
+# Template: ubuntu24.04
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
