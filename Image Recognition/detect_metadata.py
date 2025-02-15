@@ -20,10 +20,10 @@
 #                      information).
 #   -h, --help         Display this help message.
 #
-# Template: ubuntu22.04
+# Template: ubuntu24.04
 #
 # Requirements:
-#   - Pillow (install via: pip install Pillow==11.0.0)
+#   - Pillow (install via: pip install Pillow==11.1.0)
 #   - piexif (install via: pip install piexif==1.1.3)
 #
 # -------------------------------------------------------

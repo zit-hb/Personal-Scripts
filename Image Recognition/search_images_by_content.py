@@ -41,10 +41,10 @@
 # Template: cuda12.4.1-ubuntu22.04
 #
 # Requirements:
-#   - PyTorch (install via: pip install torch==2.5.1 torchvision==0.20.1)
-#   - transformers (install via: pip install transformers==4.47.0)
-#   - Pillow (install via: pip install pillow==11.0.0)
-#   - sentence-transformers (install via: pip install sentence-transformers==3.3.1)
+#   - PyTorch (install via: pip install torch==2.6.0 torchvision==0.21.0)
+#   - transformers (install via: pip install transformers==4.48.3)
+#   - Pillow (install via: pip install pillow==11.1.0)
+#   - sentence-transformers (install via: pip install sentence-transformers==3.4.1)
 #
 # -------------------------------------------------------
 # © 2024 Hendrik Buchwald. All rights reserved.
