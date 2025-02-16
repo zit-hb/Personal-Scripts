@@ -49,7 +49,7 @@
 #   -vv, --debug                 Enable debug logging (DEBUG level).
 #   -h, --help                   Show this help message and exit.
 #
-# Template: ubuntu22.04
+# Template: ubuntu24.04
 #
 # Requirements:
 #   - scapy (install via: pip install scapy==2.6.1)

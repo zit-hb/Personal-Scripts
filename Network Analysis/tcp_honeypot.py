@@ -32,7 +32,7 @@
 #   -vv, --debug                  Enable debug logging (DEBUG level).
 #   -h, --help                    Show this help message and exit.
 #
-# Template: ubuntu22.04
+# Template: ubuntu24.04
 #
 # Requirements:
 #   - requests (install via: pip install requests==2.32.3)
