@@ -32,8 +32,9 @@
 #     -g, --vga VGA           VGA adapter type (default: std).
 #     -n, --net NET           Network backend (default: user; use "none" for no network).
 #     -u, --usb               Enable USB support.
-#     -d, --display DISPLAY   Display type for QEMU (e.g., sdl, gtk)
+#     -d, --display DISPLAY   Display type for QEMU (e.g., sdl, gtk).
 #     -e, --extra EXTRA_ARGS  Additional QEMU arguments.
+#     -I, --disk-type IF      Disk interface type (default, ide, scsi, ahci, virtio).
 #
 #   Start:
 #     -i, --iso ISO           Attach an installation ISO (predefined keyword, URL, or local path).
@@ -97,6 +98,10 @@ PREDEFINED_ISOS = {
         "url": "http://ftp.uni-kl.de/pub/linux/ubuntu-dvd/xubuntu/releases/24.04/release/xubuntu-24.04.1-desktop-amd64.iso",
         "sha256": "c333806173558ccc2a95f44c5c7b57437ee3d409b50a3a5a1367bcf7eaf3ef90",
     },
+    "zealos": {
+        "url": "https://github.com/Zeal-Operating-System/ZealOS/releases/download/latest/ZealOS-PublicDomain-BIOS-2025-02-21-08_16_57.iso",
+        "sha256": "ff4cda8db3eeacce36ad774887e6e78e7691f9f0dfc6697b6860309ef6045650",
+    },
 }
 
 
@@ -121,7 +126,7 @@ def parse_arguments() -> argparse.Namespace:
         help="Enable verbose logging (INFO level)",
     )
     parser.add_argument(
-        "--v",
+        "-vv",
         "--debug",
         action="store_true",
         help="Enable debug logging (DEBUG level)",
@@ -194,6 +199,13 @@ def parse_arguments() -> argparse.Namespace:
         "--extra",
         nargs=argparse.REMAINDER,
         help="Additional QEMU arguments.",
+    )
+    parser_create.add_argument(
+        "-I",
+        "--disk-type",
+        type=str,
+        default="default",
+        help="Disk interface type (default, ide, scsi, ahci, virtio) (default: default).",
     )
 
     # "start" command
@@ -474,6 +486,7 @@ def create_vm(args) -> None:
         "usb": args.usb,
         "display": args.display,
         "extra": args.extra if args.extra else [],
+        "disk_interface": args.disk_type,
         "created_at": created_at,
     }
     save_vm_config(args.name, config, args.vms)
@@ -506,6 +519,7 @@ def start_vm(args) -> None:
       - Configures KVM acceleration based on command-line flags:
             * Explicitly enabled/disabled via --enable-kvm/--disable-kvm.
             * Otherwise, auto-detected.
+      - Allows specifying disk interface type (default, ide, scsi, ahci, virtio).
     """
     config = load_vm_config(args.name, args.vms)
     qemu_executable = config.get("qemu", "qemu-system-x86_64")
@@ -516,6 +530,8 @@ def start_vm(args) -> None:
         "-smp",
         str(config.get("cpus", 6)),
     ]
+
+    # KVM detection/flags
     if args.disable_kvm:
         kvm_enabled = False
         logging.info("KVM acceleration explicitly disabled.")
@@ -524,22 +540,78 @@ def start_vm(args) -> None:
         logging.info("KVM acceleration explicitly enabled.")
     else:
         kvm_enabled = detect_kvm()
+
     if kvm_enabled:
         command.append("-enable-kvm")
 
+    # ISO handling
     if args.iso:
         iso_path = resolve_iso(args.iso, args.cache, redownload=args.redownload)
-        command.extend(["-cdrom", str(iso_path)])
+        # Use if=none so QEMU doesn't auto-connect this drive.
+        # Then explicitly attach it as an IDE CD device.
+        command.extend(
+            [
+                "-drive",
+                f"if=none,file={iso_path},id=cdrom0,media=cdrom",
+                "-device",
+                "ide-cd,drive=cdrom0",
+            ]
+        )
         boot_order = args.boot if args.boot else "d"
     else:
         boot_order = args.boot if args.boot else "c"
 
     command.extend(["-boot", boot_order])
+
+    # Disk interface handling
     disk_image = config.get("disk_image")
+    disk_interface = config.get("disk_interface", "default")
+
     if disk_image:
-        command.extend(["-drive", f"file={disk_image},format=qcow2"])
+        if disk_interface == "ahci":
+            command.extend(
+                [
+                    "-device",
+                    "ich9-ahci,id=ahci",
+                    "-drive",
+                    f"if=none,file={disk_image},format=qcow2,id=drive0",
+                    "-device",
+                    "ide-hd,drive=drive0,bus=ahci.0",
+                ]
+            )
+        elif disk_interface == "virtio":
+            command.extend(
+                [
+                    "-drive",
+                    f"file={disk_image},format=qcow2,if=virtio",
+                ]
+            )
+        elif disk_interface == "scsi":
+            command.extend(
+                [
+                    "-device",
+                    "virtio-scsi-pci,id=scsi0",
+                    "-drive",
+                    f"if=none,file={disk_image},format=qcow2,id=drive0",
+                    "-device",
+                    "scsi-hd,drive=drive0",
+                ]
+            )
+        elif disk_interface == "ide":
+            command.extend(
+                [
+                    "-drive",
+                    f"file={disk_image},format=qcow2,if=ide",
+                ]
+            )
+        else:
+            # default or unknown
+            command.extend(["-drive", f"file={disk_image},format=qcow2"])
+
+    # VGA
     command.extend(["-vga", config.get("vga", "std")])
 
+    # Network
     net_config = config.get("net", "user")
     if net_config.lower() == "none":
         logging.info("Networking disabled for this VM.")
@@ -548,11 +620,16 @@ def start_vm(args) -> None:
     else:
         command.extend(["-net", "nic", "-net", net_config])
 
+    # USB
     if config.get("usb", False):
         command.append("-usb")
         command.extend(["-device", "usb-tablet"])
+
+    # Display
     if config.get("display"):
         command.extend(["-display", config["display"]])
+
+    # Extra arguments
     if config.get("extra"):
         command.extend(config["extra"])
 
@@ -597,10 +674,11 @@ def list_vms(args) -> None:
                     config = json.load(f)
                 print(f"Name: {config.get('name')}")
                 print(f"  Disk Image: {config.get('disk_image')}")
-                print(
-                    f"  Memory: {config.get('memory')} MB, CPUs: {config.get('cpus')}"
-                )
+                print(f"  Memory: {config.get('memory')} MB")
+                print(f"  CPUs: {config.get('cpus')}")
                 print(f"  Networking: {config.get('net')}")
+                disk_if = config.get("disk_interface", "default")
+                print(f"  Disk Interface: {disk_if}")
                 created_at = config.get("created_at")
                 if created_at:
                     created_time = time.strftime(
