@@ -28,6 +28,7 @@
 #     -S, --system-image         System image (default: google_apis).
 #     -r, --arch                 Architecture (default: x86_64).
 #     -B, --build-tools          Build-tools version (default: 35.0.0).
+#     -u, --user-id              UID of the container user (default: current user's UID).
 #     -v, --verbose              Enable verbose logging (INFO level).
 #     -vv, --debug               Enable debug logging (DEBUG level).
 #
@@ -35,6 +36,7 @@
 #     -p, --project-dir          Path to the Android project (default: current dir).
 #     -o, --apk-output           Host path where the newly built debug APK is copied (optional).
 #     -l, --lint-tests           Run lint checks and tests (default: off).
+#     -G, --gradle-task          Custom Gradle task(s) to run (e.g. ':app:assembleDebug').
 #
 #   Run:
 #     -i, --apk-path             Path to existing APK (required).
@@ -167,6 +169,9 @@ RUN sdkmanager \
 
 ENV PATH=$PATH:$ANDROID_SDK_ROOT/build-tools/${BUILD_TOOLS}
 
+RUN mkdir -p /tmp/gradle && chmod 777 /tmp/gradle
+ENV GRADLE_USER_HOME=/tmp/gradle
+
 WORKDIR /app
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
@@ -180,20 +185,19 @@ set -e
 if [ "$MODE" = "build" ]; then
   echo "Building the project in /app..."
 
+  BUILD_TASK="${GRADLE_TASK:-assembleDebug}"
+  if [ "$LINT_TESTS" = "true" ]; then
+    BUILD_TASK="${GRADLE_TASK:-build}"
+  fi
+
   # If we have a gradlew, use it; otherwise use system 'gradle'.
   if [ -f "/app/gradlew" ]; then
     chmod +x "/app/gradlew"
-    if [ "$LINT_TESTS" = "true" ]; then
-      (cd /app && ./gradlew build)
-    else
-      (cd /app && ./gradlew assembleDebug)
-    fi
+    echo "Executing './gradlew $BUILD_TASK' ..."
+    (cd /app && ./gradlew $BUILD_TASK)
   else
-    if [ "$LINT_TESTS" = "true" ]; then
-      (cd /app && gradle build)
-    else
-      (cd /app && gradle assembleDebug)
-    fi
+    echo "Executing 'gradle $BUILD_TASK' ..."
+    (cd /app && gradle $BUILD_TASK)
   fi
 
   echo "Build complete."
@@ -290,6 +294,8 @@ def parse_arguments() -> argparse.Namespace:
         description="Build, run, or analyze an Android app in a Dockerized environment."
     )
 
+    user_id_default = os.getuid()
+
     # Global options
     parser.add_argument(
         "-J",
@@ -329,6 +335,13 @@ def parse_arguments() -> argparse.Namespace:
         help="Build-tools version (default: 35.0.0).",
     )
     parser.add_argument(
+        "-u",
+        "--user-id",
+        type=int,
+        default=user_id_default,
+        help="UID of the container user (default: current user's UID).",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -363,6 +376,13 @@ def parse_arguments() -> argparse.Namespace:
         "--lint-tests",
         action="store_true",
         help="Run lint checks and tests (default: off).",
+    )
+    parser_build.add_argument(
+        "-G",
+        "--gradle-task",
+        default=None,
+        help="Custom Gradle task(s) to run (e.g. ':app:assembleDebug'). "
+        "By default uses 'assembleDebug', or 'build' when lint-tests is on.",
     )
 
     # run subcommand
@@ -544,29 +564,38 @@ def run_container(
     system_image: str = "",
     arch: str = "",
     logcat_enabled: bool = True,
+    user_id: int = 0,
+    gradle_task: str = None,
 ) -> None:
     """
-    Runs a Docker container in one of two modes:
+    Runs a Docker container in one of three modes:
       - 'build': mount the project directory and build.
       - 'run': launch the emulator and install/run the specified APK.
+      - 'analyze': run 'aapt dump badging' on the specified APK (handled differently).
     """
     cmd = [
         "docker",
         "run",
         "--rm",
         "-it",
-        "--privileged",
-        "--device",
-        "/dev/kvm",
         "-e",
         f"MODE={mode}",
     ]
+
+    if mode == "run":
+        cmd += ["--privileged"]
+        cmd += ["--device", "/dev/kvm"]
+    else:
+        cmd += ["-u", str(user_id)]
 
     if mode == "build":
         if lint_tests:
             cmd += ["-e", "LINT_TESTS=true"]
         else:
             cmd += ["-e", "LINT_TESTS=false"]
+
+        if gradle_task:
+            cmd += ["-e", f"GRADLE_TASK={gradle_task}"]
 
         proj_abs = str(Path(project_dir).resolve())
         cmd += ["-v", f"{proj_abs}:/app"]
@@ -658,10 +687,14 @@ def handle_build(args: argparse.Namespace) -> None:
         xhost_name="",
         apk_output=args.apk_output or "",
         lint_tests=args.lint_tests,
+        user_id=args.user_id,
+        gradle_task=args.gradle_task,
     )
 
 
-def _parse_main_activity_in_container(apk_path: str, image_tag: str) -> str:
+def _parse_main_activity_in_container(
+    apk_path: str, image_tag: str, user_id: int = 0
+) -> str:
     """
     Runs a temporary Docker container with the given image to execute:
         aapt dump badging <apk>
@@ -673,6 +706,8 @@ def _parse_main_activity_in_container(apk_path: str, image_tag: str) -> str:
         "docker",
         "run",
         "--rm",
+        "--user",
+        str(user_id),
         "-v",
         f"{apk_abs}:/tmp/app.apk",
         image_tag,
@@ -751,7 +786,9 @@ def handle_run(args: argparse.Namespace) -> None:
         logging.info(
             "No main activity specified; attempting to discover from the APK..."
         )
-        detected_activity = _parse_main_activity_in_container(args.apk_path, image_tag)
+        detected_activity = _parse_main_activity_in_container(
+            args.apk_path, image_tag, args.user_id
+        )
         if not detected_activity:
             logging.error(
                 "Could not determine the main launcher activity from the APK. "
@@ -775,6 +812,7 @@ def handle_run(args: argparse.Namespace) -> None:
         system_image=args.system_image,
         arch=args.arch,
         logcat_enabled=(not args.no_logcat),
+        user_id=args.user_id,
     )
 
 
@@ -875,6 +913,8 @@ def handle_analyze(args: argparse.Namespace) -> None:
         "docker",
         "run",
         "--rm",
+        "--user",
+        str(args.user_id),
         "-v",
         f"{apk_abs}:/tmp/app.apk",
         image_tag,
