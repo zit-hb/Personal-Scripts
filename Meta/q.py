@@ -675,6 +675,18 @@ class SSubcommand(QSubcommand):
             logging.error("No valid Python script found in arguments. Aborting.")
             return
 
+        # Convert script to absolute path if needed
+        script_path = Path(script)
+        if not script_path.is_absolute():
+            script_path = self.SCRIPTS_DIR / script
+
+        if not script_path.is_file():
+            logging.error(f"Script file '{script_path}' not found.")
+            return
+
+        # From here on, 'script' will be the absolute path
+        script = str(script_path)
+
         # Determine execution mode
         execution_mode = args.execution_mode
         can_use_docker = shutil.which("docker") is not None
@@ -687,10 +699,6 @@ class SSubcommand(QSubcommand):
             pass
 
         # Check if the script has a 'Template:' line to decide Docker usage automatically if no mode specified
-        script_path = Path(script)
-        if not script_path.is_absolute():
-            script_path = self.SCRIPTS_DIR / script
-
         if execution_mode is None:
             if can_use_docker and self._script_has_template(script_path):
                 execution_mode = "docker"
@@ -726,9 +734,9 @@ class SSubcommand(QSubcommand):
     ) -> Tuple[List[str], str, List[str]]:
         """
         Determine the first argument that corresponds to a file (absolute or relative
-        to SCRIPTS_DIR) which exists and whose first line contains 'python'. Everything
-        before that file is treated as docker-like arguments, and everything after it
-        is script arguments.
+        to SCRIPTS_DIR) which exists and whose first line contains 'python'.
+        Everything before that file is treated as docker-like arguments,
+        and everything after it is script arguments.
 
         Returns:
             (docker_args, script, script_args)
@@ -779,12 +787,6 @@ class SSubcommand(QSubcommand):
         Run docker.py with the combined arguments:
           docker.py [docker_args] [script] [script_args]
         """
-        try:
-            os.chdir(self.SCRIPTS_DIR)
-        except Exception as e:
-            logging.error(f"Failed to change directory to '{self.SCRIPTS_DIR}': {e}")
-            return
-
         cmd = [str(docker_script)] + docker_args + [script] + script_args
         logging.info(f"Running Docker script command: {cmd}")
         try:
@@ -807,12 +809,6 @@ class SSubcommand(QSubcommand):
         Run venver.py with the combined arguments:
           venver.py [venver_args] [script] [script_args]
         """
-        try:
-            os.chdir(self.SCRIPTS_DIR)
-        except Exception as e:
-            logging.error(f"Failed to change directory to '{self.SCRIPTS_DIR}': {e}")
-            return
-
         cmd = [str(venver_script)] + venver_args + [script] + script_args
         logging.info(f"Running Venver script command: {cmd}")
         try:
@@ -831,23 +827,8 @@ class SSubcommand(QSubcommand):
         script_args: List[str],
     ) -> None:
         """
-        Run a script locally (without docker.py or venver.py). We still change to SCRIPTS_DIR,
-        then execute the script with all arguments appended.
+        Run a script locally (without docker.py or venver.py).
         """
-        script_path = Path(script)
-        if not script_path.is_absolute():
-            script_path = self.SCRIPTS_DIR / script
-
-        if not script_path.is_file():
-            logging.error(f"Script file '{script_path}' not found.")
-            return
-
-        try:
-            os.chdir(self.SCRIPTS_DIR)
-        except Exception as e:
-            logging.error(f"Failed to change directory to '{self.SCRIPTS_DIR}': {e}")
-            return
-
         cmd = [script] + docker_args + script_args
         logging.info(f"Running local script command: {cmd}")
         try:
