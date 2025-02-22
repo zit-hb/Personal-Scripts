@@ -33,6 +33,54 @@ from typing import Any, Dict, List, Optional, Tuple
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "buchwald" / "q.json"
 
 
+def parse_alias_indices(arg: str, max_len: int) -> List[int]:
+    """
+    Parse an alias removal index argument, which can be a single integer or a range in the form 'start-end'.
+    Returns a list of valid indices to remove.
+    For range inputs, the first number must be smaller than the second.
+    If an invalid range is specified, a fatal error is issued.
+    """
+    indices = []
+    if "-" in arg:
+        parts = arg.split("-")
+        if len(parts) != 2:
+            logging.critical(
+                f"Invalid range format: {arg}. Expected format 'start-end'."
+            )
+            sys.exit(1)
+        try:
+            start = int(parts[0])
+            end = int(parts[1])
+        except ValueError:
+            logging.critical(f"Alias range bounds must be integers: {arg}")
+            sys.exit(1)
+        if start >= end:
+            logging.critical(
+                f"Invalid range: {arg}. The first number should be smaller than the second number."
+            )
+            sys.exit(1)
+        if start < 0:
+            logging.critical(f"Start index {start} is less than 0.")
+            sys.exit(1)
+        if end >= max_len:
+            logging.warning(
+                f"Range upper bound {end} is out of range. Clearing aliases up to index {max_len - 1} instead."
+            )
+            end = max_len - 1
+        indices = list(range(start, end + 1))
+    else:
+        try:
+            idx = int(arg)
+            if 0 <= idx < max_len:
+                indices = [idx]
+            else:
+                logging.critical(f"Index out of range: {idx}")
+                sys.exit(1)
+        except ValueError:
+            logging.warning(f"Alias index must be an integer or range: {arg}")
+    return indices
+
+
 # -------------------------------------------------------
 # Base Configuration
 # -------------------------------------------------------
@@ -232,7 +280,7 @@ class OSubcommand(QSubcommand):
     Defaults to "xdg-open" if no command is explicitly set.
     Aliases are stored as list of (pattern, [replacement1, replacement2, ...]) pairs.
     By default, the command is executed detached with no output.
-    Use the '--foreground' (or '-F') option to run in foreground and print output.
+    Use the '--foreground' (or '-F') option to run in foreground and print its output.
     """
 
     def __init__(self) -> None:
@@ -263,7 +311,7 @@ class OSubcommand(QSubcommand):
         )
         parser.add_argument(
             "-a",
-            "--alias",
+            "--add-alias",
             nargs=argparse.REMAINDER,
             help="Create an alias. Example: -a ^foo$ http://example.org",
         )
@@ -271,7 +319,7 @@ class OSubcommand(QSubcommand):
             "-A",
             "--remove-alias",
             metavar="INDEX",
-            help="Remove an existing alias by its numeric index (as shown by --list-aliases).",
+            help="Remove an existing alias by its numeric index or range (e.g., '6' or '6-10').",
         )
         parser.add_argument(
             "-l",
@@ -309,10 +357,16 @@ class OSubcommand(QSubcommand):
             self.config.save(config_path)
 
         # Possibly list aliases
-        self._list_aliases_if_requested(args)
+        if args.list_aliases:
+            self._list_aliases()
 
         # Possibly open file/path/URL
-        self._open_file_or_alias_if_requested(args)
+        if args.file_or_alias:
+            self._open_file_or_alias(
+                args.file_or_alias, args.disable_aliases, args.foreground
+            )
+        else:
+            logging.info("No path specified, not opening anything")
 
     def _handle_config_updates(self, args: argparse.Namespace) -> bool:
         """
@@ -333,56 +387,61 @@ class OSubcommand(QSubcommand):
             self.config.command = args.command
             config_changed = True
 
-        # Add alias if requested
-        if args.alias:
-            pattern = args.alias[0]
-            replacements = args.alias[1:]
+        # Add alias if requested; if an alias with the same pattern exists, overwrite it.
+        if args.add_alias:
+            pattern = args.add_alias[0]
+            replacements = args.add_alias[1:]
             logging.debug(f"Adding alias pattern '{pattern}' -> {replacements}.")
-            self.config.aliases.append((pattern, replacements))
+            updated = False
+            for idx, (existing_pattern, _) in enumerate(self.config.aliases):
+                if existing_pattern == pattern:
+                    self.config.aliases[idx] = (pattern, replacements)
+                    updated = True
+                    break
+            if not updated:
+                self.config.aliases.append((pattern, replacements))
             config_changed = True
 
-        # Remove alias if requested (by index)
+        # Remove alias if requested (by index or range)
         if args.remove_alias is not None:
-            try:
-                idx = int(args.remove_alias)
-                if 0 <= idx < len(self.config.aliases):
+            indices = parse_alias_indices(args.remove_alias, len(self.config.aliases))
+            if indices:
+                for idx in sorted(indices, reverse=True):
                     logging.debug(f"Removing alias at index {idx}.")
                     del self.config.aliases[idx]
-                    config_changed = True
-                else:
-                    logging.warning(f"Index out of range: {idx}")
-            except ValueError:
-                logging.warning(f"Alias index must be an integer: {args.remove_alias}")
+                config_changed = True
 
         return config_changed
 
-    def _list_aliases_if_requested(self, args: argparse.Namespace) -> None:
+    def _list_aliases(self) -> None:
         """
-        If --list-aliases is requested, prints the currently configured aliases.
+        Prints the currently configured aliases with aligned columns.
         """
-        if args.list_aliases:
-            if self.config.aliases:
-                logging.info("Listing aliases (index, pattern, replacements):")
-                for i, (pat, repls) in enumerate(self.config.aliases):
-                    print(f"{i}\t{pat}\t{repls}")
-            else:
-                logging.info("No aliases are currently configured.")
+        if self.config.aliases:
+            logging.info("Listing aliases (index, pattern, replacements):")
+            max_index_width = max(len(str(i)) for i in range(len(self.config.aliases)))
+            max_pattern_width = max(len(pat) for pat, _ in self.config.aliases)
+            for i, (pat, repls) in enumerate(self.config.aliases):
+                repls_str = " ".join(repls) if repls else ""
+                print(
+                    f"{str(i).ljust(max_index_width)}  {pat.ljust(max_pattern_width)}  {repls_str}"
+                )
+        else:
+            logging.info("No aliases are currently configured.")
 
-    def _open_file_or_alias_if_requested(self, args: argparse.Namespace) -> None:
+    def _open_file_or_alias(
+        self, file_or_alias: str, disable_aliases: bool, foreground: bool
+    ) -> None:
         """
         If a file/path/URL (or alias) was provided, open it with the configured command.
         Applies alias expansions unless explicitly disabled.
         """
-        if not args.file_or_alias:
-            logging.info("No path specified, not opening anything")
-            return
-
         # Expand the single argument into possibly multiple if an alias matches
-        if args.disable_aliases:
-            resolved_args = [args.file_or_alias]
+        if disable_aliases:
+            resolved_args = [file_or_alias]
         else:
             resolved_args = self._apply_aliases_to_arglist(
-                self.config.aliases, [args.file_or_alias]
+                self.config.aliases, [file_or_alias]
             )
 
         cmd = self.config.command if self.config.command is not None else "xdg-open"
@@ -394,7 +453,7 @@ class OSubcommand(QSubcommand):
         # If multiple arguments result, open each in turn
         for rarg in resolved_args:
             logging.info(f"Opening '{rarg}' using '{cmd}'")
-            self._open_with_command(cmd, rarg, args.foreground)
+            self._open_with_command(cmd, rarg, foreground)
 
     @staticmethod
     def _apply_aliases_to_arglist(
@@ -455,16 +514,21 @@ class OSubcommand(QSubcommand):
 class SConfig(QConfig):
     """
     Configuration for the "s" subcommand.
-    Stores aliases under the "s" key in the configuration file.
+    Stores aliases and environment variables under the "s" key in the configuration file.
     """
 
     @classproperty
     def SUBCOMMAND_KEY(self) -> str:
         return "s"
 
-    def __init__(self, aliases: Optional[List[Tuple[str, List[str]]]] = None) -> None:
+    def __init__(
+        self,
+        aliases: Optional[List[Tuple[str, List[str]]]] = None,
+        environment: Optional[Dict[str, str]] = None,
+    ) -> None:
         # Each alias is (pattern, list_of_replacements)
         self.aliases = aliases if aliases is not None else []
+        self.environment = environment if environment is not None else {}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SConfig":
@@ -492,12 +556,19 @@ class SConfig(QConfig):
                 logging.warning(
                     "Alias entry must be [pattern, replacement(s)...]. Skipping."
                 )
-        return cls(aliases=clean_aliases)
+        env_data = data.get("environment", {})
+        if not isinstance(env_data, dict):
+            logging.warning(
+                "Invalid 'environment' type in config. Expected dict; using empty."
+            )
+            env_data = {}
+        return cls(aliases=clean_aliases, environment=env_data)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             # Convert (pattern, [r1, r2, ...]) -> [pattern, r1, r2, ...]
             "aliases": [[pattern] + repls for (pattern, repls) in self.aliases],
+            "environment": self.environment,
         }
 
 
@@ -507,7 +578,7 @@ class SConfig(QConfig):
 class SSubcommand(QSubcommand):
     """
     Subcommand that manages personal scripts from GitHub or runs them
-    with optional aliases and Docker usage.
+    with optional aliases, environment variables, and Docker usage.
     """
 
     SCRIPTS_DIR: Path = Path.home() / ".cache" / "buchwald" / "q" / "scripts"
@@ -518,11 +589,11 @@ class SSubcommand(QSubcommand):
     def register_parser(self, subparsers: argparse._SubParsersAction) -> None:
         parser = subparsers.add_parser(
             "s",
-            help=("Run personal scripts with optional aliases and Docker usage."),
+            help="Run personal scripts with optional aliases and Docker usage.",
         )
         parser.add_argument(
             "-a",
-            "--alias",
+            "--add-alias",
             nargs=argparse.REMAINDER,
             help="Create an alias. Example: -a ^foo$ /some/replacement -h",
         )
@@ -530,13 +601,34 @@ class SSubcommand(QSubcommand):
             "-A",
             "--remove-alias",
             metavar="INDEX",
-            help="Remove an existing alias by its numeric index (as shown by --list-aliases).",
+            help="Remove an existing alias by its numeric index or range (e.g., '6' or '6-10').",
         )
         parser.add_argument(
             "-l",
             "--list-aliases",
             action="store_true",
             help="List all aliases for the 's' subcommand with their indexes.",
+        )
+        parser.add_argument(
+            "-e",
+            "--add-env",
+            nargs=2,
+            metavar=("KEY", "VALUE"),
+            action="append",
+            help="Set an environment variable for the 's' subcommand. Can be used multiple times.",
+        )
+        parser.add_argument(
+            "-E",
+            "--remove-env",
+            metavar="KEY",
+            action="append",
+            help="Remove an environment variable from the 's' subcommand configuration. Can be used multiple times.",
+        )
+        parser.add_argument(
+            "-L",
+            "--list-envs",
+            action="store_true",
+            help="List all environment variables stored in the 's' subcommand configuration.",
         )
         parser.add_argument(
             "-i",
@@ -579,13 +671,18 @@ class SSubcommand(QSubcommand):
         config_path = Path(args.config)
         self.config = SConfig.load(config_path)
 
-        # Handle config updates (aliases)
+        # Handle config updates (aliases and environment variables)
         config_changed = self._handle_config_updates(args)
         if config_changed:
             self.config.save(config_path)
 
         # Possibly list aliases
-        self._list_aliases_if_requested(args)
+        if args.list_aliases:
+            self._list_aliases()
+
+        # Possibly list environment variables
+        if args.list_envs:
+            self._list_environment()
 
         # Possibly list scripts
         if args.list_scripts:
@@ -604,45 +701,83 @@ class SSubcommand(QSubcommand):
 
     def _handle_config_updates(self, args: argparse.Namespace) -> bool:
         """
-        Handle alias additions and removals from CLI arguments.
+        Handle alias and environment variable additions and removals from CLI arguments.
         Returns True if the configuration was changed, False otherwise.
         """
         config_changed = False
 
-        # Add alias if requested
-        if args.alias:
-            pattern = args.alias[0]
-            replacements = args.alias[1:]
+        # Add alias if requested; overwrite if an alias with the same pattern exists.
+        if args.add_alias:
+            pattern = args.add_alias[0]
+            replacements = args.add_alias[1:]
             logging.debug(f"Adding alias pattern '{pattern}' -> {replacements}.")
-            self.config.aliases.append((pattern, replacements))
+            updated = False
+            for idx, (existing_pattern, _) in enumerate(self.config.aliases):
+                if existing_pattern == pattern:
+                    self.config.aliases[idx] = (pattern, replacements)
+                    updated = True
+                    break
+            if not updated:
+                self.config.aliases.append((pattern, replacements))
             config_changed = True
 
-        # Remove alias if requested (by index)
+        # Remove alias if requested (by index or range)
         if args.remove_alias is not None:
-            try:
-                idx = int(args.remove_alias)
-                if 0 <= idx < len(self.config.aliases):
+            indices = parse_alias_indices(args.remove_alias, len(self.config.aliases))
+            if indices:
+                for idx in sorted(indices, reverse=True):
                     logging.debug(f"Removing alias at index {idx}.")
                     del self.config.aliases[idx]
+                config_changed = True
+
+        # Set environment variable(s) if requested; overwrite if key already exists.
+        if args.add_env:
+            for key, value in args.add_env:
+                logging.debug(f"Setting environment variable '{key}' to '{value}'.")
+                self.config.environment[key] = value
+                config_changed = True
+
+        # Unset environment variable(s) if requested
+        if args.remove_env:
+            for key in args.remove_env:
+                if key in self.config.environment:
+                    logging.debug(f"Removing environment variable '{key}'.")
+                    del self.config.environment[key]
                     config_changed = True
                 else:
-                    logging.warning(f"Index out of range: {idx}")
-            except ValueError:
-                logging.warning(f"Alias index must be an integer: {args.remove_alias}")
+                    logging.warning(
+                        f"Environment variable '{key}' not found in configuration."
+                    )
 
         return config_changed
 
-    def _list_aliases_if_requested(self, args: argparse.Namespace) -> None:
+    def _list_aliases(self) -> None:
         """
-        If --list-aliases is requested, prints the currently configured aliases.
+        Prints the currently configured aliases with aligned columns.
         """
-        if args.list_aliases:
-            if self.config.aliases:
-                logging.info("Listing aliases (index, pattern, replacements):")
-                for i, (pat, repls) in enumerate(self.config.aliases):
-                    print(f"{i}\t{pat}\t{repls}")
-            else:
-                logging.info("No aliases are currently configured.")
+        if self.config.aliases:
+            logging.info("Listing aliases (index, pattern, replacements):")
+            max_index_width = max(len(str(i)) for i in range(len(self.config.aliases)))
+            max_pattern_width = max(len(pat) for pat, _ in self.config.aliases)
+            for i, (pat, repls) in enumerate(self.config.aliases):
+                repls_str = " ".join(repls) if repls else ""
+                print(
+                    f"{str(i).ljust(max_index_width)}  {pat.ljust(max_pattern_width)}  {repls_str}"
+                )
+        else:
+            logging.info("No aliases are currently configured.")
+
+    def _list_environment(self) -> None:
+        """
+        Prints the currently stored environment variables with aligned keys.
+        """
+        if self.config.environment:
+            logging.info("Listing environment variables:")
+            max_key_width = max(len(key) for key in self.config.environment.keys())
+            for key, value in self.config.environment.items():
+                print(f"{key.ljust(max_key_width)} = {value}")
+        else:
+            logging.info("No environment variables are currently configured.")
 
     def _run_script_with_arguments(self, args: argparse.Namespace) -> None:
         """
@@ -790,7 +925,9 @@ class SSubcommand(QSubcommand):
         cmd = [str(docker_script)] + docker_args + [script] + script_args
         logging.info(f"Running Docker script command: {cmd}")
         try:
-            result = subprocess.run(cmd)
+            env = os.environ.copy()
+            env.update(self.config.environment)
+            result = subprocess.run(cmd, env=env)
             if result.returncode != 0:
                 logging.error(
                     f"'docker.py' exited with return code {result.returncode}"
@@ -812,7 +949,9 @@ class SSubcommand(QSubcommand):
         cmd = [str(venver_script)] + venver_args + [script] + script_args
         logging.info(f"Running Venver script command: {cmd}")
         try:
-            result = subprocess.run(cmd)
+            env = os.environ.copy()
+            env.update(self.config.environment)
+            result = subprocess.run(cmd, env=env)
             if result.returncode != 0:
                 logging.error(
                     f"'venver.py' exited with return code {result.returncode}"
@@ -832,7 +971,9 @@ class SSubcommand(QSubcommand):
         cmd = [script] + docker_args + script_args
         logging.info(f"Running local script command: {cmd}")
         try:
-            result = subprocess.run(cmd)
+            env = os.environ.copy()
+            env.update(self.config.environment)
+            result = subprocess.run(cmd, env=env)
             if result.returncode != 0:
                 logging.error(
                     f"Local script exited with return code {result.returncode}"
@@ -1058,7 +1199,7 @@ class USubcommand(QSubcommand):
     def register_parser(self, subparsers: argparse._SubParsersAction) -> None:
         parser = subparsers.add_parser(
             "u",
-            help=("Auto-update this script from the remote repository."),
+            help="Auto-update this script from the remote repository.",
         )
         parser.add_argument(
             "-c",
