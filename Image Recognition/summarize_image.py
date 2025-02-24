@@ -28,6 +28,7 @@
 # -------------------------------------------------------
 
 import argparse
+import base64
 import gzip
 import logging
 import os
@@ -35,7 +36,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 
-import openai
+from openai import OpenAI
 from PIL import Image
 
 
@@ -174,7 +175,7 @@ def extract_content(file_path: str) -> str:
 
 
 def summarize_image(
-    image_path: str, detail_level: str, config: SummaryConfig, api_key: str
+    image_path: str, detail_level: str, config: SummaryConfig, client: OpenAI
 ) -> str:
     """
     Sends an image to the GPT API for summarization using image recognition.
@@ -188,15 +189,24 @@ def summarize_image(
     )
     try:
         with open(image_path, "rb") as img_file:
-            response = openai.ChatCompletion.create(
-                model=config.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                files={"image": img_file},
-                api_key=api_key,
-            )
+            image_data = img_file.read()
+            image_b64 = base64.b64encode(image_data).decode("utf-8")
+
+        user_content = [
+            {"type": "text", "text": user_prompt},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+            },
+        ]
+
+        response = client.chat.completions.create(
+            model=config.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+        )
         summary = response.choices[0].message.content.strip()
         return summary
     except Exception as e:
@@ -204,12 +214,14 @@ def summarize_image(
         return "Error summarizing image."
 
 
-def process_image_summary(image_path: str, config: SummaryConfig, api_key: str) -> None:
+def process_image_summary(
+    image_path: str, config: SummaryConfig, client: OpenAI
+) -> None:
     """
     Processes image content by sending it to the GPT API for summarization.
     """
     logging.info("Processing image for summarization...")
-    summary = summarize_image(image_path, config.detail_level, config, api_key)
+    summary = summarize_image(image_path, config.detail_level, config, client)
     print(summary)
     try:
         os.remove(image_path)
@@ -231,13 +243,15 @@ def main() -> None:
         )
         sys.exit(1)
 
+    client = OpenAI(api_key=api_key)
+
     config = SummaryConfig(
         detail_level=args.detail_level,
         model=args.model,
     )
 
     image_file = extract_content(args.input_file)
-    process_image_summary(image_file, config, api_key)
+    process_image_summary(image_file, config, client)
 
 
 if __name__ == "__main__":

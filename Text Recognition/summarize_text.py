@@ -18,7 +18,7 @@
 #   -R, --max-requests N          Maximum number of GPT requests (default: 0 for unlimited).
 #   -M, --max-input-size TOKENS   Maximum total tokens to process (default: 10000).
 #   -d, --detail-level LEVEL      Summary detail level: brief, medium, or detailed (default: medium).
-#   -f, --force-format FORMAT     Force input file format (e.g., txt, pdf, docx).
+#   -f, --force-format FORMAT     Force input file format (e.g., txt, pdf, docx, image).
 #   -s, --min-string-length N     Minimum length for a string segment (default: 4).
 #   -v, --verbose                 Enable verbose logging (INFO level).
 #   -vv, --debug                  Enable debug logging (DEBUG level).
@@ -46,8 +46,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Optional, List
 
-import openai
-
+from openai import OpenAI
 
 DETAIL_LEVEL_PROMPTS = {
     "brief": "Provide a brief summary of the text I will provide you in my next messages.",
@@ -325,7 +324,7 @@ def split_text_into_chunks(text: str, chunk_size: int) -> List[str]:
 def summarize_text_chunk(
     chunk: str,
     config: SummaryConfig,
-    api_key: str,
+    client: OpenAI,
     history: List[dict],
 ) -> str:
     """
@@ -334,11 +333,7 @@ def summarize_text_chunk(
     """
     history.append({"role": "user", "content": chunk})
     try:
-        response = openai.ChatCompletion.create(
-            model=config.model,
-            messages=history,
-            api_key=api_key,
-        )
+        response = client.chat.completions.create(model=config.model, messages=history)
         summary = response.choices[0].message.content.strip()
         history.append({"role": "assistant", "content": summary})
         return summary
@@ -349,7 +344,7 @@ def summarize_text_chunk(
         return summary
 
 
-def process_text_summary(content: str, config: SummaryConfig, api_key: str) -> None:
+def process_text_summary(content: str, config: SummaryConfig, client: OpenAI) -> None:
     """
     Processes text content: tokenizes, splits into chunks, and summarizes each chunk.
     The previous conversation history (chunks and summaries) is included for every new summary.
@@ -386,7 +381,7 @@ def process_text_summary(content: str, config: SummaryConfig, api_key: str) -> N
 
     for i, chunk in enumerate(chunks, start=1):
         logging.info(f"Summarizing chunk {i}/{len(chunks)}...")
-        summary = summarize_text_chunk(chunk, config, api_key, conversation_history)
+        summary = summarize_text_chunk(chunk, config, client, conversation_history)
         print(summary)
 
 
@@ -404,6 +399,8 @@ def main() -> None:
         )
         sys.exit(1)
 
+    client = OpenAI(api_key=api_key)
+
     config = SummaryConfig(
         chunk_size=args.chunk_size,
         max_requests=args.max_requests if args.max_requests > 0 else None,
@@ -415,7 +412,7 @@ def main() -> None:
     content = extract_content(
         args.input_file, args.force_format, args.min_string_length
     )
-    process_text_summary(content, config, api_key)
+    process_text_summary(content, config, client)
 
 
 if __name__ == "__main__":
