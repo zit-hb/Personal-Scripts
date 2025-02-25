@@ -312,16 +312,11 @@ def generate_dockerfile(
     logging.info(f"Dockerfile generated at '{dockerfile_path}'")
 
 
-def run_build_command(
-    cmd: List[str], verbose: bool, tty_mode: bool, test_mode: bool
-) -> int:
+def run_build_command(cmd: List[str], verbose: bool) -> int:
     """
     Runs the docker build command.
-    If verbose and tty_mode and not test_mode: run without capture (live output).
-    Otherwise: run with capture. If verbose, log the output; if not verbose, do not log.
     """
-    if verbose and tty_mode and not test_mode:
-        # Live output (no capture)
+    if verbose:
         result = subprocess.run(cmd)
         if result.returncode != 0:
             logging.error(
@@ -329,11 +324,7 @@ def run_build_command(
             )
         return result.returncode
     else:
-        # Capture output
         result = subprocess.run(cmd, capture_output=True, text=True)
-        if verbose:
-            logging.info(result.stdout)
-            logging.info(result.stderr)
         if result.returncode != 0:
             logging.error(
                 f"Failed to build Docker image. Exit code: {result.returncode}"
@@ -347,8 +338,6 @@ def build_docker_image(
     image_tag: str,
     no_cache: bool,
     verbose: bool,
-    tty_mode: bool,
-    test_mode: bool,
 ) -> int:
     """
     Builds the Docker image using the Dockerfile.
@@ -359,25 +348,20 @@ def build_docker_image(
     cmd.append(context_dir)
     logging.info(f"Building Docker image with tag '{image_tag}'")
 
-    return run_build_command(cmd, verbose, tty_mode, test_mode)
+    return run_build_command(cmd, verbose)
 
 
-def run_container_command(
-    cmd: List[str], verbose: bool, tty_mode: bool, test_mode: bool
-) -> int:
+def run_container_command(cmd: List[str], verbose: bool, test_mode: bool) -> int:
     """
     Runs the docker run command.
-    If test_mode or not tty_mode: capture and if verbose log output, else no logging.
-    Otherwise (no test_mode and tty_mode): run without capture (live output).
     """
-    if test_mode or not tty_mode:
+    if test_mode:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if verbose:
             logging.info(result.stdout)
             logging.info(result.stderr)
         return result.returncode
     else:
-        # Live output
         result = subprocess.run(cmd)
         return result.returncode
 
@@ -410,16 +394,15 @@ def run_docker_container(
     if gpu:
         cmd += ["--gpus", "all"]
 
-    # If tty_mode and not test_mode, we will run with live output (no capture),
-    # so we add '-it' to docker run in that scenario
-    if tty_mode and not test_mode:
-        cmd += ["-it"]
+    if tty_mode:
+        cmd += ["-t"]
+
+    cmd += ["-i"]
 
     if env_vars:
         for env_var in env_vars:
             cmd += ["-e", env_var]
 
-    # Add port mappings
     if ports:
         for port_mapping in ports:
             cmd += ["-p", port_mapping]
@@ -442,7 +425,7 @@ def run_docker_container(
 
     logging.info(f"Running Docker container with command: {' '.join(cmd)}")
 
-    return run_container_command(cmd, verbose, tty_mode, test_mode)
+    return run_container_command(cmd, verbose, test_mode)
 
 
 def normalize_script_name(script_path: str) -> str:
@@ -499,8 +482,6 @@ def process_single_script(
             image_tag=image_tag,
             no_cache=args.no_cache,
             verbose=args.verbose,
-            tty_mode=tty_mode,
-            test_mode=test_mode,
         )
         if build_status != 0:
             return False
@@ -672,8 +653,6 @@ def main() -> None:
             image_tag=image_tag,
             no_cache=args.no_cache,
             verbose=args.verbose,
-            tty_mode=tty_mode,
-            test_mode=test_mode,
         )
 
         if build_status != 0:
