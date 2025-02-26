@@ -11,7 +11,7 @@ A repository of scripts that solve my problems. There are no guarantees. If you 
 ```bash
 wget https://raw.githubusercontent.com/zit-hb/Personal-Scripts/refs/heads/master/Meta/q.py -O ~/.local/bin/q
 chmod +x ~/.local/bin/q
-q u
+q u -s
 ```
 
 **Basic Usage:**
