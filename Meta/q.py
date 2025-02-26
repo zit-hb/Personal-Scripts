@@ -631,15 +631,6 @@ class SSubcommand(QSubcommand):
             help="List all environment variables stored in the 's' subcommand configuration.",
         )
         parser.add_argument(
-            "-i",
-            "--install",
-            action="store_true",
-            help=(
-                "Download the scripts tarball from GitHub and extract it to "
-                f"{self.SCRIPTS_DIR}. Existing directory is removed first."
-            ),
-        )
-        parser.add_argument(
             "-X",
             "--disable-aliases",
             action="store_true",
@@ -688,12 +679,6 @@ class SSubcommand(QSubcommand):
         if args.list_scripts:
             self._list_scripts()
             return
-
-        # Possibly install scripts
-        if args.install:
-            logging.info("Installing scripts from GitHub...")
-            if not self._install_scripts():
-                return
 
         # Run script if there are arguments
         if args.args:
@@ -793,7 +778,7 @@ class SSubcommand(QSubcommand):
         if not self.SCRIPTS_DIR.is_dir():
             logging.error(
                 f"The scripts directory '{self.SCRIPTS_DIR}' does not exist. "
-                "Please run 'q s --install' first."
+                "Please run 'q u' to update/install personal scripts."
             )
             return
 
@@ -848,7 +833,7 @@ class SSubcommand(QSubcommand):
             if not docker_script.is_file():
                 logging.error(
                     "Cannot find 'docker.py' in the 'Meta' directory. "
-                    "Please run 'q s --install' again or check the repository structure."
+                    "Please run 'q u' again or check the repository structure."
                 )
                 return
             self._run_docker_script(docker_script, docker_args, script, script_args)
@@ -857,7 +842,7 @@ class SSubcommand(QSubcommand):
             if not venver_script.is_file():
                 logging.error(
                     "Cannot find 'venver.py' in the 'Meta' directory. "
-                    "Please run 'q s --install' again or check the repository structure."
+                    "Please run 'q u' again or check the repository structure."
                 )
                 return
             self._run_venver_script(venver_script, docker_args, script, script_args)
@@ -981,84 +966,6 @@ class SSubcommand(QSubcommand):
         except Exception as e:
             logging.error(f"Error running local script '{script}': {e}")
 
-    def _install_scripts(self) -> bool:
-        """
-        Download and extract the personal scripts from GitHub into SCRIPTS_DIR.
-        Overwrite any existing directory. Return True if succeeded, False otherwise.
-        """
-        url = "https://github.com/zit-hb/Personal-Scripts/archive/refs/heads/master.tar.gz"
-
-        # Remove existing directory if it exists
-        if self.SCRIPTS_DIR.exists():
-            logging.debug(f"Removing existing scripts directory: {self.SCRIPTS_DIR}")
-            try:
-                shutil.rmtree(self.SCRIPTS_DIR)
-            except Exception as e:
-                logging.error(f"Failed to remove existing scripts directory: {e}")
-                return False
-
-        # Attempt to create the scripts directory
-        try:
-            self.SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-        except PermissionError as e:
-            logging.error(
-                f"Permission error while creating scripts directory '{self.SCRIPTS_DIR}': {e}"
-            )
-            return False
-        except Exception as e:
-            logging.error(
-                f"Could not create scripts directory '{self.SCRIPTS_DIR}': {e}"
-            )
-            return False
-
-        # Create a temporary file for the downloaded tarball
-        try:
-            temp_fd, temp_path = tempfile.mkstemp(suffix=".tar.gz")
-            os.close(temp_fd)
-        except Exception as e:
-            logging.error(f"Failed to create a temporary file for download: {e}")
-            return False
-
-        # Download the tarball
-        logging.debug(f"Downloading scripts from {url} to {temp_path}")
-        try:
-            with (
-                urllib.request.urlopen(url) as response,
-                open(temp_path, "wb") as out_file,
-            ):
-                out_file.write(response.read())
-        except Exception as e:
-            logging.error(f"Failed to download scripts from {url}: {e}")
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
-            return False
-
-        # Extract the tarball
-        try:
-            logging.debug(f"Extracting tarball {temp_path} to {self.SCRIPTS_DIR}")
-            with tarfile.open(temp_path, "r:gz") as tar:
-                tar.extractall(self.SCRIPTS_DIR)
-
-            # The tar archive creates "Personal-Scripts-master"
-            top_level_dir = self.SCRIPTS_DIR / "Personal-Scripts-master"
-            if top_level_dir.is_dir():
-                for item in top_level_dir.iterdir():
-                    shutil.move(str(item), str(self.SCRIPTS_DIR))
-                shutil.rmtree(top_level_dir)
-        except Exception as e:
-            logging.error(f"Failed to extract scripts: {e}")
-            return False
-        finally:
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
-
-        print("Scripts installed successfully.")
-        return True
-
     @staticmethod
     def _apply_aliases_to_arglist(
         aliases: List[Tuple[str, List[str]]], args_list: List[str]
@@ -1105,7 +1012,7 @@ class SSubcommand(QSubcommand):
         if not self.SCRIPTS_DIR.is_dir():
             logging.error(
                 f"The scripts directory '{self.SCRIPTS_DIR}' does not exist. "
-                "Please run 'q s --install' first."
+                "Please run 'q u' to update/install personal scripts."
             )
             return
 
@@ -1186,84 +1093,248 @@ class SSubcommand(QSubcommand):
 # -------------------------------------------------------
 class USubcommand(QSubcommand):
     """
-    Subcommand that auto-updates this script from a remote URL.
-    Compares sha512 hashes of the remote and local scripts.
-    If they differ, optionally replaces the local script with the remote version.
+    Subcommand that auto-updates this script from a remote URL,
+    and also updates personal scripts from a tarball if needed.
+    Compares sha512 hashes (local vs. remote) for both q.py and master.tar.gz.
     """
 
     UPDATE_URL = (
         "https://raw.githubusercontent.com/"
         "zit-hb/Personal-Scripts/refs/heads/master/Meta/q.py"
     )
+    TARBALL_URL = (
+        "https://github.com/zit-hb/Personal-Scripts/archive/refs/heads/master.tar.gz"
+    )
+
+    SCRIPTS_DIR: Path = Path.home() / ".cache" / "buchwald" / "q" / "scripts"
+    TARBALL_HASH_FILE: Path = SCRIPTS_DIR / ".tarball.sha512"
 
     def register_parser(self, subparsers: argparse._SubParsersAction) -> None:
         parser = subparsers.add_parser(
             "u",
-            help="Auto-update this script from the remote repository.",
+            help="Auto-update this script (q.py) and personal scripts tarball from the remote repository.",
         )
         parser.add_argument(
             "-c",
             "--only-check",
             action="store_true",
-            help="Only check for a new version (compare sha512), do not replace the local script.",
+            help="Only check for new versions (compare sha512), do not replace/update anything.",
+        )
+        parser.add_argument(
+            "-q",
+            "--only-q-script",
+            action="store_true",
+            help="Only update the 'q' script, do not update the personal scripts tarball.",
+        )
+        parser.add_argument(
+            "-s",
+            "--only-scripts",
+            action="store_true",
+            help="Only update the personal scripts tarball, do not update the 'q' script.",
         )
         parser.set_defaults(subcommand_obj=self)
 
     def run(self, args: argparse.Namespace) -> None:
         """
-        Perform the update logic: compare local and remote sha512;
-        if different and not only-check, replace the local script.
+        Perform update logic for both the local q.py script and the personal scripts tarball.
+        """
+        do_update_q = True
+        do_update_scripts = True
+
+        # If user specified only one or the other, adjust accordingly
+        if args.only_q_script and not args.only_scripts:
+            do_update_scripts = False
+        elif args.only_scripts and not args.only_q_script:
+            do_update_q = False
+
+        # If neither is specified, we do both (already True).
+        # If both are specified, we also do both.
+
+        # Possibly update q.py
+        if do_update_q:
+            self._handle_q_script_update(args.only_check)
+
+        # Possibly update personal scripts tarball
+        if do_update_scripts:
+            self._handle_scripts_tarball_update(args.only_check)
+
+    def _handle_q_script_update(self, only_check: bool) -> None:
+        """
+        Check and possibly update q.py.
         """
         local_path = Path(__file__).resolve()
-        logging.debug(f"Local script path: {local_path}")
+        logging.info(f"Checking for a new version of 'q' script at: {self.UPDATE_URL}")
 
         remote_data = self._download_remote_script()
         if remote_data is None:
-            logging.error("Failed to download the remote script.")
+            logging.error("Failed to download the remote 'q' script.")
             return
 
         local_hash = self._calculate_sha512_file(local_path)
         remote_hash = self._calculate_sha512_data(remote_data)
-        logging.debug(f"Local sha512:  {local_hash}")
-        logging.debug(f"Remote sha512: {remote_hash}")
 
-        self._compare_and_update_if_needed(
-            args, local_path, remote_data, local_hash, remote_hash
-        )
+        if not local_hash:
+            logging.error(
+                "Could not read local 'q' script for hashing; skipping update check."
+            )
+            return
 
-    def _compare_and_update_if_needed(
-        self,
-        args: argparse.Namespace,
-        local_path: Path,
-        remote_data: bytes,
-        local_hash: str,
-        remote_hash: str,
-    ) -> None:
-        """
-        Compare the local and remote hashes. If they differ, handle update
-        logic depending on the --only-check argument.
-        """
         if local_hash == remote_hash:
-            print("Your script is already up to date.")
+            print("Your 'q' script is already up to date.")
         else:
-            print("A new version is available.")
-            if args.only_check:
+            print("A new version of the 'q' script is available.")
+            if only_check:
+                logging.info("Not updating because --only-check was specified.")
                 return
             if self._update_local_script(local_path, remote_data):
-                print("Script updated successfully.")
+                print("The 'q' script was updated successfully.")
             else:
-                logging.error("Failed to update the local script.")
+                logging.error("Failed to update the local 'q' script.")
 
-    @staticmethod
-    def _download_remote_script() -> Optional[bytes]:
+    def _handle_scripts_tarball_update(self, only_check: bool) -> None:
         """
-        Download the remote script and return its bytes, or None on error.
+        Check and possibly update the personal scripts tarball.
+        """
+        logging.info(
+            f"Checking for a new version of personal scripts tarball at: {self.TARBALL_URL}"
+        )
+
+        # Download remote tarball to check hash
+        temp_fd = None
+        temp_path = None
+        try:
+            temp_fd, temp_path = tempfile.mkstemp(suffix=".tar.gz")
+            os.close(temp_fd)
+        except Exception as e:
+            logging.error(
+                f"Failed to create a temporary file for the tarball download: {e}"
+            )
+            return
+
+        remote_tarball_data = None
+        try:
+            with urllib.request.urlopen(self.TARBALL_URL) as response:
+                remote_tarball_data = response.read()
+            with open(temp_path, "wb") as out_file:
+                out_file.write(remote_tarball_data)
+        except Exception as e:
+            logging.error(f"Failed to download the tarball: {e}")
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+            return
+
+        if remote_tarball_data is None:
+            logging.error("Failed to download the tarball (empty data).")
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+            return
+
+        remote_hash = self._calculate_sha512_data(remote_tarball_data)
+        local_hash = self._read_local_tarball_hash()
+
+        if local_hash and local_hash == remote_hash:
+            print("Your personal scripts are already up to date.")
+            os.remove(temp_path)
+            return
+
+        print("A new version of the personal scripts tarball is available.")
+        if only_check:
+            logging.info("Not updating because --only-check was specified.")
+            os.remove(temp_path)
+            return
+
+        # Proceed with update: remove old directory, extract new tarball, store new hash
+        self._update_scripts_directory(temp_path, remote_hash)
+
+    def _update_scripts_directory(
+        self, tarball_path: str, new_tarball_hash: str
+    ) -> None:
+        """
+        Remove existing scripts directory (if any), extract the new tarball,
+        and store the new hash.
+        """
+        logging.info(f"Updating the personal scripts in '{self.SCRIPTS_DIR}' now...")
+
+        # Remove existing directory if it exists
+        if self.SCRIPTS_DIR.exists():
+            logging.info("Removing the old scripts directory...")
+            try:
+                shutil.rmtree(self.SCRIPTS_DIR)
+            except Exception as e:
+                logging.error(f"Failed to remove the existing scripts directory: {e}")
+                if os.path.exists(tarball_path):
+                    os.remove(tarball_path)
+                return
+
+        # Attempt to create the scripts directory
+        try:
+            self.SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            logging.error(f"Permission error while creating '{self.SCRIPTS_DIR}': {e}")
+            if os.path.exists(tarball_path):
+                os.remove(tarball_path)
+            return
+        except Exception as e:
+            logging.error(f"Could not create '{self.SCRIPTS_DIR}': {e}")
+            if os.path.exists(tarball_path):
+                os.remove(tarball_path)
+            return
+
+        logging.info("Extracting new personal scripts tarball...")
+        try:
+            with tarfile.open(tarball_path, "r:gz") as tar:
+                tar.extractall(self.SCRIPTS_DIR)
+
+            top_level_dir = self.SCRIPTS_DIR / "Personal-Scripts-master"
+            if top_level_dir.is_dir():
+                for item in top_level_dir.iterdir():
+                    shutil.move(str(item), str(self.SCRIPTS_DIR))
+                shutil.rmtree(top_level_dir)
+        except Exception as e:
+            logging.error(f"Failed to extract scripts: {e}")
+            if os.path.exists(tarball_path):
+                os.remove(tarball_path)
+            return
+        finally:
+            if os.path.exists(tarball_path):
+                os.remove(tarball_path)
+
+        # Write the new tarball hash
+        self._write_local_tarball_hash(new_tarball_hash)
+        print("Personal scripts updated successfully.")
+
+    def _read_local_tarball_hash(self) -> str:
+        """
+        Read and return the stored tarball sha512 hash from TARBALL_HASH_FILE.
+        If the file does not exist or can't be read, return an empty string.
+        """
+        if not self.TARBALL_HASH_FILE.is_file():
+            return ""
+        try:
+            return self.TARBALL_HASH_FILE.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            logging.debug(f"Failed to read local tarball hash file: {e}")
+            return ""
+
+    def _write_local_tarball_hash(self, new_hash: str) -> None:
+        """
+        Write the new tarball sha512 hash to TARBALL_HASH_FILE.
         """
         try:
-            with urllib.request.urlopen(USubcommand.UPDATE_URL) as response:
+            self.TARBALL_HASH_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self.TARBALL_HASH_FILE.write_text(new_hash, encoding="utf-8")
+        except Exception as e:
+            logging.debug(f"Failed to write tarball hash file: {e}")
+
+    def _download_remote_script(self) -> Optional[bytes]:
+        """
+        Download the remote q.py script and return its bytes, or None on error.
+        """
+        try:
+            with urllib.request.urlopen(self.UPDATE_URL) as response:
                 return response.read()
         except Exception as e:
-            logging.error(f"Error downloading remote script: {e}")
+            logging.error(f"Error downloading remote 'q' script: {e}")
             return None
 
     @staticmethod
@@ -1298,11 +1369,10 @@ class USubcommand(QSubcommand):
         try:
             with local_path.open("wb") as f:
                 f.write(new_data)
+            return True
         except Exception as e:
             logging.error(f"Error writing updated script to '{local_path}': {e}")
             return False
-
-        return True
 
 
 # -------------------------------------------------------

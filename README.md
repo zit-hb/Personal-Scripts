@@ -11,7 +11,7 @@ A repository of scripts that solve my problems. There are no guarantees. If you 
 ```bash
 wget https://raw.githubusercontent.com/zit-hb/Personal-Scripts/refs/heads/master/Meta/q.py -O ~/.local/bin/q
 chmod +x ~/.local/bin/q
-q s --install
+q u
 ```
 
 **Basic Usage:**
@@ -32,13 +32,6 @@ You can add aliases to run scripts with even fewer characters:
 ```bash
 q s --alias '^si$' 'Network Analysis/diagnose_network.py' co si
 q s si -h
-```
-
-**Update:**
-
-You can update `q.py` by running:
-```bash
-q u
 ```
 
 ## Using `docker.py`
