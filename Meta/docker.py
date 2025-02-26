@@ -33,6 +33,7 @@
 #   -c, --cache PATH                  Path to a directory to use as a cache (default: ~/.cache/buchwald).
 #   -Y, --no-tty                      Disable TTY mode even if stdout is a terminal.
 #   -p, --port PORT_MAPPING           Forward ports from the Docker container (e.g., 8080:8080). Can be specified multiple times.
+#   -u, --user-id UID                 UID of the user inside the container (default: current user's UID)
 #
 # Requirements:
 # - Docker must be installed and running on the host system.
@@ -219,6 +220,13 @@ def parse_arguments() -> argparse.Namespace:
         help="Forward ports from the Docker container (e.g., 8080:8080). Can be specified multiple times.",
     )
     parser.add_argument(
+        "-u",
+        "--user-id",
+        type=int,
+        default=os.getuid(),
+        help="UID of the user inside the container (default: current user's UID)",
+    )
+    parser.add_argument(
         "target_script_and_args",
         nargs=argparse.REMAINDER,
         help="The target script plus any arguments to pass inside the Docker container.",
@@ -380,6 +388,7 @@ def run_docker_container(
     verbose: bool,
     tty_mode: bool,
     test_mode: bool,
+    user_id: Optional[int],
     ports: Optional[List[str]] = None,
 ) -> int:
     """
@@ -406,6 +415,9 @@ def run_docker_container(
     if ports:
         for port_mapping in ports:
             cmd += ["-p", port_mapping]
+
+    if user_id is not None:
+        cmd += ["--user", str(user_id)]
 
     script_name = os.path.basename(target_script_path)
     cmd += ["-v", f"{os.path.abspath(target_script_path)}:/app/{script_name}:ro"]
@@ -506,6 +518,7 @@ def process_single_script(
             verbose=args.verbose,
             tty_mode=tty_mode,
             test_mode=test_mode,
+            user_id=args.user_id,
             ports=args.port,
         )
 
@@ -673,6 +686,7 @@ def main() -> None:
             verbose=args.verbose,
             tty_mode=tty_mode,
             test_mode=test_mode,
+            user_id=args.user_id,
             ports=args.port,
         )
         sys.exit(run_status)
