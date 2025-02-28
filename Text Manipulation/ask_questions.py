@@ -28,6 +28,7 @@
 # Requirements:
 #   - openai (install via: pip install openai==1.64.0)
 #   - rich (install via: pip install rich==13.9.4)
+#   - prompt_toolkit (install via: pip install prompt_toolkit==3.0.50)
 #
 # -------------------------------------------------------
 # © 2025 Hendrik Buchwald. All rights reserved.
@@ -39,9 +40,11 @@ import logging
 import os
 import sys
 from typing import List, Dict, Tuple
+
+from openai import OpenAI
 from rich.console import Console
 from rich.markdown import Markdown
-from openai import OpenAI
+from prompt_toolkit import PromptSession
 
 console = Console() if Console else None
 
@@ -174,17 +177,29 @@ def chat_with_model(
 
 def gather_user_multiline_input() -> str:
     """
-    Gathers multiline user input from stdin until EOF is encountered.
+    Gathers multiline user input using prompt_toolkit with full editing capabilities.
+    Supports arrow keys, deletion, syntax highlighting, and other terminal features.
     """
-    logging.info("Waiting for user input (press Ctrl+D to finish AFTER new line):")
-    lines = []
+    session = PromptSession(
+        multiline=True,
+        enable_history_search=True,
+        complete_while_typing=True,
+    )
+
+    logging.info("Enter your text (press ESC followed by Enter to submit):")
+
     try:
-        while True:
-            line = input()
-            lines.append(line)
+        text = session.prompt(
+            "> ",
+            default="",
+        )
+        return text.strip()
+    except KeyboardInterrupt:
+        logging.warning("\nInput cancelled by user.")
+        sys.exit(1)
     except EOFError:
-        pass
-    return "\n".join(lines)
+        logging.warning("\nEOF detected.")
+        sys.exit(1)
 
 
 def print_markdown(text: str) -> None:
