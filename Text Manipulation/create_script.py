@@ -41,6 +41,7 @@
 #   - rich (install via: pip install rich==13.9.4)
 #   - ruff (install via: pip install ruff==0.9.7)
 #   - anthropic (install via: pip install anthropic==0.48.0)
+#   - prompt_toolkit (install via: pip install prompt_toolkit==3.0.50)
 #
 # -------------------------------------------------------
 # © 2025 Hendrik Buchwald. All rights reserved.
@@ -62,6 +63,7 @@ from anthropic import Anthropic
 from openai import OpenAI
 from rich.console import Console
 from rich.syntax import Syntax
+from prompt_toolkit import PromptSession
 
 console = Console() if Console else None
 
@@ -645,17 +647,29 @@ def get_api_key(provided_key: Optional[str], provider: str) -> str:
 
 def gather_user_multiline_input() -> str:
     """
-    Gathers multiline user input from stdin until EOF is encountered.
+    Gathers multiline user input using prompt_toolkit with full editing capabilities.
+    Supports arrow keys, deletion, syntax highlighting, and other terminal features.
     """
-    logging.info("Waiting for user input (press Ctrl+D to finish AFTER new line):")
-    lines: List[str] = []
+    session = PromptSession(
+        multiline=True,
+        enable_history_search=True,
+        complete_while_typing=True,
+    )
+
+    logging.info("Enter your text (press ESC followed by Enter to submit):")
+
     try:
-        while True:
-            line = input()
-            lines.append(line)
+        text = session.prompt(
+            "> ",
+            default="",
+        )
+        return text.strip()
+    except KeyboardInterrupt:
+        logging.warning("\nInput cancelled by user.")
+        sys.exit(1)
     except EOFError:
-        pass
-    return "\n".join(lines).strip()
+        logging.warning("\nEOF detected.")
+        sys.exit(1)
 
 
 def extract_code_from_response(response: str) -> str:
