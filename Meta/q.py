@@ -879,7 +879,7 @@ class SSubcommand(QSubcommand):
                     with candidate_path.open("r", encoding="utf-8") as f:
                         first_line = f.readline()
                     if "python" in first_line:
-                        script = arg
+                        script = str(candidate_path)
                         script_args = all_args[i + 1 :]
                         script_found = True
                         break
