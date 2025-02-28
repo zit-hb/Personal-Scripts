@@ -16,8 +16,10 @@
 #   modify    Modify an existing script.
 #
 # Options:
-#   -k, --api-key API_KEY               Your OpenAI API key (or set via OPENAI_API_KEY).
+#   -k, --api-key API_KEY               Your OpenAI or Anthropic API key (or set via OPENAI_API_KEY / ANTHROPIC_API_KEY).
 #   -m, --model MODEL                   Model to use (default: "o1-mini").
+#   -P, --provider PROVIDER             Which LLM provider to use: openai or anthropic (default: openai).
+#   -T, --max-tokens MAX_TOKENS         Maximum tokens to request from the LLM (default: 4096).
 #   -S, --example-script FILE           Paths to example scripts to reference (can be specified multiple times).
 #   -I, --instruction-set NAME          Names of instruction sets to include (can be specified multiple times).
 #   -o, --output OUTPUT                 Path to file where the generated code is written.
@@ -38,6 +40,7 @@
 #   - openai (install via: pip install openai==1.64.0)
 #   - rich (install via: pip install rich==13.9.4)
 #   - ruff (install via: pip install ruff==0.9.7)
+#   - anthropic (install via: pip install anthropic==0.48.0)
 #
 # -------------------------------------------------------
 # © 2025 Hendrik Buchwald. All rights reserved.
@@ -55,6 +58,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
+from anthropic import Anthropic
 from openai import OpenAI
 from rich.console import Console
 from rich.syntax import Syntax
@@ -126,7 +130,7 @@ def main() -> None:
     \"\"\"
     args = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
-    
+
     if args.foo:
         handle_task_1()
     elif something():
@@ -343,6 +347,43 @@ class OpenAIProvider(IProvider):
             return "Error: could not retrieve a response from the model."
 
 
+class AnthropicProvider(IProvider):
+    """
+    Implementation of IProvider that uses the 'Anthropic' client for chat completions.
+    """
+
+    def __init__(self, api_key: str, max_tokens: int = 8192) -> None:
+        """
+        Initializes the Anthropic provider with the given API key and max tokens.
+        """
+        self.client = Anthropic(api_key=api_key)
+        self.max_tokens = max_tokens
+
+    def generate_response(self, conversation: Conversation, model: str) -> str:
+        """
+        Sends the conversation to the specified model using the anthropic interface
+        and returns the assistant's message content by concatenating text blocks.
+        """
+        anthropic_messages = [
+            {"role": msg.role, "content": msg.content} for msg in conversation.messages
+        ]
+
+        try:
+            response = self.client.messages.create(
+                model=model,
+                messages=anthropic_messages,
+                max_tokens=self.max_tokens,
+            )
+            full_text = ""
+            for block in response.content:
+                if block.type == "text":
+                    full_text += block.text
+            return full_text.strip()
+        except Exception as e:
+            logging.error(f"Error during Anthropic call: {e}")
+            return "Error: could not retrieve a response from the model."
+
+
 class PromptGenerator:
     """
     A class to build "general instructions" by combining multiple instruction sets
@@ -478,7 +519,7 @@ def parse_arguments() -> argparse.Namespace:
         "-k",
         "--api-key",
         type=str,
-        help="Your OpenAI API key (or set via OPENAI_API_KEY).",
+        help="Your OpenAI or Anthropic API key (or set via OPENAI_API_KEY or ANTHROPIC_API_KEY).",
     )
     parser.add_argument(
         "-m",
@@ -486,6 +527,21 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         default="o1-mini",
         help='Model to use (default: "o1-mini").',
+    )
+    parser.add_argument(
+        "-P",
+        "--provider",
+        type=str,
+        default="openai",
+        choices=["openai", "anthropic"],
+        help="Which LLM provider to use (default: openai).",
+    )
+    parser.add_argument(
+        "-T",
+        "--max-tokens",
+        type=int,
+        default=4096,
+        help="Maximum tokens to request from the LLM (default: 4096).",
     )
     parser.add_argument(
         "-S",
@@ -575,11 +631,16 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
-def get_api_key(provided_key: Optional[str]) -> str:
+def get_api_key(provided_key: Optional[str], provider: str) -> str:
     """
-    Returns the API key, either from command-line or environment variables.
+    Returns the appropriate API key for the chosen provider.
     """
-    return provided_key or os.getenv("OPENAI_API_KEY") or ""
+    if provider.lower() == "anthropic":
+        return provided_key or os.getenv("ANTHROPIC_API_KEY") or ""
+    elif provider.lower() == "openai":
+        return provided_key or os.getenv("OPENAI_API_KEY") or ""
+    else:
+        raise ValueError(f"Invalid provider: {provider}")
 
 
 def gather_user_multiline_input() -> str:
@@ -796,14 +857,20 @@ def main() -> None:
     args = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
 
-    api_key = get_api_key(args.api_key)
+    api_key = get_api_key(args.api_key, args.provider)
     if not api_key:
         logging.error(
-            "No API key provided. Use -k or set OPENAI_API_KEY environment variable."
+            "No API key provided. Use -k/--api-key or set the appropriate environment variable."
         )
         sys.exit(1)
 
-    provider = OpenAIProvider(api_key=api_key)
+    if args.provider.lower() == "anthropic":
+        provider = AnthropicProvider(api_key=api_key, max_tokens=args.max_tokens)
+    elif args.provider.lower() == "openai":
+        provider = OpenAIProvider(api_key=api_key)
+    else:
+        logging.error(f"Invalid provider: {args.provider}")
+        sys.exit(1)
 
     if args.command == "new":
         handle_new(args, provider, ["coding_style"])
