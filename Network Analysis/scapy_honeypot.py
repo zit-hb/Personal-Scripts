@@ -41,6 +41,7 @@
 #   -t, --smtp-tls               Use STARTTLS after connecting.
 #   -x, --smtp-ssl               Use SSL/TLS for the entire SMTP connection.
 #   -b, --webhook URL            Enable webhook notification to the given URL.
+#   -K, --webhook-key KEY        Optional API key to include if webhook is used.
 #   -o, --stdout                 Print a notification to stdout for each connection.
 #   -L, --flood-limit INT        Number of notifications per IP within the flood
 #                                interval. 0 = unlimited (default: 10).
@@ -203,8 +204,13 @@ class EmailNotifier(Notifier):
 class WebhookNotifier(Notifier):
     """Notifier to send notifications via a webhook URL."""
 
-    def __init__(self, webhook_url: str) -> None:
+    def __init__(self, webhook_url: str, webhook_key: Optional[str] = None) -> None:
+        """
+        :param webhook_url: The URL to post notifications to.
+        :param webhook_key: Optional key to include in the X-API-Key header.
+        """
         self.webhook_url = webhook_url
+        self.webhook_key = webhook_key
 
     def notify(self, info: ConnectionInfo) -> None:
         """Send an HTTP POST request with the connection info as JSON."""
@@ -216,14 +222,21 @@ class WebhookNotifier(Notifier):
             "timestamp": str(info.timestamp),
             "protocol": info.protocol.upper(),
             "ip": info.ip,
-            "input_port_or_type": info.input_port if info.input_port else "N/A",
+            "input_port": info.input_port if info.input_port else "N/A",
             "output_port": info.output_port if info.output_port else "N/A",
             "reverse_dns": info.reverse_dns or "N/A",
             "raw_packet": info.raw_packet,
         }
+
+        headers = {}
+        if self.webhook_key:
+            headers["X-API-Key"] = self.webhook_key
+
         try:
-            response = requests.post(self.webhook_url, json=payload, timeout=5)
-            if response.status_code == 200:
+            response = requests.post(
+                self.webhook_url, json=payload, headers=headers, timeout=5
+            )
+            if response.ok:
                 logging.info(f"Webhook sent to {self.webhook_url}")
             else:
                 logging.warning(
@@ -637,6 +650,13 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         help="Send webhook notification to the given URL.",
     )
+    parser.add_argument(
+        "-K",
+        "--webhook-key",
+        type=str,
+        default=None,
+        help="Optional API key to include if webhook is used.",
+    )
 
     # Stdout
     parser.add_argument(
@@ -723,6 +743,7 @@ def resolve_smtp_config(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def main() -> None:
+    """Main entry point for the honeypot script."""
     args: argparse.Namespace = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
 
@@ -760,7 +781,7 @@ def main() -> None:
         )
 
     if args.webhook:
-        notifiers.append(WebhookNotifier(args.webhook))
+        notifiers.append(WebhookNotifier(args.webhook, args.webhook_key))
 
     if not notifiers:
         logging.warning("No notifiers configured. Only logging will be used.")
