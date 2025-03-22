@@ -741,6 +741,7 @@ def parse_arguments() -> argparse.Namespace:
         "-P",
         "--password",
         type=str,
+        required=True,
         help="Basic auth password for the interface (required).",
     )
     parser.add_argument(
@@ -819,7 +820,6 @@ def create_app(
 
     @app.route("/incident", methods=["POST"])
     def receive_incident() -> Response:
-        # Check for incident API key
         if incident_api_keys:
             header_key = request.headers.get("X-API-Key", None)
             if header_key not in incident_api_keys:
@@ -855,11 +855,6 @@ def main() -> None:
     """
     args = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
-
-    # If no password is specified, do not start.
-    if not args.password:
-        logging.error("No password specified. Exiting.")
-        sys.exit(1)
 
     logging.info("Loading DB-IP geolocation data.")
     load_dbip_ranges(args.dbip_csv)
