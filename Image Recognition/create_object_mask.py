@@ -10,7 +10,7 @@
 # and handle batch processing of images.
 #
 # Usage:
-# ./create_object_mask.py [image_file|image_directory] [output_file|output_directory] [options]
+#   ./create_object_mask.py [image_file|image_directory] [output_file|output_directory] [options]
 #
 # Arguments:
 #   - [image_file]: The path to the input image file.

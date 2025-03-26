@@ -9,7 +9,7 @@
 # The tiles are saved in an output directory with configurable naming formats.
 #
 # Usage:
-# ./create_tiles.py [options] <image_path>
+#   ./create_tiles.py [options] <image_path>
 #
 # Arguments:
 #   - [image_path]: The image file to process.

@@ -12,7 +12,7 @@
 # Additionally, it can include the last refactored code in the chat history to maintain consistency across multiple files.
 #
 # Usage:
-# ./refactor_code_style.py [input_path] [options]
+#   ./refactor_code_style.py [input_path] [options]
 #
 # Arguments:
 #   - [input_path]: The path to the input code file or directory.

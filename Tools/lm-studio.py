@@ -19,7 +19,7 @@
 #   be reverted once the Docker container stops.
 #
 # Usage:
-# ./lm-studio.py [options]
+#   ./lm-studio.py [options]
 #
 # Options:
 #   -a, --arch ARCH           LM Studio architecture (default: x64)
@@ -364,4 +364,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

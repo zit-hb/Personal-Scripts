@@ -11,7 +11,7 @@
 #   - A specified percentage (remove top X% worst images by artifact score).
 #
 # Usage:
-# ./remove_artifact_images.py [directory] [options]
+#   ./remove_artifact_images.py [directory] [options]
 #
 # Arguments:
 #   - [directory]: The path to the directory containing images.

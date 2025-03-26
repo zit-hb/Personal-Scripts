@@ -21,7 +21,7 @@
 # Positive queries must exceed a specified similarity threshold, while negative queries must remain below it.
 #
 # Usage:
-# ./search_images_by_content.py [source_directory] [options]
+#   ./search_images_by_content.py [source_directory] [options]
 #
 # Arguments:
 #   - [source_directory]: The directory containing the images to be searched.

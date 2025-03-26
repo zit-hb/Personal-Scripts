@@ -9,7 +9,7 @@
 # 2. Serving a local web interface to browse images based on the provided JSON metadata.
 #
 # Usage:
-# ./view_fooocus.py [command] [options]
+#   ./view_fooocus.py [command] [options]
 #
 # Commands:
 #   - parse    Parse Fooocus `log.html` files and generate JSON metadata.

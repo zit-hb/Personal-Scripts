@@ -12,7 +12,7 @@
 # It supports batch processing and allows you to set a threshold for blurriness.
 #
 # Usage:
-# ./detect_blurriness.py [image_file|image_directory] [options]
+#   ./detect_blurriness.py [image_file|image_directory] [options]
 #
 # Arguments:
 #   - [image_file]: The path to the input image file.

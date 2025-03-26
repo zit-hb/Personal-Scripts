@@ -10,7 +10,7 @@
 # by image dimensions.
 #
 # Usage:
-# ./crop_images.py [options] [directory|image]
+#   ./crop_images.py [options] [directory|image]
 #
 # Arguments:
 #   - [directory|image]: The image file or directory to process.

@@ -11,7 +11,7 @@
 # actions. Additionally, it can clean up package caches and remove unused packages.
 #
 # Usage:
-# ./auto_update.py [options]
+#   ./auto_update.py [options]
 #
 # Options:
 #   -i, --install             Install all available updates.

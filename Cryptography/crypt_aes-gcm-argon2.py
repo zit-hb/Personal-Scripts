@@ -3,10 +3,10 @@
 # Script: crypt_aes-gcm-argon2.py
 #
 # Description:
-#   This script provides two sub-commands, `encrypt` and `decrypt`, for
-#   encrypting or decrypting data using AES in GCM mode. It derives a 256-bit
-#   key from an arbitrary passphrase via Argon2id.
-#   The script stores all relevant parameters in a proprietary JSON format.
+# This script provides two sub-commands, `encrypt` and `decrypt`, for
+# encrypting or decrypting data using AES in GCM mode. It derives a 256-bit
+# key from an arbitrary passphrase via Argon2id.
+# The script stores all relevant parameters in a proprietary JSON format.
 #
 # Usage:
 #   ./crypt_aes-gcm-argon2.py [options] [command]

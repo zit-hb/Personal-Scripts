@@ -10,7 +10,7 @@
 # recursive directory traversal, and output directories.
 #
 # Usage:
-# ./resize_images.py [options] [directory|image]
+#   ./resize_images.py [options] [directory|image]
 #
 # Arguments:
 #   - [directory|image]: The image file or directory to process.

@@ -10,7 +10,7 @@
 # template and builds and runs the Docker container.
 #
 # Usage:
-# ./docker.py [options] [target_script] [script_args]
+#   ./docker.py [options] [target_script] [script_args]
 #
 # Arguments:
 #   - [target_script]: The path to the target script to execute inside the Docker container.

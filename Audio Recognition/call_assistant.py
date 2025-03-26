@@ -25,8 +25,8 @@
 # Template: ubuntu24.04
 #
 # Requirements:
-#   Flask (install via: pip install Flask==3.1.0)
-#   requests (install via: pip install requests==2.32.3)
+#   - Flask (install via: pip install Flask==3.1.0)
+#   - requests (install via: pip install requests==2.32.3)
 #
 # -------------------------------------------------------
 # © 2025 Hendrik Buchwald. All rights reserved.

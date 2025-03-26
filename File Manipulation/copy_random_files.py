@@ -8,7 +8,7 @@
 # to a destination directory.
 #
 # Usage:
-# ./copy_random_files.py [source directory] [destination directory] [options]
+#   ./copy_random_files.py [source directory] [destination directory] [options]
 #
 # Arguments:
 #   - [source directory]: The path to the directory containing the files to copy.

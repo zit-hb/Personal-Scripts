@@ -13,7 +13,7 @@
 # points will be saved as well.
 #
 # Usage:
-# ./create_face_mask.py [input_path] [output_path] [options]
+#   ./create_face_mask.py [input_path] [output_path] [options]
 #
 # Arguments:
 #   - [input_path]:  The path to the input image file.

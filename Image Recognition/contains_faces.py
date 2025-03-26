@@ -11,7 +11,7 @@
 # of faces are met, 1 otherwise.
 #
 # Usage:
-# ./contains_faces.py [options] [image_file]
+#   ./contains_faces.py [options] [image_file]
 #
 # Arguments:
 #   - [image_file]: The path to the image file to check for faces.

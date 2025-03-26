@@ -9,7 +9,7 @@
 # You can create, start, list, and delete VMs.
 #
 # Usage:
-# ./qemu.py [command] [options]
+#   ./qemu.py [command] [options]
 #
 # Commands:
 #   create       Create a new VM with a qcow2 disk image. If the VM exists,

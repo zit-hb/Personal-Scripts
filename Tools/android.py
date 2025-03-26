@@ -13,7 +13,7 @@
 #   container exits. Use --no-xhost to skip this behavior.
 #
 # Usage:
-# ./android.py [command] [options]
+#   ./android.py [command] [options]
 #
 # Commands:
 #   build        Build an Android project using Gradle.

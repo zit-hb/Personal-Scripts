@@ -11,7 +11,7 @@
 # resulting from the merging process.
 #
 # Usage:
-# ./merge_images_sdxl.py [input_path] [options]
+#   ./merge_images_sdxl.py [input_path] [options]
 #
 # Arguments:
 #   - [input_path]: The path to the input image file or directory.

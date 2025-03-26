@@ -9,7 +9,7 @@
 # 2. Use an existing function definition to extract information from a user prompt.
 #
 # Usage:
-# ./call_llm.py [command] [options]
+#   ./call_llm.py [command] [options]
 #
 # Commands:
 #   - gen-def (g)               Generate a function definition schema.

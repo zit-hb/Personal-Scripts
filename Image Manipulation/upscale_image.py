@@ -14,7 +14,7 @@
 # (inpainting) on each tile.
 #
 # Usage:
-# ./upscale_image.py [options]
+#   ./upscale_image.py [options]
 #
 # Options:
 #   -i, --input                  Path to the input image to be upscaled.

@@ -10,7 +10,7 @@
 # automated diagnostics, advanced network traffic monitoring, and WiFi analysis.
 #
 # Usage:
-# ./diagnose_network.py [command] [options]
+#   ./diagnose_network.py [command] [options]
 #
 # Commands:
 #   - system-info (si)          Display detailed network information about the system.

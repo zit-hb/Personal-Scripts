@@ -3,13 +3,13 @@
 # Script: crypt_aes-gcm-x25519.py
 #
 # Description:
-#   This script implements hybrid encryption using elliptic-curve
-#   cryptography (X25519) to securely encrypt a randomly generated
-#   AES-GCM key. The AES key encrypts the cleartext (with optional
-#   gzip compression), and the AES key itself is encrypted with the
-#   recipient's public key using an ephemeral ECDH key exchange and
-#   AES-GCM. The full message is stored in a compact JSON format,
-#   which is then base64 encoded.
+# This script implements hybrid encryption using elliptic-curve
+# cryptography (X25519) to securely encrypt a randomly generated
+# AES-GCM key. The AES key encrypts the cleartext (with optional
+# gzip compression), and the AES key itself is encrypted with the
+# recipient's public key using an ephemeral ECDH key exchange and
+# AES-GCM. The full message is stored in a compact JSON format,
+# which is then base64 encoded.
 #
 # Usage:
 #   ./crypt_aes-gcm-x25519.py [options] [command]

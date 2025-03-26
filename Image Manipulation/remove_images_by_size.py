@@ -10,7 +10,7 @@
 # traversal, and moving files instead of deleting them.
 #
 # Usage:
-# ./remove_images_by_size.py [options] [directory|image]
+#   ./remove_images_by_size.py [options] [directory|image]
 #
 # Arguments:
 #   - [directory|image]: The image file or directory to process.

@@ -11,7 +11,7 @@
 #     or per directory if --per-directory is specified.
 #
 # Usage:
-# ./remove_blurry_images.py [directory] [options]
+#   ./remove_blurry_images.py [directory] [options]
 #
 # Arguments:
 #   - [directory]: The path to the directory containing images.

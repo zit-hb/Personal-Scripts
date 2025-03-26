@@ -9,7 +9,7 @@
 # various options for handling images of different sizes and resolutions.
 #
 # Usage:
-# ./merge_images_simple.py [input_path] [options]
+#   ./merge_images_simple.py [input_path] [options]
 #
 # Arguments:
 #   - [input_path]: The path to the input image file or directory.

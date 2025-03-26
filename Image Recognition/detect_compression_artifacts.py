@@ -9,7 +9,7 @@
 # It supports batch processing and allows you to set a threshold for artifact detection.
 #
 # Usage:
-# ./detect_compression_artifacts.py [image_file|image_directory] [options]
+#   ./detect_compression_artifacts.py [image_file|image_directory] [options]
 #
 # Arguments:
 #   - [image_file]: The path to the input image file.

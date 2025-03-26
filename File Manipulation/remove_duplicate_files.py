@@ -8,7 +8,7 @@
 # for duplicate files and removes them based on the specified criteria.
 #
 # Usage:
-# ./remove_duplicate_files.py [directory] [options]
+#   ./remove_duplicate_files.py [directory] [options]
 #
 # Arguments:
 #   - [directory]: The path to the directory to scan for duplicate files.

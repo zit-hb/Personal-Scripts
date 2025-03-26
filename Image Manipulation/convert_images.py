@@ -10,7 +10,7 @@
 # directories, quality settings, and more.
 #
 # Usage:
-# ./convert_images.py [options] [directory|image]
+#   ./convert_images.py [options] [directory|image]
 #
 # Arguments:
 #    - [directory|image]: The image file or directory to process.

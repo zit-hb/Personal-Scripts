@@ -10,7 +10,7 @@
 # Labels are assigned by selecting the most similar noun to the cluster's centroid.
 #
 # Usage:
-# ./sort_images_by_content.py [source_directory] [options]
+#   ./sort_images_by_content.py [source_directory] [options]
 #
 # Arguments:
 #   - [source_directory]: The directory containing the images to be organized.

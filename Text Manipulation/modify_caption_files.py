@@ -10,7 +10,7 @@
 # and adding labels derived from filenames.
 #
 # Usage:
-# ./modify_caption_files.py [command] [options]
+#   ./modify_caption_files.py [command] [options]
 #
 # Commands:
 #   - mod        Modify first lines of text files corresponding to images.

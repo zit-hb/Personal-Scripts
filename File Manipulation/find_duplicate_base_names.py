@@ -8,7 +8,7 @@
 # for files that share the same base name but have different extensions.
 #
 # Usage:
-# ./find_duplicate_base_names.py [directory] [options]
+#   ./find_duplicate_base_names.py [directory] [options]
 #
 # Arguments:
 #   - [directory]: The path to the directory to scan for files.

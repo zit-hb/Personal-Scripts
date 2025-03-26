@@ -10,7 +10,7 @@
 # in a human-readable format or just the file paths.
 #
 # Usage:
-# ./find_largest_files.py [options] [directory]
+#   ./find_largest_files.py [options] [directory]
 #
 # Arguments:
 #   - [directory]: The directory to search for files. Defaults to the current directory if not provided.

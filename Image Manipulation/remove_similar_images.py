@@ -8,7 +8,7 @@
 # extremely visually similar, keeping only one copy.
 #
 # Usage:
-# ./remove_similar_images.py [options] [directory|image]...
+#   ./remove_similar_images.py [options] [directory|image]...
 #
 # Arguments:
 #   - [directory|image]: The image or directory to scan for images.

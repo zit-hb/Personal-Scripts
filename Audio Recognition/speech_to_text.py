@@ -12,7 +12,7 @@
 # different output formats such as plain text or JSON.
 #
 # Usage:
-# ./speech_to_text.py [input_path] [options]
+#   ./speech_to_text.py [input_path] [options]
 #
 # Arguments:
 #   - [input_path]: The path to the input audio file or directory.

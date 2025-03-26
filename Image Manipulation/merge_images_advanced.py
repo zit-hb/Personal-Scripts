@@ -10,7 +10,7 @@
 # blending, resulting in a clear and cohesive merged image.
 #
 # Usage:
-# ./merge_images_advanced.py [input_path] [options]
+#   ./merge_images_advanced.py [input_path] [options]
 #
 # Arguments:
 #   - [input_path]: The path to the input image file or directory.

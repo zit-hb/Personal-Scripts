@@ -9,7 +9,7 @@
 # the best quality.
 #
 # Usage:
-# ./find_best_images.py [image_directory] [options]
+#   ./find_best_images.py [image_directory] [options]
 #
 # Arguments:
 #   - [image_directory]: The path to the input image directory.

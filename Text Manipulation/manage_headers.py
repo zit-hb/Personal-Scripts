@@ -7,7 +7,7 @@
 # Manages headers of the Python scripts.
 #
 # Usage:
-# ./manage_headers.py [command] [options]
+#   ./manage_headers.py [command] [options]
 #
 # Commands:
 #   - update_pip                  Update 'pip' install commands in script headers with version numbers.

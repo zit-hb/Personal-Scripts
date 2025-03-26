@@ -9,7 +9,7 @@
 # the type of virtualization (e.g., Docker, VirtualBox, VMWare) if present, along with version details where possible.
 #
 # Usage:
-# ./detect_system.py [options]
+#   ./detect_system.py [options]
 #
 # Options:
 #   -v, --verbose               Enable verbose logging (INFO level).

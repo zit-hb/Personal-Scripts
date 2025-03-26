@@ -9,7 +9,7 @@
 # and saves the resulting frames to an output directory.
 #
 # Usage:
-# ./extract_frames.py [options] [input_paths ...]
+#   ./extract_frames.py [options] [input_paths ...]
 #
 # Arguments:
 #   - [input_paths ...]: The path(s) to input video file(s) or directory(s) containing video files.

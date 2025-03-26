@@ -9,7 +9,7 @@
 # memory, storage, audio devices, and also external devices like USB devices.
 #
 # Usage:
-# ./detect_hardware.py [options]
+#   ./detect_hardware.py [options]
 #
 # Options:
 #   -v, --verbose               Enable verbose logging (INFO level).

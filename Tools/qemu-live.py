@@ -7,7 +7,7 @@
 # This script launches a temporary live system using QEMU.
 #
 # Usage:
-# ./qemu-live.py [iso] [options]
+#   ./qemu-live.py [iso] [options]
 #
 # Arguments:
 #   - [iso]: Predefined keyword, a URL, or a path to a local ISO file.

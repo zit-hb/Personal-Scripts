@@ -13,7 +13,7 @@
 # the human eye, using a naive median filter approach.
 #
 # Usage:
-# ./remove_metadata.py [options] [directory|image ...]
+#   ./remove_metadata.py [options] [directory|image ...]
 #
 # Arguments:
 #   - [directory|image ...]: One or more paths to images or
