@@ -38,6 +38,7 @@
 # Template: ubuntu24.04
 #
 # Requirements:
+#   - ffmpeg (install via: apt-get install -y --no-install-recommends ffmpeg)
 #   - openai (install via: pip install openai==1.63.0)
 #   - whisper (install via: pip install -U openai-whisper==20240930)
 #   - python-dotenv (install via: pip install python-dotenv==1.0.1)
