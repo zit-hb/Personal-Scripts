@@ -59,8 +59,9 @@ TEMPLATES = {
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y python3 python3-pip
-RUN pip3 install --upgrade pip
-[INSTALL_COMMANDS]
+RUN apt-get update && \\
+    pip3 install --upgrade pip && \\
+    [INSTALL_COMMANDS]
 WORKDIR /app
 ENTRYPOINT ["python3"]
 """,
@@ -74,8 +75,9 @@ RUN apt-get update && \
     apt-get install -y python3 python3-pip python3-venv
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --upgrade pip
-[INSTALL_COMMANDS]
+RUN apt-get update && \\
+    pip install --upgrade pip && \\
+    [INSTALL_COMMANDS]
 WORKDIR /app
 ENTRYPOINT ["python3"]
 """,
@@ -86,8 +88,9 @@ ENTRYPOINT ["python3"]
 FROM nvidia/cuda:12.4.1-base-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y python3 python3-pip
-RUN pip3 install --upgrade pip
-[INSTALL_COMMANDS]
+RUN apt-get update && \\
+    pip3 install --upgrade pip && \\
+    [INSTALL_COMMANDS]
 WORKDIR /app
 ENTRYPOINT ["python3"]
 """,
@@ -98,8 +101,9 @@ ENTRYPOINT ["python3"]
 FROM nvidia/cuda:11.3.1-base-ubuntu20.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y python3 python3-pip
-RUN pip3 install --upgrade pip
-[INSTALL_COMMANDS]
+RUN apt-get update && \\
+    pip3 install --upgrade pip && \\
+    [INSTALL_COMMANDS]
 WORKDIR /app
 ENTRYPOINT ["python3"]
 """,
@@ -308,7 +312,7 @@ def generate_dockerfile(
 
     # Prepare the install commands
     if install_commands:
-        install_cmds = "\n".join([f"RUN {cmd}" for cmd in install_commands])
+        install_cmds = " && ".join(install_commands)
     else:
         install_cmds = ""
 
