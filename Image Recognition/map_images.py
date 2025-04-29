@@ -40,7 +40,7 @@ import io
 import logging
 import os
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from flask import Flask, Response, abort, render_template_string
 from PIL import Image
@@ -53,17 +53,53 @@ TEMPLATE = r"""
 <head>
   <meta charset="UTF-8" />
   <title>{{ page_title }}</title>
+
+  <!-- Leaflet core -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H"
     crossorigin="anonymous"
   />
+
+  <!-- Marker-cluster plugin -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+    integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV"
+    crossorigin="anonymous"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+    integrity="sha384-wgw+aLYNQ7dlhK47ZPK7FRACiq7ROZwgFNg0m04avm4CaXS+Z9Y7nMu8yNjBKYC+"
+    crossorigin="anonymous"
+  />
+
   <style>
     html, body { height:100%; margin:0; }
-    #map { height:100%; width:100%; }
-    /* Make the thumbnail markers a little softer */
-    .image-icon img { border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+    #map       { height:100%; width:100%; }
+
+    /* Thumbnail popup */
+    .thumb-popup { position:relative; }
+    .thumb-popup img {
+      display:block;
+      border-radius:6px;
+      box-shadow:0 2px 6px rgba(0,0,0,.4);
+      cursor:pointer;
+    }
+    .thumb-popup .close-btn {
+      position:absolute;
+      top:-8px; right:-8px;
+      width:20px; height:20px;
+      border-radius:50%;
+      background:#fff;
+      box-shadow:0 1px 3px rgba(0,0,0,.5);
+      font:16px/20px sans-serif;
+      text-align:center;
+      cursor:pointer;
+      user-select:none;
+    }
   </style>
 </head>
 <body>
@@ -74,6 +110,12 @@ TEMPLATE = r"""
     integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
     crossorigin="anonymous">
   </script>
+  <script
+    src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster-src.js"
+    integrity="sha384-xLgzMQOvDhPE6lQoFpJJOFU2aMYsKD5eSSt9q3aR1RREx3Y+XsnqtSDZd+PhAcob"
+    crossorigin="anonymous">
+  </script>
+
   <script>
     const map = L.map('map');
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -81,29 +123,60 @@ TEMPLATE = r"""
       attribution: '© OpenStreetMap'
     }).addTo(map);
 
+    /* Group markers to prevent overlap */
+    const cluster = L.markerClusterGroup({
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      maxClusterRadius: 80
+    });
+    map.addLayer(cluster);
+
     const imagesData = {{ images_data|tojson }};
     const bounds = L.latLngBounds([]);
 
     imagesData.forEach(img => {
       if (img.lat !== null && img.lon !== null) {
-        const size = [img.thumb_w, img.thumb_h];
-        const icon = L.icon({
-          iconUrl: img.thumbnail,
-          iconSize: size,
-          /* centre of the thumbnail = anchor, use integer values */
-          iconAnchor: [Math.round(size[0] / 2), Math.round(size[1] / 2)],
-          className: 'image-icon'
-        });
-
-        const marker = L.marker([img.lat, img.lon], { icon }).addTo(map);
+        const marker = L.marker([img.lat, img.lon]);
+        cluster.addLayer(marker);
         bounds.extend([img.lat, img.lon]);
 
-        // Click opens full-size image from Flask route
-        marker.on('click', () => window.open(`/images/${img.sha256}`, '_blank'));
+        marker.on('click', () => {
+          const popupHtml = `
+            <div class="thumb-popup">
+              <span class="close-btn">&times;</span>
+              <img src="${img.thumbnail}"
+                   width="${img.thumb_w}"
+                   height="${img.thumb_h}"
+                   alt="thumbnail" />
+            </div>`;
+
+          const popup = L.popup({
+              closeButton: false,
+              offset: [0, -10],
+              className: 'thumb-popup-leaflet',
+              maxWidth: 820
+            })
+            .setLatLng(marker.getLatLng())
+            .setContent(popupHtml)
+            .openOn(map);
+
+          /* After the popup is in the DOM, wire up handlers */
+          setTimeout(() => {
+            const container = popup.getElement();
+            if (!container) return;
+
+            const close = container.querySelector('.close-btn');
+            const image = container.querySelector('img');
+
+            if (close) close.addEventListener('click', () => map.closePopup(popup));
+            if (image) image.addEventListener('click', () =>
+              window.open(`/images/${img.sha256}`, '_blank'));
+          }, 0);
+        });
       }
     });
 
-    // Auto-fit (small padding keeps thumbnails from hugging edges)
+    // Auto-fit (small padding keeps markers from hugging edges)
     if (bounds.isValid()) {
       map.fitBounds(bounds.pad(0.05));
     } else {
@@ -244,7 +317,7 @@ def _sha256_of_file(path: str) -> str:
 
 
 def _make_thumbnail(
-    img: Image.Image, size: Tuple[int, int] = (100, 100)
+    img: Image.Image, size: Tuple[int, int] = (800, 600)
 ) -> Tuple[str, int, int]:
     """
     Returns a base64 data-URI containing a JPEG thumbnail of the image
