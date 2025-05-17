@@ -397,6 +397,10 @@ def main() -> None:
         logging.error("No target script specified.")
         sys.exit(2)
 
+    # Remove a leading '--' if present (so that all following args go to the script)
+    if args.target_script_and_args and args.target_script_and_args[0] == "--":
+        args.target_script_and_args = args.target_script_and_args[1:]
+
     # Split off the first as the script path, the rest as script args
     args.target_script = args.target_script_and_args[0]
     args.script_args = args.target_script_and_args[1:]
