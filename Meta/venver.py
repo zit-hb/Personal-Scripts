@@ -325,7 +325,7 @@ def run_script_in_venv(
     logging.info(f"Running script with command: {' '.join(cmd)}")
 
     # Always show the script's output
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, env=os.environ)
     return result.returncode
 
 
