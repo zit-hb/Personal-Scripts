@@ -23,7 +23,7 @@
 #   -p, --prompt PROMPT         A single prompt for generating the function definition (required).
 #   -o, --output-file FILE      Store the generated function definition in a JSON file.
 #   -k, --api-key API_KEY       Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).
-#   -m, --model MODEL           OpenAI model to use (default: "gpt-4o").
+#   -m, --model MODEL           OpenAI model to use (default: "o4-mini").
 #
 # Options for use-def:
 #   -i, --functions-file FILE   Path to the JSON file containing the function definition (required).
@@ -31,7 +31,7 @@
 #   -P, --prompt-file FILE      Path to a file containing additional prompt content to append.
 #   -o, --output-file FILE      Store the assistant's response in a JSON file.
 #   -k, --api-key API_KEY       Your OpenAI API key (can also be set via .env or OPENAI_API_KEY).
-#   -m, --model MODEL           OpenAI model to use (default: "gpt-4o").
+#   -m, --model MODEL           OpenAI model to use (default: "o4-mini").
 #
 # Template: ubuntu22.04
 #
@@ -224,8 +224,8 @@ def parse_arguments() -> argparse.Namespace:
         "-m",
         "--model",
         type=str,
-        default="gpt-4o",
-        help='OpenAI model to use (default: "gpt-4o").',
+        default="o4-mini",
+        help='OpenAI model to use (default: "o4-mini").',
     )
 
     # Subparser for using definitions
@@ -268,8 +268,8 @@ def parse_arguments() -> argparse.Namespace:
         "-m",
         "--model",
         type=str,
-        default="gpt-4o",
-        help='OpenAI model to use (default: "gpt-4o").',
+        default="o4-mini",
+        help='OpenAI model to use (default: "o4-mini").',
     )
 
     return parser.parse_args()

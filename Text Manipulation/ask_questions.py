@@ -17,7 +17,7 @@
 #                               If not provided, you'll be asked interactively.
 #   -k, --api-key API_KEY       Your OpenAI API key (or set via OPENAI_API_KEY).
 #   -n, --num-questions N       Number of questions to ask (default: 5).
-#   -m, --model MODEL           Model to use (default: "o1-mini").
+#   -m, --model MODEL           Model to use (default: "o4-mini").
 #   -o, --output OUTPUT         Path to a JSON file for saving the session.
 #   -i, --input INPUT           Path to a JSON file with an existing session to continue.
 #   -v, --verbose               Enable verbose logging (INFO level).
@@ -79,8 +79,8 @@ def parse_arguments() -> argparse.Namespace:
         "-m",
         "--model",
         type=str,
-        default="o1-mini",
-        help='Model to use (default: "o1-mini").',
+        default="o4-mini",
+        help='Model to use (default: "o4-mini").',
     )
     parser.add_argument(
         "-o",
@@ -135,8 +135,10 @@ def build_initial_conversation(
     prompt: str, total_questions: int
 ) -> List[Dict[str, str]]:
     """
-    Builds the initial conversation messages list (no system role for o1-mini),
+    Builds the initial conversation messages list,
     indicating the total number of questions (existing + new).
+    o1-mini does not have a system role, so we use the user role for the first message.
+    In the future, this might change to a system role.
     """
     return [
         {

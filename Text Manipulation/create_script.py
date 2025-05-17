@@ -17,7 +17,7 @@
 #
 # Options:
 #   -k, --api-key API_KEY               Your OpenAI or Anthropic API key (or set via OPENAI_API_KEY / ANTHROPIC_API_KEY).
-#   -m, --model MODEL                   Model to use (default: "o1").
+#   -m, --model MODEL                   Model to use (default: "o4-mini").
 #   -P, --provider PROVIDER             Which LLM provider to use: openai or anthropic (default: openai).
 #   -T, --max-tokens MAX_TOKENS         Maximum tokens to request from the Anthropic LLM (default: 4096).
 #   -S, --example-script FILE           Paths to example scripts to reference (can be specified multiple times).
@@ -527,8 +527,8 @@ def parse_arguments() -> argparse.Namespace:
         "-m",
         "--model",
         type=str,
-        default="o1",
-        help='Model to use (default: "o1").',
+        default="o4-mini",
+        help='Model to use (default: "o4-mini").',
     )
     parser.add_argument(
         "-P",
