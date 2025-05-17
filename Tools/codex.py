@@ -18,6 +18,7 @@
 #                             Can be specified multiple times.
 #   --uid UID                 User ID to run the container as inside Docker
 #                             (default: current user).
+#   -d, --data PATH           Shortcut for --mount PATH:/data.
 #   -v, --verbose             Enable verbose logging (INFO level).
 #   -vv, --debug              Enable debug logging (DEBUG level).
 #
@@ -34,6 +35,8 @@ import tempfile
 from typing import List
 
 DOCKERFILE_TEMPLATE: str = """FROM node:20-slim
+RUN mkdir /data
+WORKDIR /data
 RUN npm install -g @openai/codex@{version}
 ENTRYPOINT ["codex"]
 CMD ["--help"]
@@ -61,6 +64,13 @@ def parse_arguments() -> argparse.Namespace:
         metavar="VOLUME",
         help="Bind-mount a volume (format: host_path:container_path). "
         "Can be specified multiple times.",
+    )
+    parser.add_argument(
+        "-d",
+        "--data",
+        type=str,
+        metavar="PATH",
+        help="Shortcut for --mount PATH:/data.",
     )
     parser.add_argument(
         "--uid",
@@ -152,6 +162,9 @@ def main() -> None:
     """
     args = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
+
+    if args.data:
+        args.volumes.append(f"{args.data}:/data")
 
     image_tag = f"codex_cli:{args.version}"
     dockerfile_content = DOCKERFILE_TEMPLATE.format(version=args.version)
