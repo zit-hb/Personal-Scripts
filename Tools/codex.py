@@ -19,6 +19,8 @@
 #   --uid UID                 User ID to run the container as inside Docker
 #                             (default: current user).
 #   -d, --data PATH           Shortcut for --mount PATH:/data.
+#   -e, --env ENV             Set environment variable in the container (format: VAR=value).
+#                             Can be specified multiple times.
 #   -v, --verbose             Enable verbose logging (INFO level).
 #   -vv, --debug              Enable debug logging (DEBUG level).
 #
@@ -34,7 +36,8 @@ import sys
 import tempfile
 from typing import List
 
-DOCKERFILE_TEMPLATE: str = """FROM node:20-slim
+DOCKERFILE_TEMPLATE: str = """FROM node:20.19.2-bullseye-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git
 RUN mkdir /data
 WORKDIR /data
 RUN npm install -g @openai/codex@{version}
@@ -79,6 +82,16 @@ def parse_arguments() -> argparse.Namespace:
         help="User ID to run the container as inside Docker (default: current user).",
     )
     parser.add_argument(
+        "-e",
+        "--env",
+        action="append",
+        dest="envs",
+        default=[],
+        metavar="ENV",
+        help="Set environment variable in the container (format: VAR=value). "
+        "Can be specified multiple times.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -112,9 +125,12 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
-def build_docker_image(dockerfile_content: str, image_tag: str) -> bool:
+def build_docker_image(
+    dockerfile_content: str, image_tag: str, debug: bool = False
+) -> bool:
     """
     Builds the Docker image with the given tag.
+    Only shows output if debug is True.
     """
     try:
         with tempfile.TemporaryDirectory() as build_dir:
@@ -122,11 +138,17 @@ def build_docker_image(dockerfile_content: str, image_tag: str) -> bool:
             with open(dockerfile_path, "w") as dockerfile:
                 dockerfile.write(dockerfile_content)
             logging.info("Building Docker image '%s'.", image_tag)
+            if debug:
+                stdout = sys.stdout
+                stderr = sys.stderr
+            else:
+                stdout = subprocess.DEVNULL
+                stderr = subprocess.DEVNULL
             subprocess.run(
                 ["docker", "build", "-t", image_tag, build_dir],
                 check=True,
-                stdout=sys.stdout,
-                stderr=sys.stderr,
+                stdout=stdout,
+                stderr=stderr,
             )
         return True
     except subprocess.CalledProcessError as error:
@@ -139,6 +161,7 @@ def run_codex_container(
     codex_args: List[str],
     volumes: List[str],
     user_id: int,
+    envs: List[str],
 ) -> int:
     """
     Runs the Codex CLI inside the Docker container.
@@ -146,6 +169,8 @@ def run_codex_container(
     cmd: List[str] = ["docker", "run", "--rm", "-it", "-u", str(user_id)]
     for volume in volumes:
         cmd.extend(["-v", volume])
+    for env in envs:
+        cmd.extend(["-e", env])
     cmd.extend([image_tag] + codex_args)
     logging.info("Running Codex CLI: %s", " ".join(cmd))
     try:
@@ -169,10 +194,16 @@ def main() -> None:
     image_tag = f"codex_cli:{args.version}"
     dockerfile_content = DOCKERFILE_TEMPLATE.format(version=args.version)
 
-    if not build_docker_image(dockerfile_content, image_tag):
+    if not build_docker_image(dockerfile_content, image_tag, debug=args.debug):
         sys.exit(1)
 
-    exit_code = run_codex_container(image_tag, args.codex_args, args.volumes, args.uid)
+    exit_code = run_codex_container(
+        image_tag,
+        args.codex_args,
+        args.volumes,
+        args.uid,
+        args.envs,
+    )
     sys.exit(exit_code)
 
 
