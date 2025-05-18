@@ -16,9 +16,9 @@
 #   -V, --version VERSION     Codex CLI version to install (default: 0.1.2505161800).
 #   -m, --mount VOLUME        Bind-mount a volume (format: host_path:container_path).
 #                             Can be specified multiple times.
-#   -u, --uid UID             User ID to run the container as inside Docker
-#                             (default: current user).
 #   -d, --data PATH           Shortcut for --mount PATH:/data.
+#   -H, --codex-home PATH     Directory to mount as Codex's home (default: ~/.cache/buchwald/codex/home).
+#   -u, --uid UID             User ID to run the container as inside Docker (default: current user).
 #   -e, --env ENV             Set environment variable in the container (format: VAR=value).
 #                             Can be specified multiple times.
 #   -v, --verbose             Enable verbose logging (INFO level).
@@ -74,6 +74,14 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         metavar="PATH",
         help="Shortcut for --mount PATH:/data.",
+    )
+    parser.add_argument(
+        "-H",
+        "--codex-home",
+        type=str,
+        default=os.path.expanduser("~/.cache/buchwald/codex/home"),
+        metavar="PATH",
+        help="Directory to mount as Codex's home (default: ~/.cache/buchwald/codex/home).",
     )
     parser.add_argument(
         "-u",
@@ -191,6 +199,14 @@ def main() -> None:
 
     if args.data:
         args.volumes.append(f"{args.data}:/data")
+
+    # Ensure codex-home directory exists
+    codex_home_host = os.path.abspath(os.path.expanduser(args.codex_home))
+    os.makedirs(codex_home_host, exist_ok=True)
+    codex_home_container = "/home/user"
+    # Mount codex-home as container's home, and set HOME env
+    args.volumes.append(f"{codex_home_host}:{codex_home_container}")
+    args.envs.append(f"HOME={codex_home_container}")
 
     image_tag = f"codex_cli:{args.version}"
     dockerfile_content = DOCKERFILE_TEMPLATE.format(version=args.version)
