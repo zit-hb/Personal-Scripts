@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 
 # -------------------------------------------------------
-# Script: codex.py
+# Script: claude-code.py
 #
 # Description:
-# Runs the OpenAI Codex CLI tool inside a Docker container.
+# Runs the Anthropic Claude CLI tool inside a Docker container.
 #
 # Usage:
-#   ./codex.py [options] -- [codex arguments]
+#   ./claude-code.py [options] -- [claude arguments]
 #
 # Arguments:
-#   - codex_args: Arguments passed to the codex CLI.
+#   - claude_args: Arguments passed to the claude-code CLI.
 #
 # Options:
-#   -V, --version VERSION     Codex CLI version to install (default: 0.1.2505161800).
+#   -V, --version VERSION     Claude Code CLI version to install (default: 0.2.117).
 #   -m, --mount VOLUME        Bind-mount a volume (format: host_path:container_path).
 #                             Can be specified multiple times.
-#   -u, --uid UID             User ID to run the container as inside Docker
-#                             (default: current user).
 #   -d, --data PATH           Shortcut for --mount PATH:/data.
+#   -H, --claude-home PATH    Directory to mount as Claude's home (default: ~/.cache/buchwald/claude-code/home).
+#   -u, --uid UID             User ID to run the container as inside Docker (default: current user).
 #   -e, --env ENV             Set environment variable in the container (format: VAR=value).
 #                             Can be specified multiple times.
 #   -v, --verbose             Enable verbose logging (INFO level).
@@ -40,8 +40,8 @@ DOCKERFILE_TEMPLATE: str = """FROM node:20.19.2-bullseye-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git
 RUN mkdir /data
 WORKDIR /data
-RUN npm install -g @openai/codex@{version}
-ENTRYPOINT ["codex"]
+RUN npm install -g @anthropic-ai/claude-code@{version}
+ENTRYPOINT ["claude"]
 CMD ["--help"]
 """
 
@@ -50,13 +50,15 @@ def parse_arguments() -> argparse.Namespace:
     """
     Parses command-line arguments.
     """
-    parser = argparse.ArgumentParser(description="Run OpenAI Codex CLI inside Docker.")
+    parser = argparse.ArgumentParser(
+        description="Run Anthropic Claude Code CLI inside Docker."
+    )
     parser.add_argument(
         "-V",
         "--version",
         type=str,
-        default="0.1.2505161800",
-        help="Codex CLI version to install (default: 0.1.2505161800).",
+        default="0.2.117",
+        help="Claude Code CLI version to install (default: 0.2.117).",
     )
     parser.add_argument(
         "-m",
@@ -74,6 +76,14 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         metavar="PATH",
         help="Shortcut for --mount PATH:/data.",
+    )
+    parser.add_argument(
+        "-H",
+        "--claude-home",
+        type=str,
+        default=os.path.expanduser("~/.cache/buchwald/claude-code/home"),
+        metavar="PATH",
+        help="Directory to mount as Claude's home (default: ~/.cache/buchwald/claude-code/home).",
     )
     parser.add_argument(
         "-u",
@@ -106,9 +116,9 @@ def parse_arguments() -> argparse.Namespace:
         help="Enable debug logging (DEBUG level).",
     )
     parser.add_argument(
-        "codex_args",
+        "claude_args",
         nargs=argparse.REMAINDER,
-        help="Arguments passed to the codex CLI.",
+        help="Arguments passed to the claude CLI.",
     )
     return parser.parse_args()
 
@@ -139,12 +149,8 @@ def build_docker_image(
             with open(dockerfile_path, "w") as dockerfile:
                 dockerfile.write(dockerfile_content)
             logging.info("Building Docker image '%s'.", image_tag)
-            if debug:
-                stdout = sys.stdout
-                stderr = sys.stderr
-            else:
-                stdout = subprocess.DEVNULL
-                stderr = subprocess.DEVNULL
+            stdout = sys.stdout if debug else subprocess.DEVNULL
+            stderr = sys.stderr if debug else subprocess.DEVNULL
             subprocess.run(
                 ["docker", "build", "-t", image_tag, build_dir],
                 check=True,
@@ -157,23 +163,23 @@ def build_docker_image(
         return False
 
 
-def run_codex_container(
+def run_claude_container(
     image_tag: str,
-    codex_args: List[str],
+    claude_args: List[str],
     volumes: List[str],
     user_id: int,
     envs: List[str],
 ) -> int:
     """
-    Runs the Codex CLI inside the Docker container.
+    Runs the Claude Code CLI inside the Docker container.
     """
     cmd: List[str] = ["docker", "run", "--rm", "-it", "-u", str(user_id)]
     for volume in volumes:
         cmd.extend(["-v", volume])
     for env in envs:
         cmd.extend(["-e", env])
-    cmd.extend([image_tag] + codex_args)
-    logging.info("Running Codex CLI: %s", " ".join(cmd))
+    cmd.extend([image_tag] + claude_args)
+    logging.info("Running Claude Code CLI: %s", " ".join(cmd))
     try:
         result = subprocess.run(cmd)
         return result.returncode
@@ -184,7 +190,7 @@ def run_codex_container(
 
 def main() -> None:
     """
-    Main function to orchestrate the Dockerized Codex CLI workflow.
+    Main function to orchestrate the Dockerized Claude Code CLI workflow.
     """
     args = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
@@ -192,15 +198,23 @@ def main() -> None:
     if args.data:
         args.volumes.append(f"{args.data}:/data")
 
-    image_tag = f"codex_cli:{args.version}"
+    # Ensure claude-home directory exists
+    claude_home_host = os.path.abspath(os.path.expanduser(args.claude_home))
+    os.makedirs(claude_home_host, exist_ok=True)
+    claude_home_container = "/home/user"
+    # Mount claude-home as container's home, and set HOME env
+    args.volumes.append(f"{claude_home_host}:{claude_home_container}")
+    args.envs.append(f"HOME={claude_home_container}")
+
+    image_tag = f"claude_code_cli:{args.version}"
     dockerfile_content = DOCKERFILE_TEMPLATE.format(version=args.version)
 
     if not build_docker_image(dockerfile_content, image_tag, debug=args.debug):
         sys.exit(1)
 
-    exit_code = run_codex_container(
+    exit_code = run_claude_container(
         image_tag,
-        args.codex_args,
+        args.claude_args,
         args.volumes,
         args.uid,
         args.envs,
