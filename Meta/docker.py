@@ -60,7 +60,6 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y python3 python3-pip
 RUN apt-get update && \\
-    pip3 install --upgrade pip && \\
     [INSTALL_COMMANDS]
 WORKDIR /app
 ENTRYPOINT ["python3"]
@@ -76,7 +75,6 @@ RUN apt-get update && \
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN apt-get update && \\
-    pip install --upgrade pip && \\
     [INSTALL_COMMANDS]
 WORKDIR /app
 ENTRYPOINT ["python3"]
@@ -89,7 +87,6 @@ FROM nvidia/cuda:12.4.1-base-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y python3 python3-pip
 RUN apt-get update && \\
-    pip3 install --upgrade pip && \\
     [INSTALL_COMMANDS]
 WORKDIR /app
 ENTRYPOINT ["python3"]
@@ -102,7 +99,6 @@ FROM nvidia/cuda:11.3.1-base-ubuntu20.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y python3 python3-pip
 RUN apt-get update && \\
-    pip3 install --upgrade pip && \\
     [INSTALL_COMMANDS]
 WORKDIR /app
 ENTRYPOINT ["python3"]
@@ -310,11 +306,16 @@ def generate_dockerfile(
     template_info = TEMPLATES[template_name]
     dockerfile_content = template_info["dockerfile_template"].lstrip()
 
-    # Prepare the install commands
-    if install_commands:
-        install_cmds = " && ".join(install_commands)
+    # Prepend pip upgrade command to install_commands
+    if template_name == "ubuntu24.04":
+        pip_upgrade_cmd = "pip install --upgrade pip"
     else:
-        install_cmds = ""
+        pip_upgrade_cmd = "pip3 install --upgrade pip"
+
+    all_install_cmds = (
+        [pip_upgrade_cmd] + install_commands if install_commands else [pip_upgrade_cmd]
+    )
+    install_cmds = " && ".join(all_install_cmds)
 
     # Replace the placeholder
     dockerfile_content = dockerfile_content.replace("[INSTALL_COMMANDS]", install_cmds)
