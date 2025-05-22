@@ -43,7 +43,7 @@ from dataclasses import dataclass, asdict
 from typing import Dict, List, Tuple
 
 from flask import Flask, Response, abort, render_template_string
-from PIL import Image
+from PIL import Image, ImageOps
 import piexif
 
 
@@ -374,6 +374,7 @@ def get_image_metadata(files: List[str]) -> List[ImageMetadata]:
                 if exif_bytes:
                     lat, lon = _extract_gps_info(piexif.load(exif_bytes))
 
+                img = ImageOps.exif_transpose(img)
                 thumb_uri, tw, th = _make_thumbnail(img)
 
         except Exception as exc:  # noqa: BLE001
@@ -403,6 +404,8 @@ def get_full_images_dict(files: List[str], quality: int) -> Dict[str, bytes]:
     for path in files:
         try:
             with Image.open(path) as img:
+                img = ImageOps.exif_transpose(img)
+
                 filehash = _sha256_of_file(path)
                 result[filehash] = _make_full_image_bytes(img, quality)
         except Exception as exc:  # noqa: BLE001
