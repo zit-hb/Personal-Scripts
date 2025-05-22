@@ -19,6 +19,9 @@
 #   -H, --host HOST         Host to run the server on (default: 0.0.0.0).
 #   -t, --title TITLE       Page title (default: Hendrik's Image Map).
 #   -q, --quality QUALITY   JPEG quality for the *full* images (default: 85).
+#   -TW, --thumb-width PX   Thumbnail width in pixels (default: 600).
+#   -TH, --thumb-height PX  Thumbnail height in pixels (default: 400).
+#   -L, --locate            Enable browser geolocation button on the map.
 #   -v, --verbose           Enable verbose logging (INFO level).
 #   -vv, --debug            Enable debug logging (DEBUG level).
 #
@@ -78,7 +81,7 @@ TEMPLATE = r"""
 
   <style>
     html, body { height:100%; margin:0; }
-    #map       { height:100%; width:100%; }
+    #map       { height:100%; width:100%; position:relative; }
 
     /* Thumbnail popup */
     .thumb-popup { position:relative; }
@@ -182,6 +185,62 @@ TEMPLATE = r"""
     } else {
       map.setView([20, 0], 2);  // fallback: world view
     }
+
+    {% if enable_geolocate %}
+    // Layer group for user location markers
+    const locateLayer = L.layerGroup().addTo(map);
+
+    const locateBtn = L.DomUtil.create('button', '', map.getContainer());
+    locateBtn.id = 'locate-btn';
+    locateBtn.setAttribute('title', 'Locate me');
+    Object.assign(locateBtn.style, {
+      position: 'absolute',
+      top: '0',
+      right: '10px',
+      background: 'transparent',
+      border: 'none',
+      padding: '0',
+      margin: '0',
+      width: '32px',
+      height: '32px',
+      fontSize: '32px',
+      cursor: 'pointer',
+      zIndex: 1000
+    });
+    locateBtn.innerHTML = '🌐';
+
+    L.DomEvent.on(locateBtn, 'click', () => {
+      // Clear previous location markers
+      locateLayer.clearLayers();
+      map.locate({ setView: true, maxZoom: 18 });
+    });
+
+    map.on('locationfound', (e) => {
+      // Ensure old markers are removed
+      locateLayer.clearLayers();
+      const radius = e.accuracy / 2;
+      // Yellow accuracy circle
+      L.circle(e.latlng, {
+        radius,
+        color: 'yellow',
+        fillColor: 'yellow',
+        fillOpacity: 0.3
+      }).addTo(locateLayer);
+      // Yellow circle marker for precise location
+      L.circleMarker(e.latlng, {
+        radius: 8,
+        color: '#000',
+        weight: 1,
+        fillColor: 'yellow',
+        fillOpacity: 1
+      }).addTo(locateLayer);
+    });
+
+    map.on('locationerror', (e) => {
+      alert(e.message);
+    });
+    {% endif %}
+
   </script>
 </body>
 </html>
@@ -244,6 +303,28 @@ def parse_arguments() -> argparse.Namespace:
         default=85,
         metavar="QUALITY",
         help="JPEG quality for full images (0-100, default 85)",
+    )
+    p.add_argument(
+        "-TW",
+        "--thumb-width",
+        type=int,
+        default=600,
+        metavar="PX",
+        help="Thumbnail width in pixels (default: 600)",
+    )
+    p.add_argument(
+        "-TH",
+        "--thumb-height",
+        type=int,
+        default=400,
+        metavar="PX",
+        help="Thumbnail height in pixels (default: 400)",
+    )
+    p.add_argument(
+        "-L",
+        "--locate",
+        action="store_true",
+        help="Enable browser geolocation button on the map",
     )
     p.add_argument(
         "-v",
@@ -360,7 +441,9 @@ def find_image_files(directory: str) -> List[str]:
     return files
 
 
-def get_image_metadata(files: List[str]) -> List[ImageMetadata]:
+def get_image_metadata(
+    files: List[str], thumb_size: Tuple[int, int]
+) -> List[ImageMetadata]:
     """
     Reads each image from files and returns a list of ImageMetadata.
     """
@@ -375,7 +458,7 @@ def get_image_metadata(files: List[str]) -> List[ImageMetadata]:
                     lat, lon = _extract_gps_info(piexif.load(exif_bytes))
 
                 img = ImageOps.exif_transpose(img)
-                thumb_uri, tw, th = _make_thumbnail(img)
+                thumb_uri, tw, th = _make_thumbnail(img, size=thumb_size)
 
         except Exception as exc:  # noqa: BLE001
             logging.warning(
@@ -414,7 +497,10 @@ def get_full_images_dict(files: List[str], quality: int) -> Dict[str, bytes]:
 
 
 def create_flask_app(
-    image_objects: List[ImageMetadata], full_images: Dict[str, bytes], title: str
+    image_objects: List[ImageMetadata],
+    full_images: Dict[str, bytes],
+    title: str,
+    enable_geolocate: bool,
 ) -> Flask:
     """
     Creates a Flask web application to display images on a map.
@@ -430,6 +516,7 @@ def create_flask_app(
             TEMPLATE,
             images_data=images_json,
             page_title=title,
+            enable_geolocate=enable_geolocate,
         )
 
     @app.route("/images/<path:filehash>")
@@ -452,10 +539,11 @@ def main() -> None:
     files = find_image_files(args.directory)
     logging.info("Found %d images in ‘%s’.", len(files), args.directory)
 
-    metadata = get_image_metadata(files)
+    thumb_size = (args.thumb_width, args.thumb_height)
+    metadata = get_image_metadata(files, thumb_size)
     full_images = get_full_images_dict(files, args.quality)
 
-    app = create_flask_app(metadata, full_images, args.title)
+    app = create_flask_app(metadata, full_images, args.title, args.locate)
     app.run(host=args.host, port=args.port, debug=args.debug)
 
 
