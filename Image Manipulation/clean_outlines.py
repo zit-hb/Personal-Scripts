@@ -6,6 +6,8 @@
 # Description:
 # Cleans up a scanned or photographed outline image by removing shadows,
 # artifacts, and imperfections to produce a clear single-color image.
+# Supports multiple line-strengths via Otsu, adaptive thresholding, or Canny,
+# plus optional illumination normalization and morphological cleanup.
 #
 # Usage:
 #   ./clean_outlines.py [options] input_image output_image
@@ -15,10 +17,16 @@
 #   - output_image: Path to save the cleaned output image.
 #
 # Options:
-#   -c, --color COLOR       Specify the line color in hex format (default: #000000).
-#   -f, --bg-color COLOR    Specify a background color in hex format (e.g., #FFFFFF).
-#   -v, --verbose           Enable verbose logging (INFO level).
-#   -vv, --debug            Enable debug logging (DEBUG level).
+#   -c, --color COLOR              Specify the line color in hex format (default: #000000).
+#   -f, --bg-color COLOR           Specify a background color in hex format (e.g., #FFFFFF).
+#   -m, --method METHOD            Line detection method: otsu, adaptive, canny (default: otsu).
+#   -s, --canny-sigma FLOAT        Sigma for Canny thresholds (default: 0.33).
+#   -b, --adaptive-block-size INT  Block size (odd, ≥3) for adaptive thresholding (default: 11).
+#   -C, --adaptive-C INT           C constant for adaptive thresholding (default: 2).
+#   -i, --illum-kernel-size INT    Kernel size for illumination normalization (odd ≥3; default: 0 = off).
+#   -k, --morph-kernel-size INT    Kernel size for morphological closing (odd ≥3; default: 3).
+#   -v, --verbose                  Enable verbose logging (INFO level).
+#   -vv, --debug                   Enable debug logging (DEBUG level).
 #
 # Template: ubuntu22.04
 #
@@ -71,6 +79,49 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         metavar="COLOR",
         help="Specify a background color in hex format (e.g., #FFFFFF).",
+    )
+    parser.add_argument(
+        "-m",
+        "--method",
+        type=str,
+        choices=["otsu", "adaptive", "canny"],
+        default="otsu",
+        help="Line detection method: otsu, adaptive, canny (default: otsu).",
+    )
+    parser.add_argument(
+        "-s",
+        "--canny-sigma",
+        type=float,
+        default=0.33,
+        help="Sigma for Canny thresholds (default: 0.33).",
+    )
+    parser.add_argument(
+        "-b",
+        "--adaptive-block-size",
+        type=int,
+        default=11,
+        help="Block size (odd ≥3) for adaptive thresholding (default: 11).",
+    )
+    parser.add_argument(
+        "-C",
+        "--adaptive-C",
+        type=int,
+        default=2,
+        help="C constant for adaptive thresholding (default: 2).",
+    )
+    parser.add_argument(
+        "-i",
+        "--illum-kernel-size",
+        type=int,
+        default=0,
+        help="Kernel size for illumination normalization (odd ≥3; default: 0 = off).",
+    )
+    parser.add_argument(
+        "-k",
+        "--morph-kernel-size",
+        type=int,
+        default=3,
+        help="Kernel size for morphological closing (odd ≥3; default: 3).",
     )
     parser.add_argument(
         "-v",
@@ -140,8 +191,26 @@ def convert_to_grayscale(image: "cv2.Mat") -> "cv2.Mat":
     Converts the image to grayscale.
     """
     logging.debug("Converting image to grayscale.")
-    grayscale_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return grayscale_image
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+
+def normalize_illumination(gray: "cv2.Mat", kernel_size: int) -> "cv2.Mat":
+    """
+    Performs illumination normalization by background estimation.
+    """
+    logging.debug(f"Normalizing illumination with kernel size {kernel_size}.")
+    if kernel_size < 1 or kernel_size % 2 == 0:
+        logging.warning(
+            f"Illumination kernel size {kernel_size} invalid; skipping normalization."
+        )
+        return gray
+    # Estimate background via morphological opening
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    background = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel)
+    # Avoid division by zero
+    background = cv2.add(background, 1)
+    normed = cv2.divide(gray, background, scale=255)
+    return cv2.equalizeHist(normed)
 
 
 def apply_blur(image: "cv2.Mat", kernel_size: Tuple[int, int] = (5, 5)) -> "cv2.Mat":
@@ -149,19 +218,53 @@ def apply_blur(image: "cv2.Mat", kernel_size: Tuple[int, int] = (5, 5)) -> "cv2.
     Applies Gaussian blur to the image to reduce noise.
     """
     logging.debug(f"Applying Gaussian blur with kernel size {kernel_size}.")
-    blurred_image = cv2.GaussianBlur(image, kernel_size, 0)
-    return blurred_image
+    return cv2.GaussianBlur(image, kernel_size, 0)
 
 
-def threshold_image(image: "cv2.Mat") -> "cv2.Mat":
+def threshold_image(
+    image: "cv2.Mat",
+    method: str,
+    canny_sigma: float,
+    adaptive_block_size: int,
+    adaptive_C: int,
+) -> "cv2.Mat":
     """
-    Applies Otsu's thresholding to convert the image to black and white.
+    Detects lines using the specified method and returns a binary image.
     """
-    logging.debug("Applying Otsu's thresholding.")
-    _, thresholded_image = cv2.threshold(
-        image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-    )
-    return thresholded_image
+    logging.debug(f"Applying threshold method: {method}.")
+    if method == "otsu":
+        logging.debug("Applying Otsu's thresholding.")
+        _, thresholded = cv2.threshold(
+            image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+    elif method == "adaptive":
+        bs = adaptive_block_size
+        if bs < 3 or bs % 2 == 0:
+            logging.warning(f"Adaptive block size {bs} invalid; using 11.")
+            bs = 11
+        logging.debug(
+            f"Applying adaptive thresholding with block size {bs}, C={adaptive_C}."
+        )
+        thresholded = cv2.adaptiveThreshold(
+            image,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            bs,
+            adaptive_C,
+        )
+    elif method == "canny":
+        logging.debug(f"Applying Canny edge detection with sigma={canny_sigma}.")
+        v = np.median(image)
+        lower = int(max(0, (1.0 - canny_sigma) * v))
+        upper = int(min(255, (1.0 + canny_sigma) * v))
+        logging.debug(f"Canny thresholds: lower={lower}, upper={upper}.")
+        edges = cv2.Canny(image, lower, upper)
+        thresholded = cv2.bitwise_not(edges)
+    else:
+        logging.error(f"Unknown thresholding method '{method}'.")
+        sys.exit(1)
+    return thresholded
 
 
 def supports_transparency(output_path: str) -> bool:
@@ -189,26 +292,19 @@ def create_transparent_image(
     Creates a transparent image with colored lines on a transparent background.
     """
     logging.debug("Creating transparent image with colored lines.")
-    # Invert thresholded image: lines are black (0), background is white (255)
     inverted = cv2.bitwise_not(thresholded)
-    # Create alpha channel based on inverted image
     alpha = inverted
-    # Create BGR channels with the specified line color
     b, g, r = line_color
-    # Create mask where the actual lines are black == 0
     mask = thresholded == 0
 
-    # Initialize BGR channels
     b_channel = np.zeros_like(thresholded, dtype=np.uint8)
     g_channel = np.zeros_like(thresholded, dtype=np.uint8)
     r_channel = np.zeros_like(thresholded, dtype=np.uint8)
 
-    # Put line color where mask is True
     b_channel[mask] = b
     g_channel[mask] = g
     r_channel[mask] = r
 
-    # Merge BGR and alpha channels
     transparent_image = cv2.merge((b_channel, g_channel, r_channel, alpha))
     return transparent_image
 
@@ -223,18 +319,11 @@ def bg_color(
     and the lines with the specified color, without adding/saturating.
     """
     logging.debug("Filling background and lines with specified colors.")
-
-    # Create the output image filled with the background color
     combined = np.full_like(
         cv2.cvtColor(thresholded, cv2.COLOR_GRAY2BGR), background_color, dtype=np.uint8
     )
-
-    # The mask for lines (which are black == 0 in thresholded)
     mask = thresholded == 0
-
-    # Directly overwrite background with line color where mask is True
     combined[mask] = line_color
-
     return combined
 
 
@@ -255,6 +344,12 @@ def clean_image(
     output_path: str,
     bg_color_color: Optional[Tuple[int, int, int]],
     line_color: Tuple[int, int, int],
+    method: str,
+    canny_sigma: float,
+    adaptive_block_size: int,
+    adaptive_C: int,
+    illum_kernel_size: int,
+    morph_kernel_size: int,
 ) -> None:
     """
     Cleans the input image and saves the processed image to the output path.
@@ -262,8 +357,29 @@ def clean_image(
     logging.info(f"Starting cleanup of image '{input_path}'.")
     image = load_image(input_path)
     grayscale = convert_to_grayscale(image)
+
+    # optional illumination normalization to reduce shadows
+    if illum_kernel_size > 0:
+        grayscale = normalize_illumination(grayscale, illum_kernel_size)
+
     blurred = apply_blur(grayscale)
-    thresholded = threshold_image(blurred)
+    thresholded = threshold_image(
+        blurred, method, canny_sigma, adaptive_block_size, adaptive_C
+    )
+
+    # morphological closing to remove small gaps/artifacts
+    if morph_kernel_size >= 3 and morph_kernel_size % 2 == 1:
+        logging.debug(
+            f"Applying morphological closing with kernel size {morph_kernel_size}."
+        )
+        mker = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (morph_kernel_size, morph_kernel_size)
+        )
+        thresholded = cv2.morphologyEx(thresholded, cv2.MORPH_CLOSE, mker)
+    else:
+        logging.warning(
+            f"Invalid morph-kernel-size {morph_kernel_size}; skipping closing."
+        )
 
     if bg_color_color:
         processed_image = bg_color(thresholded, bg_color_color, line_color)
@@ -271,7 +387,6 @@ def clean_image(
         if supports_transparency(output_path):
             processed_image = create_transparent_image(thresholded, line_color)
         else:
-            # Default to white background if bg_color not provided and format not transparent
             processed_image = bg_color(thresholded, (255, 255, 255), line_color)
 
     save_image(processed_image, output_path)
@@ -300,6 +415,12 @@ def main() -> None:
         args.output_image,
         bg_color_color=fill_color,
         line_color=line_color,
+        method=args.method,
+        canny_sigma=args.canny_sigma,
+        adaptive_block_size=args.adaptive_block_size,
+        adaptive_C=args.adaptive_C,
+        illum_kernel_size=args.illum_kernel_size,
+        morph_kernel_size=args.morph_kernel_size,
     )
 
 
