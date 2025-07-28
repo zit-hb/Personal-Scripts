@@ -37,7 +37,6 @@
 # -------------------------------------------------------
 
 import argparse
-import base64
 import hashlib
 import io
 import logging
@@ -147,10 +146,12 @@ TEMPLATE = r"""
           const popupHtml = `
             <div class="thumb-popup">
               <span class="close-btn">&times;</span>
-              <img src="${img.thumbnail}"
-                   width="${img.thumb_w}"
-                   height="${img.thumb_h}"
-                   alt="thumbnail" />
+              <img
+                src="/thumbnail/${img.sha256}"
+                width="${img.thumb_w}"
+                height="${img.thumb_h}"
+                alt="thumbnail"
+              />
             </div>`;
 
           const popup = L.popup({
@@ -173,7 +174,7 @@ TEMPLATE = r"""
 
             if (close) close.addEventListener('click', () => map.closePopup(popup));
             if (image) image.addEventListener('click', () =>
-              window.open(`/images/${img.sha256}`, '_blank'));
+              window.open(`/image/${img.sha256}`, '_blank'));
           }, 0);
         });
       }
@@ -254,14 +255,12 @@ class ImageMetadata:
 
     sha256      – SHA-256 hash used as a stable public identifier
     lat/lon     – GPS position in decimal degrees
-    thumbnail   – data-URI (JPEG) used directly by Leaflet markers
-    thumb_w/h   – actual pixel dimensions of the thumbnail
+    thumb_w/h   – pixel dimensions of the thumbnail
     """
 
     sha256: str
     lat: float
     lon: float
-    thumbnail: str
     thumb_w: int
     thumb_h: int
 
@@ -397,32 +396,6 @@ def _sha256_of_file(path: str) -> str:
     return h.hexdigest()
 
 
-def _make_thumbnail(
-    img: Image.Image, size: Tuple[int, int] = (800, 600)
-) -> Tuple[str, int, int]:
-    """
-    Returns a base64 data-URI containing a JPEG thumbnail of the image
-    plus its actual width & height.
-    """
-    thumb = img.copy()
-    thumb.thumbnail(size)
-    w, h = thumb.size
-    buf = io.BytesIO()
-    thumb.save(buf, format="JPEG", quality=85)
-    b64 = base64.b64encode(buf.getvalue()).decode()
-    return f"data:image/jpeg;base64,{b64}", w, h
-
-
-def _make_full_image_bytes(img: Image.Image, quality: int) -> bytes:
-    """
-    Returns the stripped & re-compressed full-size image as raw JPEG bytes
-    (no metadata, RGB, optimised).
-    """
-    buf = io.BytesIO()
-    img.convert("RGB").save(buf, format="JPEG", quality=quality, optimize=True)
-    return buf.getvalue()
-
-
 def find_image_files(directory: str) -> List[str]:
     """
     Returns a list of absolute paths to supported images in directory.
@@ -441,63 +414,67 @@ def find_image_files(directory: str) -> List[str]:
     return files
 
 
-def get_image_metadata(
-    files: List[str], thumb_size: Tuple[int, int]
-) -> List[ImageMetadata]:
+def process_images(
+    files: List[str], thumb_size: Tuple[int, int], quality: int
+) -> Tuple[List[ImageMetadata], Dict[str, bytes], Dict[str, bytes]]:
     """
-    Reads each image from files and returns a list of ImageMetadata.
+    Reads each image, extracts EXIF/GPS, generates full-size and thumbnail
+    JPEGs once, and returns:
+      - list of ImageMetadata,
+      - dict sha256→thumbnail bytes,
+      - dict sha256→full-image bytes.
     """
-    out: List[ImageMetadata] = []
+    metadata: List[ImageMetadata] = []
+    thumbnails: Dict[str, bytes] = {}
+    full_images: Dict[str, bytes] = {}
 
     for path in files:
-        lat, lon = None, None
         try:
             with Image.open(path) as img:
                 exif_bytes = img.info.get("exif")
+                lat = lon = None
                 if exif_bytes:
                     lat, lon = _extract_gps_info(piexif.load(exif_bytes))
 
                 img = ImageOps.exif_transpose(img)
-                thumb_uri, tw, th = _make_thumbnail(img, size=thumb_size)
 
-        except Exception as exc:  # noqa: BLE001
-            logging.warning(
-                "Thumbnail/EXIF error on ‘%s’: %s", os.path.basename(path), exc
-            )
-            continue  # skip corrupt images
-
-        out.append(
-            ImageMetadata(
-                sha256=_sha256_of_file(path),
-                lat=lat,
-                lon=lon,
-                thumbnail=thumb_uri,
-                thumb_w=tw,
-                thumb_h=th,
-            )
-        )
-    return out
-
-
-def get_full_images_dict(files: List[str], quality: int) -> Dict[str, bytes]:
-    """
-    Walks through *files* and builds a dictionary {sha256 → full-size JPEG bytes}.
-    """
-    result: Dict[str, bytes] = {}
-    for path in files:
-        try:
-            with Image.open(path) as img:
-                img = ImageOps.exif_transpose(img)
-
+                # Full image
                 filehash = _sha256_of_file(path)
-                result[filehash] = _make_full_image_bytes(img, quality)
+                buf_full = io.BytesIO()
+                img.convert("RGB").save(
+                    buf_full, format="JPEG", quality=quality, optimize=True
+                )
+                full_images[filehash] = buf_full.getvalue()
+
+                # Thumbnail
+                thumb = img.copy()
+                thumb.thumbnail(thumb_size)
+                w, h = thumb.size
+                buf_thumb = io.BytesIO()
+                thumb.save(buf_thumb, format="JPEG", quality=85)
+                thumbnails[filehash] = buf_thumb.getvalue()
+
+                # Record metadata
+                metadata.append(
+                    ImageMetadata(
+                        sha256=filehash,
+                        lat=lat,
+                        lon=lon,
+                        thumb_w=w,
+                        thumb_h=h,
+                    )
+                )
+
         except Exception as exc:  # noqa: BLE001
-            logging.warning("Full-image error on ‘%s’: %s", os.path.basename(path), exc)
-    return result
+            logging.warning("Error processing '%s': %s", os.path.basename(path), exc)
+            continue
+
+    return metadata, thumbnails, full_images
 
 
 def create_flask_app(
     image_objects: List[ImageMetadata],
+    thumbnails: Dict[str, bytes],
     full_images: Dict[str, bytes],
     title: str,
     enable_geolocate: bool,
@@ -519,9 +496,19 @@ def create_flask_app(
             enable_geolocate=enable_geolocate,
         )
 
-    @app.route("/images/<path:filehash>")
+    @app.route("/image/<path:filehash>")
     def serve_image(filehash: str):
         data = full_images.get(filehash)
+        if data is None:
+            abort(404)
+        return Response(data, mimetype="image/jpeg")
+
+    @app.route("/thumbnail/<path:filehash>")
+    def serve_thumbnail(filehash: str):
+        """
+        Serves a pre-generated thumbnail for the given filehash.
+        """
+        data = thumbnails.get(filehash)
         if data is None:
             abort(404)
         return Response(data, mimetype="image/jpeg")
@@ -540,10 +527,15 @@ def main() -> None:
     logging.info("Found %d images in ‘%s’.", len(files), args.directory)
 
     thumb_size = (args.thumb_width, args.thumb_height)
-    metadata = get_image_metadata(files, thumb_size)
-    full_images = get_full_images_dict(files, args.quality)
+    metadata, thumbnails, full_images = process_images(files, thumb_size, args.quality)
 
-    app = create_flask_app(metadata, full_images, args.title, args.locate)
+    app = create_flask_app(
+        metadata,
+        thumbnails,
+        full_images,
+        args.title,
+        args.locate,
+    )
     app.run(host=args.host, port=args.port, debug=args.debug)
 
 
