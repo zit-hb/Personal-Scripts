@@ -17,9 +17,9 @@
 #
 # Options:
 #   -k, --api-key API_KEY               Your OpenAI or Anthropic API key (or set via OPENAI_API_KEY / ANTHROPIC_API_KEY).
-#   -m, --model MODEL                   Model to use (default: "o4-mini").
+#   -m, --model MODEL                   Model to use (default: "o5").
 #   -P, --provider PROVIDER             Which LLM provider to use: openai or anthropic (default: openai).
-#   -T, --max-tokens MAX_TOKENS         Maximum tokens to request from the Anthropic LLM (default: 4096).
+#   -T, --max-tokens MAX_TOKENS         Maximum tokens to request from the Anthropic LLM (default: 16384).
 #   -S, --example-script FILE           Paths to example scripts to reference (can be specified multiple times).
 #   -I, --instruction-set NAME          Names of instruction sets to include (can be specified multiple times).
 #   -o, --output OUTPUT                 Path to file where the generated code is written.
@@ -37,11 +37,11 @@
 # Template: ubuntu24.04
 #
 # Requirements:
-#   - openai (install via: pip install openai==1.64.0)
-#   - rich (install via: pip install rich==13.9.4)
-#   - ruff (install via: pip install ruff==0.9.7)
+#   - openai (install via: pip install openai==2.7.1)
+#   - rich (install via: pip install rich==14.2.0)
+#   - ruff (install via: pip install ruff==0.14.4)
 #   - anthropic (install via: pip install anthropic==0.48.0)
-#   - prompt_toolkit (install via: pip install prompt_toolkit==3.0.50)
+#   - prompt_toolkit (install via: pip install prompt_toolkit==3.0.52)
 #
 # -------------------------------------------------------
 # © 2025 Hendrik Buchwald. All rights reserved.
@@ -542,8 +542,8 @@ def parse_arguments() -> argparse.Namespace:
         "-T",
         "--max-tokens",
         type=int,
-        default=4096,
-        help="Maximum tokens to request from the Anthropic LLM (default: 4096).",
+        default=16384,
+        help="Maximum tokens to request from the Anthropic LLM (default: 16384).",
     )
     parser.add_argument(
         "-S",
