@@ -34,6 +34,7 @@
 #   -Y, --no-tty                      Disable TTY mode even if stdout is a terminal.
 #   -p, --port PORT_MAPPING           Forward ports from the Docker container (e.g., 8080:8080). Can be specified multiple times.
 #   -u, --user-id UID                 UID of the user inside the container (default: current user's UID)
+#   -S, --shm-size SIZE               Set the size of /dev/shm (e.g., 1g for 1 gigabyte).
 #
 # Requirements:
 # - Docker must be installed and running on the host system.
@@ -227,6 +228,12 @@ def parse_arguments() -> argparse.Namespace:
         help="UID of the user inside the container (default: current user's UID)",
     )
     parser.add_argument(
+        "-S",
+        "--shm-size",
+        type=str,
+        help="Set the size of /dev/shm (e.g., 1g for 1 gigabyte).",
+    )
+    parser.add_argument(
         "target_script_and_args",
         nargs=argparse.REMAINDER,
         help="The target script plus any arguments to pass inside the Docker container.",
@@ -394,6 +401,7 @@ def run_docker_container(
     tty_mode: bool,
     test_mode: bool,
     user_id: Optional[int],
+    shm_size: Optional[str] = None,
     ports: Optional[List[str]] = None,
 ) -> int:
     """
@@ -423,6 +431,9 @@ def run_docker_container(
 
     if user_id is not None:
         cmd += ["--user", str(user_id)]
+
+    if shm_size is not None:
+        cmd += ["--shm-size", shm_size]
 
     script_name = os.path.basename(target_script_path)
     cmd += ["-v", f"{os.path.abspath(target_script_path)}:/app/{script_name}:ro"]
@@ -524,6 +535,7 @@ def process_single_script(
             tty_mode=tty_mode,
             test_mode=test_mode,
             user_id=args.user_id,
+            shm_size=args.shm_size,
             ports=args.port,
         )
 
@@ -692,6 +704,7 @@ def main() -> None:
             tty_mode=tty_mode,
             test_mode=test_mode,
             user_id=args.user_id,
+            shm_size=args.shm_size,
             ports=args.port,
         )
         sys.exit(run_status)
