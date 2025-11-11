@@ -9,11 +9,10 @@
 #   the best model checkpoint based on F1-score.
 #
 # Usage:
-#   ./train_resnet50.py [options] --train-dir TRAIN_DIR --val-dir VAL_DIR
+#   ./train_resnet50.py [options] --train-dir TRAIN_DIR
 #
 # Arguments:
 #   -T, --train-dir TRAIN_DIR           Path to training data directory.
-#   -V, --val-dir VAL_DIR               Path to validation data directory.
 #
 # Options:
 #   -b, --batch-size BATCH_SIZE         Training batch size. (default: 32)
@@ -21,6 +20,8 @@
 #   -l, --learning-rate LR              Base learning rate. (default: 1e-4)
 #       --backbone-lr-scale SCALE       LR multiplier for backbone when unfrozen. (default: 0.1)
 #       --freeze-backbone-epochs N      Train only the final layer for first N epochs (with pretrained). (default: 3)
+#   -s, --val-split VAL_SPLIT           Fraction of training data used for validation. (default: 0.2)
+#   -r, --seed SEED                     Random seed for train/val split. (default: None)
 #   -o, --output OUTPUT_PATH            Path to save best model. (default: best_model.pth)
 #   -w, --weights                       Use pre-trained ImageNet weights.
 #   -a, --augmentation-level LEVEL      Data augmentation preset:
@@ -70,13 +71,6 @@ def parse_arguments() -> argparse.Namespace:
         help="Path to training data directory.",
     )
     parser.add_argument(
-        "-V",
-        "--val-dir",
-        type=str,
-        required=True,
-        help="Path to validation data directory.",
-    )
-    parser.add_argument(
         "-b",
         "--batch-size",
         type=int,
@@ -114,6 +108,20 @@ def parse_arguments() -> argparse.Namespace:
             "Number of initial epochs to train only the final layer when using "
             "pre-trained weights. (default: 3)"
         ),
+    )
+    parser.add_argument(
+        "-s",
+        "--val-split",
+        type=float,
+        default=0.2,  # 20% validation is a standard, reasonable default.
+        help=("Fraction of training data to use for validation. (default: 0.2)"),
+    )
+    parser.add_argument(
+        "-r",
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for train/validation split. (default: None)",
     )
     parser.add_argument(
         "-o",
@@ -176,12 +184,12 @@ def get_device() -> torch.device:
     return device
 
 
-def validate_data_dirs(train_dir: str, val_dir: str) -> None:
+def validate_data_dir(train_dir: str) -> None:
     """
-    Validates that training and validation directories exist.
+    Validates that the training directory exists.
     """
-    if not os.path.isdir(train_dir) or not os.path.isdir(val_dir):
-        logging.error("Train or validation directory does not exist.")
+    if not os.path.isdir(train_dir):
+        logging.error("Train directory does not exist.")
         sys.exit(1)
 
 
@@ -330,19 +338,84 @@ def get_val_transform() -> transforms.Compose:
     )
 
 
+class TransformSubset(torch.utils.data.Dataset):
+    """
+    A subset of a dataset that applies a specific transform.
+    Keeps class/target metadata for compatibility with ImageFolder utilities.
+    """
+
+    def __init__(
+        self,
+        dataset: ImageFolder,
+        indices,
+        transform: transforms.Compose,
+    ) -> None:
+        self.dataset = dataset
+        self.indices = list(indices)
+        self.transform = transform
+        self.classes = dataset.classes
+        self.class_to_idx = dataset.class_to_idx
+        self.targets = [dataset.targets[i] for i in self.indices]
+
+    def __len__(self) -> int:
+        return len(self.indices)
+
+    def __getitem__(self, idx: int):
+        sample_idx = self.indices[idx]
+        path, target = self.dataset.samples[sample_idx]
+        image = self.dataset.loader(path)
+        if self.transform is not None:
+            image = self.transform(image)
+        return image, target
+
+
 def create_datasets(
     train_dir: str,
-    val_dir: str,
     train_transform: transforms.Compose,
     val_transform: transforms.Compose,
-) -> Tuple[ImageFolder, ImageFolder]:
+    val_split: float,
+    seed: int | None,
+) -> Tuple[TransformSubset, TransformSubset]:
     """
-    Creates training and validation datasets.
+    Creates training and validation datasets by splitting the training directory.
     """
-    train_dataset = ImageFolder(root=train_dir, transform=train_transform)
-    val_dataset = ImageFolder(root=val_dir, transform=val_transform)
-    logging.info(f"Train classes: {train_dataset.classes}")
-    logging.info(f"Val classes:   {val_dataset.classes}")
+    if not (0.0 < val_split < 1.0):
+        logging.error("val-split must be between 0 and 1 (exclusive).")
+        sys.exit(1)
+
+    full_dataset = ImageFolder(root=train_dir)
+    num_samples = len(full_dataset)
+
+    if num_samples < 2:
+        logging.error("Not enough images to create a train/validation split.")
+        sys.exit(1)
+
+    num_val = int(num_samples * val_split)
+    if num_val <= 0 or num_val >= num_samples:
+        logging.error(
+            "val-split results in an empty train or validation set. "
+            "Adjust val-split or provide more data."
+        )
+        sys.exit(1)
+
+    if seed is not None:
+        g = torch.Generator()
+        g.manual_seed(seed)
+        indices = torch.randperm(num_samples, generator=g).tolist()
+    else:
+        indices = torch.randperm(num_samples).tolist()
+
+    val_indices = indices[:num_val]
+    train_indices = indices[num_val:]
+
+    train_dataset = TransformSubset(full_dataset, train_indices, train_transform)
+    val_dataset = TransformSubset(full_dataset, val_indices, val_transform)
+
+    logging.info(f"Total samples: {num_samples}")
+    logging.info(f"Train samples: {len(train_dataset)}")
+    logging.info(f"Val samples:   {len(val_dataset)}")
+    logging.info(f"Classes: {full_dataset.classes}")
+
     return train_dataset, val_dataset
 
 
@@ -625,7 +698,7 @@ def main() -> None:
     args = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
 
-    validate_data_dirs(args.train_dir, args.val_dir)
+    validate_data_dir(args.train_dir)
 
     device = get_device()
     train_transform = get_train_transform(args.augmentation_level)
@@ -633,9 +706,10 @@ def main() -> None:
 
     train_dataset, val_dataset = create_datasets(
         args.train_dir,
-        args.val_dir,
         train_transform,
         val_transform,
+        args.val_split,
+        args.seed,
     )
 
     class_weights = compute_class_weights(train_dataset, device)
