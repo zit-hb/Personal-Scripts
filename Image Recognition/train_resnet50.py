@@ -9,20 +9,22 @@
 #   the best model checkpoint based on F1-score.
 #
 # Usage:
-#   ./train_resnet50.py [options] --train_dir TRAIN_DIR --val_dir VAL_DIR
+#   ./train_resnet50.py [options] --train-dir TRAIN_DIR --val-dir VAL_DIR
 #
 # Arguments:
-#   -T, --train_dir TRAIN_DIR           Path to training data directory.
-#   -V, --val_dir VAL_DIR               Path to validation data directory.
+#   -T, --train-dir TRAIN_DIR           Path to training data directory.
+#   -V, --val-dir VAL_DIR               Path to validation data directory.
 #
 # Options:
-#   -b, --batch_size BATCH_SIZE         Training batch size. (default: 32)
+#   -b, --batch-size BATCH_SIZE         Training batch size. (default: 32)
 #   -e, --epochs EPOCHS                 Number of epochs. (default: 20)
-#   -l, --learning_rate LR              Base learning rate. (default: 1e-4)
-#       --backbone_lr_scale SCALE       LR multiplier for backbone when unfrozen. (default: 0.1)
-#       --freeze_backbone_epochs N      Train only the final layer for first N epochs (with pretrained). (default: 3)
+#   -l, --learning-rate LR              Base learning rate. (default: 1e-4)
+#       --backbone-lr-scale SCALE       LR multiplier for backbone when unfrozen. (default: 0.1)
+#       --freeze-backbone-epochs N      Train only the final layer for first N epochs (with pretrained). (default: 3)
 #   -o, --output OUTPUT_PATH            Path to save best model. (default: best_model.pth)
 #   -w, --weights                       Use pre-trained ImageNet weights.
+#   -a, --augmentation-level LEVEL      Data augmentation preset:
+#                                       {none, light, medium, strong}. (default: strong)
 #   -v, --verbose                       Enable verbose logging (INFO level).
 #   -d, --debug                         Enable debug logging (DEBUG level).
 #
@@ -62,21 +64,21 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "-T",
-        "--train_dir",
+        "--train-dir",
         type=str,
         required=True,
         help="Path to training data directory.",
     )
     parser.add_argument(
         "-V",
-        "--val_dir",
+        "--val-dir",
         type=str,
         required=True,
         help="Path to validation data directory.",
     )
     parser.add_argument(
         "-b",
-        "--batch_size",
+        "--batch-size",
         type=int,
         default=32,  # 32 is a standard GPU-friendly batch size; good balance of stability and memory.
         help="Training batch size. (default: 32)",
@@ -90,13 +92,13 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "-l",
-        "--learning_rate",
+        "--learning-rate",
         type=float,
         default=1e-4,  # 1e-4 is a conservative LR for fine-tuning with Adam; avoids destroying pretrained weights.
         help="Base learning rate. (default: 1e-4)",
     )
     parser.add_argument(
-        "--backbone_lr_scale",
+        "--backbone-lr-scale",
         type=float,
         default=0.1,  # Train backbone 10x slower than head to make fine-tuning gentle and stable.
         help=(
@@ -105,7 +107,7 @@ def parse_arguments() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--freeze_backbone_epochs",
+        "--freeze-backbone-epochs",
         type=int,
         default=3,  # First 3 epochs only train head so it adapts before touching pretrained features.
         help=(
@@ -125,6 +127,16 @@ def parse_arguments() -> argparse.Namespace:
         "--weights",
         action="store_true",
         help="Use pre-trained ImageNet weights.",
+    )
+    parser.add_argument(
+        "-a",
+        "--augmentation-level",
+        type=str,
+        default="strong",
+        choices=["none", "light", "medium", "strong"],
+        help=(
+            "Data augmentation preset: {none, light, medium, strong}. (default: strong)"
+        ),
     )
     parser.add_argument(
         "-v",
@@ -173,10 +185,75 @@ def validate_data_dirs(train_dir: str, val_dir: str) -> None:
         sys.exit(1)
 
 
-def get_train_transform() -> transforms.Compose:
+def get_train_transform_none() -> transforms.Compose:
     """
-    Returns the training data transforms with strong augmentation,
-    including occlusion-style noise via RandomErasing.
+    Returns training transforms for 'none' augmentation preset.
+    Deterministic resize + normalization; for very clean datasets.
+    """
+    return transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+            ),
+        ]
+    )
+
+
+def get_train_transform_light() -> transforms.Compose:
+    """
+    Returns training transforms for 'light' augmentation preset.
+    Mild spatial jitter + flip; conservative default.
+    """
+    return transforms.Compose(
+        [
+            transforms.RandomResizedCrop(
+                224,
+                scale=(0.9, 1.0),
+            ),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+            ),
+        ]
+    )
+
+
+def get_train_transform_medium() -> transforms.Compose:
+    """
+    Returns training transforms for 'medium' augmentation preset.
+    Stronger spatial jitter + mild color changes; robust general-purpose choice.
+    """
+    return transforms.Compose(
+        [
+            transforms.RandomResizedCrop(
+                224,
+                scale=(0.8, 1.0),
+            ),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(
+                brightness=0.2,
+                contrast=0.2,
+                saturation=0.2,
+                hue=0.02,
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225],
+            ),
+        ]
+    )
+
+
+def get_train_transform_strong() -> transforms.Compose:
+    """
+    Returns training transforms for 'strong' augmentation preset.
+    Aggressive augment including RandomErasing; matches the original behavior.
     """
     return transforms.Compose(
         [
@@ -213,6 +290,25 @@ def get_train_transform() -> transforms.Compose:
             ),
         ]
     )
+
+
+def get_train_transform(augmentation_level: str) -> transforms.Compose:
+    """
+    Returns the training data transforms according to the selected
+    augmentation preset.
+    """
+    if augmentation_level == "none":
+        return get_train_transform_none()
+    if augmentation_level == "light":
+        return get_train_transform_light()
+    if augmentation_level == "medium":
+        return get_train_transform_medium()
+    if augmentation_level == "strong":
+        return get_train_transform_strong()
+
+    # Should not be reached due to argparse choices, but kept for robustness.
+    logging.error(f"Unknown augmentation level: {augmentation_level}")
+    sys.exit(1)
 
 
 def get_val_transform() -> transforms.Compose:
@@ -532,7 +628,7 @@ def main() -> None:
     validate_data_dirs(args.train_dir, args.val_dir)
 
     device = get_device()
-    train_transform = get_train_transform()
+    train_transform = get_train_transform(args.augmentation_level)
     val_transform = get_val_transform()
 
     train_dataset, val_dataset = create_datasets(
