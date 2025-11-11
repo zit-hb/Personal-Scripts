@@ -19,6 +19,7 @@
 #   -o, --output OUTPUT      Output image file path (default: panorama.jpg).
 #   -k, --api-key KEY        Google Maps Platform API key
 #                            (default: read from GOOGLE_MAPS_API_KEY).
+#   -T, --store-tiles        Store individual tiles alongside the panorama.
 #   -v, --verbose            Enable verbose logging (INFO level).
 #   -vv, --debug             Enable debug logging (DEBUG level).
 #
@@ -87,6 +88,12 @@ def parse_arguments() -> argparse.Namespace:
             "Google Maps Platform API key. "
             "If omitted, GOOGLE_MAPS_API_KEY environment variable is used."
         ),
+    )
+    parser.add_argument(
+        "-T",
+        "--store-tiles",
+        action="store_true",
+        help="Store individual tiles alongside the stitched panorama.",
     )
     parser.add_argument(
         "-v",
@@ -538,6 +545,42 @@ def log_attribution(metadata: Dict[str, Any]) -> None:
         logging.info(f"Attribution: {copyright_text}")
 
 
+def store_tiles_to_disk(
+    tiles: List[List[Image.Image]],
+    latitude: float,
+    longitude: float,
+    zoom: int,
+    output_path: str,
+    pano_id: str,
+) -> None:
+    """
+    Stores individual tiles as JPEG files next to the panorama.
+
+    Filenames follow:
+      <lat>_<lng>_z<zoom>_<panoId>_x<x>_y<y>.jpg
+
+    Including panoId ensures filenames do not collide between different
+    panoramas at the same coordinates and zoom.
+    """
+    base_dir = os.path.dirname(output_path) or "."
+    lat_str = f"{latitude:.6f}"
+    lon_str = f"{longitude:.6f}"
+
+    # Make pano_id filesystem-friendly
+    safe_pano_id = "".join(
+        c if c.isalnum() or c in ("-", "_") else "_" for c in pano_id
+    )
+
+    for y, row in enumerate(tiles):
+        for x, tile in enumerate(row):
+            filename = f"{lat_str}_{lon_str}_z{zoom}_{safe_pano_id}_x{x}_y{y}.jpg"
+            path = os.path.join(base_dir, filename)
+            try:
+                tile.save(path, format="JPEG")
+            except Exception as error:
+                logging.warning(f"Failed to save tile {x},{y} to '{path}': {error}")
+
+
 def main() -> None:
     """
     Main function to orchestrate the panorama download and stitching.
@@ -601,6 +644,21 @@ def main() -> None:
     panorama = stitch_tiles(tiles, tile_width, tile_height)
 
     save_panorama(panorama, args.output, args.latitude, args.longitude)
+
+    if args.store_tiles:
+        logging.info(
+            f"Storing individual tiles with filename prefix based on "
+            f"{args.latitude}, {args.longitude}, zoom={zoom}, panoId={pano_id}"
+        )
+        store_tiles_to_disk(
+            tiles,
+            args.latitude,
+            args.longitude,
+            zoom,
+            args.output,
+            pano_id,
+        )
+
     log_attribution(metadata)
 
 
