@@ -39,7 +39,6 @@ import os
 import sys
 import tempfile
 from dataclasses import dataclass
-from typing import List
 
 from openai import OpenAI
 from PIL import Image
