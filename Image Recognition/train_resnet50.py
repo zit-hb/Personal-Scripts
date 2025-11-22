@@ -4,30 +4,28 @@
 # Script: train_resnet50.py
 #
 # Description:
-#   Trains a ResNet50-based binary image classifier.
-#   Uses ImageFolder datasets, computes metrics, and saves
-#   the best model checkpoint based on F1-score.
+# Trains a ResNet50-based image classifier.
+# Uses ImageFolder datasets, computes metrics, and saves
+# the best model checkpoint based on F1-score.
 #
 # Usage:
-#   ./train_resnet50.py [options] --train-dir TRAIN_DIR
-#
-# Arguments:
-#   -T, --train-dir TRAIN_DIR           Path to training data directory.
+#   ./train_resnet50.py [options]
 #
 # Options:
-#   -b, --batch-size BATCH_SIZE         Training batch size. (default: 32)
-#   -e, --epochs EPOCHS                 Number of epochs. (default: 20)
-#   -l, --learning-rate LR              Base learning rate. (default: 1e-4)
-#       --backbone-lr-scale SCALE       LR multiplier for backbone when unfrozen. (default: 0.1)
-#       --freeze-backbone-epochs N      Train only the final layer for first N epochs (with pretrained). (default: 3)
-#   -s, --val-split VAL_SPLIT           Fraction of training data used for validation. (default: 0.2)
-#   -r, --seed SEED                     Random seed for train/val split. (default: None)
-#   -o, --output OUTPUT_PATH            Path to save best model. (default: best_model.pth)
+#   -T, --train-dir TRAIN_DIR           Path to training data directory.
+#   -b, --batch-size BATCH_SIZE         Training batch size (default: 32).
+#   -e, --epochs EPOCHS                 Number of epochs (default: 20).
+#   -l, --learning-rate LR              Base learning rate (default: 1e-4).
+#       --backbone-lr-scale SCALE       LR multiplier for backbone when unfrozen (default: 0.1).
+#       --freeze-backbone-epochs N      Train only the final layer for first N epochs (with pretrained) (default: 3).
+#   -s, --val-split VAL_SPLIT           Fraction of training data used for validation (default: 0.2).
+#   -r, --seed SEED                     Random seed for train/val split (default: None).
+#   -o, --output OUTPUT_PATH            Path to save best model (default: best_model.pth).
 #   -w, --weights                       Use pre-trained ImageNet weights.
 #   -a, --augmentation-level LEVEL      Data augmentation preset:
-#                                       {none, light, medium, strong}. (default: strong)
+#                                       {none, light, medium, strong} (default: strong).
 #   -v, --verbose                       Enable verbose logging (INFO level).
-#   -d, --debug                         Enable debug logging (DEBUG level).
+#   -vv, --debug                        Enable debug logging (DEBUG level).
 #
 # Template: cuda12.4.1-ubuntu22.04
 #
@@ -75,29 +73,29 @@ def parse_arguments() -> argparse.Namespace:
         "--batch-size",
         type=int,
         default=32,  # 32 is a standard GPU-friendly batch size; good balance of stability and memory.
-        help="Training batch size. (default: 32)",
+        help="Training batch size (default: 32).",
     )
     parser.add_argument(
         "-e",
         "--epochs",
         type=int,
         default=20,  # 20 epochs is enough to converge with transfer learning on a small dataset; adjust if needed.
-        help="Number of epochs. (default: 20)",
+        help="Number of epochs (default: 20).",
     )
     parser.add_argument(
         "-l",
         "--learning-rate",
         type=float,
         default=1e-4,  # 1e-4 is a conservative LR for fine-tuning with Adam; avoids destroying pretrained weights.
-        help="Base learning rate. (default: 1e-4)",
+        help="Base learning rate (default: 1e-4).",
     )
     parser.add_argument(
         "--backbone-lr-scale",
         type=float,
         default=0.1,  # Train backbone 10x slower than head to make fine-tuning gentle and stable.
         help=(
-            "Learning rate multiplier for backbone parameters when unfrozen. "
-            "(default: 0.1)"
+            "Learning rate multiplier for backbone parameters when unfrozen "
+            "(default: 0.1)."
         ),
     )
     parser.add_argument(
@@ -106,7 +104,7 @@ def parse_arguments() -> argparse.Namespace:
         default=3,  # First 3 epochs only train head so it adapts before touching pretrained features.
         help=(
             "Number of initial epochs to train only the final layer when using "
-            "pre-trained weights. (default: 3)"
+            "pre-trained weights (default: 3)."
         ),
     )
     parser.add_argument(
@@ -114,21 +112,21 @@ def parse_arguments() -> argparse.Namespace:
         "--val-split",
         type=float,
         default=0.2,  # 20% validation is a standard, reasonable default.
-        help=("Fraction of training data to use for validation. (default: 0.2)"),
+        help=("Fraction of training data to use for validation (default: 0.2)."),
     )
     parser.add_argument(
         "-r",
         "--seed",
         type=int,
         default=None,
-        help="Random seed for train/validation split. (default: None)",
+        help="Random seed for train/validation split (default: None).",
     )
     parser.add_argument(
         "-o",
         "--output",
         type=str,
         default="best_model.pth",
-        help="Path to save best model. (default: best_model.pth)",
+        help="Path to save best model (default: best_model.pth).",
     )
     parser.add_argument(
         "-w",
@@ -143,7 +141,7 @@ def parse_arguments() -> argparse.Namespace:
         default="strong",
         choices=["none", "light", "medium", "strong"],
         help=(
-            "Data augmentation preset: {none, light, medium, strong}. (default: strong)"
+            "Data augmentation preset: {none, light, medium, strong} (default: strong)."
         ),
     )
     parser.add_argument(
@@ -153,7 +151,7 @@ def parse_arguments() -> argparse.Namespace:
         help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        "-d",
+        "-vv",
         "--debug",
         action="store_true",
         help="Enable debug logging (DEBUG level).",

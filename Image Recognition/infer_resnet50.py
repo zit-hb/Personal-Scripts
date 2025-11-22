@@ -4,24 +4,22 @@
 # Script: infer_resnet50.py
 #
 # Description:
-#   Loads a trained ResNet50-based image classifier
-#   and runs inference on one or more input images.
-#   Supports an arbitrary number of classes as defined
-#   by the trained model.
+# Loads a trained ResNet50-based image classifier
+# and runs inference on one or more input images.
+# Supports an arbitrary number of classes as defined
+# by the trained model.
 #
 # Usage:
-#   ./infer_resnet50.py --model MODEL_PATH --input INPUT_PATH [options]
-#
-# Arguments:
-#   -m, --model MODEL_PATH   Path to trained model file. (default: best_model.pth)
-#   -i, --input INPUT_PATH   Path to image file or directory with images.
+#   ./infer_resnet50.py [options]
 #
 # Options:
+#   -m, --model MODEL_PATH   Path to trained model file (default: best_model.pth).
+#   -i, --input INPUT_PATH   Path to image file or directory with images.
 #   -c, --class_names NAMES  Names for classes in order of their indices.
 #                            If omitted, auto-generates class_0..class_N-1.
-#   -b, --batch_size N       Batch size for batched inference. (default: 32)
+#   -b, --batch_size N       Batch size for batched inference (default: 32).
 #   -v, --verbose            Enable verbose logging (INFO level).
-#   -d, --debug              Enable debug logging (DEBUG level).
+#   -vv, --debug             Enable debug logging (DEBUG level).
 #
 # Template: cuda12.4.1-ubuntu22.04
 #
@@ -58,7 +56,7 @@ def parse_arguments() -> argparse.Namespace:
         "--model",
         type=str,
         default="best_model.pth",
-        help="Path to trained model file. (default: best_model.pth)",
+        help="Path to trained model file (default: best_model.pth).",
     )
     parser.add_argument(
         "-i",
@@ -81,7 +79,7 @@ def parse_arguments() -> argparse.Namespace:
         "--batch_size",
         type=int,
         default=32,
-        help="Batch size for inference. (default: 32)",
+        help="Batch size for inference (default: 32).",
     )
     parser.add_argument(
         "-v",
@@ -90,7 +88,7 @@ def parse_arguments() -> argparse.Namespace:
         help="Enable verbose logging (INFO level).",
     )
     parser.add_argument(
-        "-d",
+        "-vv",
         "--debug",
         action="store_true",
         help="Enable debug logging (DEBUG level).",
