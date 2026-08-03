@@ -18,8 +18,12 @@
 #   -l, --learning-rate LR              Base learning rate (default: 1e-4).
 #       --backbone-lr-scale SCALE       LR multiplier for backbone when unfrozen (default: 0.1).
 #       --freeze-backbone-epochs N      Train only the final layer for first N epochs (with pretrained) (default: 3).
+#       --early-stopping-patience N     Stop after N epochs without F1 improvement, 0 disables (default: 7).
+#       --metric-average AVERAGE        Averaging for precision/recall/F1:
+#                                       {macro, weighted} (default: macro).
+#       --no-class-weights              Disable inverse-frequency class weighting in the loss.
 #   -s, --val-split VAL_SPLIT           Fraction of training data used for validation (default: 0.2).
-#   -r, --seed SEED                     Random seed for train/val split (default: None).
+#   -r, --seed SEED                     Random seed for split, initialization and augmentation (default: None).
 #   -o, --output OUTPUT_PATH            Path to save best model (default: best_model.pth).
 #   -w, --weights                       Use pre-trained ImageNet weights.
 #   -a, --augmentation-level LEVEL      Data augmentation preset:
@@ -40,9 +44,10 @@
 import argparse
 import logging
 import os
+import random
 import sys
 from collections import Counter
-from typing import Any, Tuple
+from typing import Any, Dict, List, Tuple
 
 import torch
 import torch.nn as nn
@@ -59,7 +64,7 @@ def parse_arguments() -> argparse.Namespace:
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(
-        description="Train a ResNet50-based binary image classifier."
+        description="Train a ResNet50-based image classifier."
     )
     parser.add_argument(
         "-T",
@@ -108,6 +113,33 @@ def parse_arguments() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=7,  # Longer than the scheduler patience so a reduced LR gets a fair chance to help.
+        help=(
+            "Stop training after this many epochs without F1 improvement; "
+            "0 disables early stopping (default: 7)."
+        ),
+    )
+    parser.add_argument(
+        "--metric-average",
+        type=str,
+        default="macro",  # Macro treats every class equally, regardless of how rare it is.
+        choices=["macro", "weighted"],
+        help=(
+            "Averaging strategy for precision/recall/F1: {macro, weighted} "
+            "(default: macro)."
+        ),
+    )
+    parser.add_argument(
+        "--no-class-weights",
+        action="store_true",
+        help=(
+            "Disable inverse-frequency class weighting in the loss "
+            "(useful when the metrics already compensate for imbalance)."
+        ),
+    )
+    parser.add_argument(
         "-s",
         "--val-split",
         type=float,
@@ -119,7 +151,10 @@ def parse_arguments() -> argparse.Namespace:
         "--seed",
         type=int,
         default=None,
-        help="Random seed for train/validation split (default: None).",
+        help=(
+            "Random seed for the split, model initialization and augmentation "
+            "(default: None)."
+        ),
     )
     parser.add_argument(
         "-o",
@@ -171,6 +206,21 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
         level = logging.WARNING
 
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+
+
+def set_seed(seed: int | None) -> None:
+    """
+    Seeds the Python, PyTorch and CUDA random number generators.
+    Covers weight initialization, augmentation and batch shuffling so that
+    a seeded run is reproducible end to end.
+    """
+    if seed is None:
+        return
+
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    logging.info(f"Random seed: {seed}")
 
 
 def get_device() -> torch.device:
@@ -259,15 +309,26 @@ def get_train_transform_medium() -> transforms.Compose:
 def get_train_transform_strong() -> transforms.Compose:
     """
     Returns training transforms for 'strong' augmentation preset.
-    Aggressive augment including RandomErasing; matches the original behavior.
+    Aggressive augment including RandomErasing.
     """
     return transforms.Compose(
         [
             transforms.RandomResizedCrop(
-                224
-            ),  # 224x224 is ResNet50's native input size.
-            transforms.RandomHorizontalFlip(),  # Simulates left/right variation in scenes.
-            transforms.ColorJitter(),  # Random brightness/contrast/saturation/hue to handle lighting & color shifts.
+                224,  # 224x224 is ResNet50's native input size.
+                scale=(
+                    0.6,
+                    1.0,
+                ),  # Keep at least 60% of the image so the labelled object survives the crop.
+            ),
+            transforms.RandomHorizontalFlip(
+                p=0.5
+            ),  # Simulates left/right variation in scenes.
+            transforms.ColorJitter(
+                brightness=0.4,  # Wide brightness range to cover under- and overexposed shots.
+                contrast=0.4,  # Wide contrast range for flat and harsh lighting.
+                saturation=0.4,  # Wide saturation range for washed out and vivid colors.
+                hue=0.1,  # Small hue shifts only; larger ones change object identity.
+            ),
             transforms.ToTensor(),
             transforms.Normalize(
                 mean=[
@@ -282,7 +343,7 @@ def get_train_transform_strong() -> transforms.Compose:
                 ],  # ImageNet std; keeps feature scales consistent.
             ),
             transforms.RandomErasing(
-                p=0.2,  # Apply occlusion in ~20% of samples to teach robustness to partial noses.
+                p=0.2,  # Apply occlusion in ~20% of samples to teach robustness to partial views.
                 scale=(
                     0.01,
                     0.1,
@@ -367,6 +428,53 @@ class TransformSubset(torch.utils.data.Dataset):
         return image, target
 
 
+def split_indices_stratified(
+    targets: List[int],
+    val_split: float,
+    seed: int | None,
+) -> Tuple[List[int], List[int]]:
+    """
+    Splits sample indices into train and validation indices, drawing the
+    validation fraction separately from every class.
+    Keeps rare classes represented in both splits, which keeps per-class
+    metrics meaningful and comparable across epochs.
+    """
+    generator = torch.Generator()
+    if seed is not None:
+        generator.manual_seed(seed)
+    else:
+        generator.seed()
+
+    indices_per_class: Dict[int, List[int]] = {}
+    for index, target in enumerate(targets):
+        indices_per_class.setdefault(target, []).append(index)
+
+    train_indices: List[int] = []
+    val_indices: List[int] = []
+
+    for target in sorted(indices_per_class):
+        class_indices = indices_per_class[target]
+        permutation = torch.randperm(len(class_indices), generator=generator).tolist()
+        shuffled = [class_indices[position] for position in permutation]
+
+        if len(shuffled) < 2:
+            logging.warning(
+                f"Class index {target} has fewer than 2 samples and is kept "
+                "entirely in the training set."
+            )
+            train_indices.extend(shuffled)
+            continue
+
+        # Round to the nearest sample, but always leave at least one sample per split.
+        num_val = int(round(len(shuffled) * val_split))
+        num_val = min(max(num_val, 1), len(shuffled) - 1)
+
+        val_indices.extend(shuffled[:num_val])
+        train_indices.extend(shuffled[num_val:])
+
+    return train_indices, val_indices
+
+
 def create_datasets(
     train_dir: str,
     train_transform: transforms.Compose,
@@ -388,23 +496,18 @@ def create_datasets(
         logging.error("Not enough images to create a train/validation split.")
         sys.exit(1)
 
-    num_val = int(num_samples * val_split)
-    if num_val <= 0 or num_val >= num_samples:
+    train_indices, val_indices = split_indices_stratified(
+        full_dataset.targets,
+        val_split,
+        seed,
+    )
+
+    if not train_indices or not val_indices:
         logging.error(
             "val-split results in an empty train or validation set. "
             "Adjust val-split or provide more data."
         )
         sys.exit(1)
-
-    if seed is not None:
-        g = torch.Generator()
-        g.manual_seed(seed)
-        indices = torch.randperm(num_samples, generator=g).tolist()
-    else:
-        indices = torch.randperm(num_samples).tolist()
-
-    val_indices = indices[:num_val]
-    train_indices = indices[num_val:]
 
     train_dataset = TransformSubset(full_dataset, train_indices, train_transform)
     val_dataset = TransformSubset(full_dataset, val_indices, val_transform)
@@ -413,6 +516,12 @@ def create_datasets(
     logging.info(f"Train samples: {len(train_dataset)}")
     logging.info(f"Val samples:   {len(val_dataset)}")
     logging.info(f"Classes: {full_dataset.classes}")
+    logging.info(
+        f"Train distribution: {dict(sorted(Counter(train_dataset.targets).items()))}"
+    )
+    logging.info(
+        f"Val distribution:   {dict(sorted(Counter(val_dataset.targets).items()))}"
+    )
 
     return train_dataset, val_dataset
 
@@ -455,6 +564,7 @@ def create_dataloaders(
 
 def compute_class_weights(
     train_dataset: ImageFolder,
+    num_classes: int,
     device: torch.device,
 ) -> torch.FloatTensor:
     """
@@ -464,14 +574,18 @@ def compute_class_weights(
     class_counts = Counter(train_dataset.targets)
     total_count = sum(class_counts.values())
     # total_count / count_i: simple heuristic to penalize mistakes on underrepresented classes more.
-    class_weights = [total_count / class_counts[i] for i in range(len(class_counts))]
+    # Classes without training samples keep a neutral weight of 1.0.
+    class_weights = [
+        total_count / class_counts[i] if class_counts[i] > 0 else 1.0
+        for i in range(num_classes)
+    ]
     logging.info(f"Class counts: {class_counts}")
     logging.info(f"Class weights: {class_weights}")
     return torch.FloatTensor(class_weights).to(device)
 
 
 def create_criterion(
-    class_weights: torch.FloatTensor,
+    class_weights: torch.FloatTensor | None,
 ) -> nn.Module:
     """
     Creates the loss criterion.
@@ -479,9 +593,13 @@ def create_criterion(
     return nn.CrossEntropyLoss(weight=class_weights)
 
 
-def create_model(use_pretrained_weights: bool, device: torch.device) -> nn.Module:
+def create_model(
+    use_pretrained_weights: bool,
+    num_classes: int,
+    device: torch.device,
+) -> nn.Module:
     """
-    Creates and returns the ResNet50 model for binary classification.
+    Creates and returns the ResNet50 model for classification.
     """
     if use_pretrained_weights:
         weights = (
@@ -493,8 +611,8 @@ def create_model(use_pretrained_weights: bool, device: torch.device) -> nn.Modul
     model = models.resnet50(weights=weights)
     in_features = model.fc.in_features
     model.fc = nn.Linear(
-        in_features, 2
-    )  # Two logits: [no_nose, nose] (or vice versa, via class_to_idx).
+        in_features, num_classes
+    )  # One logit per dataset class, ordered by class_to_idx.
     model = model.to(device)
     return model
 
@@ -516,6 +634,34 @@ def unfreeze_backbone(model: nn.Module) -> None:
     """
     for param in model.parameters():
         param.requires_grad = True
+
+
+def freeze_batchnorm_statistics(model: nn.Module) -> None:
+    """
+    Puts all BatchNorm layers into eval mode.
+    Disabling gradients alone does not stop BatchNorm from updating its
+    running statistics, which would still drift the frozen backbone.
+    """
+    for module in model.modules():
+        if isinstance(module, nn.BatchNorm2d):
+            module.eval()
+
+
+def get_backbone_lr_scale(
+    backbone_lr_scale: float,
+    use_pretrained: bool,
+) -> float:
+    """
+    Returns the effective backbone learning rate multiplier.
+    Scaling down only serves to protect pretrained features, so a network
+    trained from scratch uses the base learning rate everywhere.
+    """
+    if use_pretrained:
+        return backbone_lr_scale
+
+    if backbone_lr_scale != 1.0:
+        logging.info("Training without pre-trained weights; backbone LR scale ignored.")
+    return 1.0
 
 
 def create_optimizer(
@@ -564,6 +710,40 @@ def create_optimizer(
     return optimizer
 
 
+def add_backbone_param_group(
+    optimizer: optim.Optimizer,
+    model: nn.Module,
+    base_lr: float,
+    backbone_lr_scale: float,
+) -> None:
+    """
+    Adds the freshly unfrozen backbone parameters to the existing optimizer.
+    Extending the optimizer instead of rebuilding it keeps Adam's moment
+    estimates for the head, which were built up during the warmup epochs.
+    """
+    known_params = {
+        id(param) for group in optimizer.param_groups for param in group["params"]
+    }
+
+    backbone_params = [
+        param
+        for name, param in model.named_parameters()
+        if param.requires_grad
+        and not name.startswith("fc.")
+        and id(param) not in known_params
+    ]
+
+    if not backbone_params:
+        return
+
+    optimizer.add_param_group(
+        {
+            "params": backbone_params,
+            "lr": base_lr * backbone_lr_scale,
+        }
+    )
+
+
 def create_scheduler(
     optimizer: optim.Optimizer,
 ) -> optim.lr_scheduler.ReduceLROnPlateau:
@@ -579,18 +759,38 @@ def create_scheduler(
     return scheduler
 
 
+def get_batch_loss_weight(
+    criterion: nn.Module,
+    labels: torch.Tensor,
+) -> float:
+    """
+    Returns the denominator the criterion used to average the batch loss.
+    A weighted CrossEntropyLoss divides by the summed sample weights rather
+    than by the batch size, so the epoch average needs the same quantity.
+    """
+    weight = getattr(criterion, "weight", None)
+    if weight is None:
+        return float(labels.size(0))
+    return float(weight[labels].sum().item())
+
+
 def train_one_epoch(
     model: nn.Module,
     train_loader: DataLoader,
     criterion: nn.Module,
     optimizer: optim.Optimizer,
     device: torch.device,
+    backbone_frozen: bool,
 ) -> float:
     """
     Trains the model for one epoch and returns the average training loss.
     """
     model.train()
+    if backbone_frozen:
+        freeze_batchnorm_statistics(model)
+
     running_loss = 0.0
+    total_weight = 0.0
 
     for images, labels in train_loader:
         images = images.to(device)
@@ -602,9 +802,14 @@ def train_one_epoch(
         loss.backward()
         optimizer.step()
 
-        running_loss += loss.item() * images.size(0)
+        batch_weight = get_batch_loss_weight(criterion, labels)
+        running_loss += loss.item() * batch_weight
+        total_weight += batch_weight
 
-    epoch_loss = running_loss / len(train_loader.dataset)
+    if total_weight <= 0.0:
+        return 0.0
+
+    epoch_loss = running_loss / total_weight
     return epoch_loss
 
 
@@ -612,9 +817,13 @@ def evaluate(
     model: nn.Module,
     val_loader: DataLoader,
     device: torch.device,
+    num_classes: int,
+    metric_average: str,
 ) -> Tuple[float, float, float, float]:
     """
     Evaluates the model on the validation set and returns metrics.
+    Averaging runs over all dataset classes so the scores stay comparable
+    even when a class is missing from the validation split.
     """
     model.eval()
     all_preds: Any = []
@@ -628,11 +837,52 @@ def evaluate(
             all_preds.extend(preds)
             all_labels.extend(labels.tolist())
 
+    labels_range = list(range(num_classes))
     accuracy = accuracy_score(all_labels, all_preds)
-    precision = precision_score(all_labels, all_preds, zero_division=0)
-    recall = recall_score(all_labels, all_preds, zero_division=0)
-    f1 = f1_score(all_labels, all_preds, zero_division=0)
+    precision = precision_score(
+        all_labels,
+        all_preds,
+        labels=labels_range,
+        average=metric_average,
+        zero_division=0,
+    )
+    recall = recall_score(
+        all_labels,
+        all_preds,
+        labels=labels_range,
+        average=metric_average,
+        zero_division=0,
+    )
+    f1 = f1_score(
+        all_labels,
+        all_preds,
+        labels=labels_range,
+        average=metric_average,
+        zero_division=0,
+    )
     return accuracy, precision, recall, f1
+
+
+def save_checkpoint(
+    model: nn.Module,
+    class_to_idx: Dict[str, int],
+    epoch: int,
+    f1: float,
+    output_path: str,
+) -> None:
+    """
+    Saves the model together with the class mapping it was trained on.
+    Without the mapping the saved logits cannot be related back to class
+    names at inference time.
+    """
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "class_to_idx": class_to_idx,
+        "num_classes": len(class_to_idx),
+        "epoch": epoch,
+        "f1": f1,
+    }
+    torch.save(checkpoint, output_path)
 
 
 def train(
@@ -649,31 +899,59 @@ def train(
     backbone_lr_scale: float,
     use_pretrained: bool,
     freeze_backbone_epochs: int,
+    num_classes: int,
+    class_to_idx: Dict[str, int],
+    metric_average: str,
+    early_stopping_patience: int,
 ) -> None:
     """
     Runs the training and validation loop, with:
     - optional warmup (frozen backbone),
     - backbone unfreezing after warmup,
     - LR scheduling based on F1,
-    - best model selection by F1.
+    - best model selection by F1,
+    - early stopping on a stalled F1.
     """
-    best_f1 = 0.0
+    best_f1 = (
+        -1.0
+    )  # Below any achievable F1 so the first epoch always writes a checkpoint.
+    epochs_without_improvement = 0
+    warmup_active = use_pretrained and freeze_backbone_epochs > 0
 
     for epoch in range(1, epochs + 1):
-        if (
-            use_pretrained
-            and freeze_backbone_epochs > 0
-            and epoch == freeze_backbone_epochs + 1
-        ):
+        if warmup_active and epoch == freeze_backbone_epochs + 1:
             logging.info("Unfreezing backbone for fine-tuning.")
             unfreeze_backbone(model)
-            optimizer = create_optimizer(model, base_lr, backbone_lr_scale)
+            add_backbone_param_group(
+                model=model,
+                optimizer=optimizer,
+                base_lr=base_lr,
+                backbone_lr_scale=backbone_lr_scale,
+            )
+            # The scheduler tracks a fixed number of parameter groups, so it is
+            # rebuilt for the extended optimizer.
             scheduler = create_scheduler(optimizer)
+            warmup_active = False
 
-        epoch_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
+        backbone_frozen = warmup_active and epoch <= freeze_backbone_epochs
+
+        epoch_loss = train_one_epoch(
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+            backbone_frozen,
+        )
         logging.info(f"Epoch {epoch}/{epochs} - Train loss: {epoch_loss:.4f}")
 
-        accuracy, precision, recall, f1 = evaluate(model, val_loader, device)
+        accuracy, precision, recall, f1 = evaluate(
+            model,
+            val_loader,
+            device,
+            num_classes,
+            metric_average,
+        )
         logging.info(
             f"Val Acc: {accuracy:.4f}  Prec: {precision:.4f}  "
             f"Rec: {recall:.4f}  F1: {f1:.4f}"
@@ -683,10 +961,23 @@ def train(
 
         if f1 > best_f1:
             best_f1 = f1
-            torch.save(model.state_dict(), output_path)
+            epochs_without_improvement = 0
+            save_checkpoint(model, class_to_idx, epoch, f1, output_path)
             logging.info(f"New best model saved with F1: {best_f1:.4f}")
+        else:
+            epochs_without_improvement += 1
 
-    logging.info("Training completed.")
+        if (
+            early_stopping_patience > 0
+            and epochs_without_improvement >= early_stopping_patience
+        ):
+            logging.info(
+                f"No F1 improvement for {epochs_without_improvement} epochs; "
+                "stopping early."
+            )
+            break
+
+    logging.info(f"Training completed. Best F1: {best_f1:.4f}")
 
 
 def main() -> None:
@@ -695,6 +986,7 @@ def main() -> None:
     """
     args = parse_arguments()
     setup_logging(verbose=args.verbose, debug=args.debug)
+    set_seed(args.seed)
 
     validate_data_dir(args.train_dir)
 
@@ -710,10 +1002,19 @@ def main() -> None:
         args.seed,
     )
 
-    class_weights = compute_class_weights(train_dataset, device)
+    num_classes = len(train_dataset.classes)
+    if num_classes < 2:
+        logging.error("At least two classes are required for training.")
+        sys.exit(1)
+
+    if args.no_class_weights:
+        logging.info("Class weighting disabled.")
+        class_weights = None
+    else:
+        class_weights = compute_class_weights(train_dataset, num_classes, device)
     criterion = create_criterion(class_weights)
 
-    model = create_model(args.weights, device)
+    model = create_model(args.weights, num_classes, device)
 
     if args.weights and args.freeze_backbone_epochs > 0:
         logging.info(
@@ -721,10 +1022,12 @@ def main() -> None:
         )
         freeze_backbone(model)
 
+    backbone_lr_scale = get_backbone_lr_scale(args.backbone_lr_scale, args.weights)
+
     optimizer = create_optimizer(
         model,
         base_lr=args.learning_rate,
-        backbone_lr_scale=args.backbone_lr_scale,
+        backbone_lr_scale=backbone_lr_scale,
     )
     scheduler = create_scheduler(optimizer)
 
@@ -746,9 +1049,13 @@ def main() -> None:
         output_path=args.output,
         device=device,
         base_lr=args.learning_rate,
-        backbone_lr_scale=args.backbone_lr_scale,
+        backbone_lr_scale=backbone_lr_scale,
         use_pretrained=args.weights,
         freeze_backbone_epochs=args.freeze_backbone_epochs,
+        num_classes=num_classes,
+        class_to_idx=train_dataset.class_to_idx,
+        metric_average=args.metric_average,
+        early_stopping_patience=args.early_stopping_patience,
     )
 
 

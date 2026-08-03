@@ -16,7 +16,9 @@
 #   -m, --model MODEL_PATH   Path to trained model file (default: best_model.pth).
 #   -i, --input INPUT_PATH   Path to image file or directory with images.
 #   -c, --class_names NAMES  Names for classes in order of their indices.
-#                            If omitted, auto-generates class_0..class_N-1.
+#                            Overrides the mapping stored in the checkpoint.
+#                            If neither is available, auto-generates
+#                            class_0..class_N-1.
 #   -b, --batch_size N       Batch size for batched inference (default: 32).
 #   -v, --verbose            Enable verbose logging (INFO level).
 #   -vv, --debug             Enable debug logging (DEBUG level).
@@ -35,12 +37,13 @@ import argparse
 import logging
 import os
 import sys
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import torch
 import torch.nn as nn
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.dataloader import default_collate
 from torchvision import models, transforms
 
 
@@ -72,7 +75,8 @@ def parse_arguments() -> argparse.Namespace:
         nargs="+",
         default=None,
         help="Names for classes in order of their indices. "
-        "If omitted, auto-generates class_0..class_N-1.",
+        "Overrides the mapping stored in the checkpoint. "
+        "If neither is available, auto-generates class_0..class_N-1.",
     )
     parser.add_argument(
         "-b",
@@ -121,12 +125,13 @@ def get_device() -> torch.device:
 
 def get_transform() -> transforms.Compose:
     """
-    Returns the transform for inference (must match validation transform).
+    Returns the transform for inference.
+    Mirrors the validation transform used during training: a deterministic
+    full-image resize, so nothing is cropped away before classification.
     """
     return transforms.Compose(
         [
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],
@@ -171,6 +176,8 @@ def collect_image_paths(input_path: str) -> List[str]:
 class ImageDataset(Dataset):
     """
     Dataset for loading and transforming images for inference.
+    Returns None for images that cannot be read; those are dropped by the
+    collate function instead of aborting the run.
     """
 
     def __init__(self, image_paths: List[str], transform: transforms.Compose) -> None:
@@ -180,40 +187,83 @@ class ImageDataset(Dataset):
     def __len__(self) -> int:
         return len(self.image_paths)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, str]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, str] | None:
         path = self.image_paths[idx]
         try:
             image = Image.open(path).convert("RGB")
         except Exception as exc:  # noqa: BLE001
             logging.error(f"Failed to load image {path}: {exc}")
-            raise
+            return None
         tensor = self.transform(image)
         return tensor, path
 
 
-def create_model(model_path: str, device: torch.device) -> Tuple[nn.Module, int]:
+def collate_skip_failed(batch: List[Any]) -> Any:
     """
-    Creates the ResNet50 model architecture, infers number of classes
-    from the checkpoint, loads weights, and returns the model and class count.
+    Collates a batch after removing samples that failed to load.
+    Returns None if nothing in the batch could be read.
     """
-    # Load only tensor weights to avoid executing arbitrary code via pickle.
-    state_dict = torch.load(
+    valid = [sample for sample in batch if sample is not None]
+    if not valid:
+        return None
+    return default_collate(valid)
+
+
+def load_checkpoint(
+    model_path: str,
+    device: torch.device,
+) -> Tuple[Dict[str, Any], Dict[str, int] | None]:
+    """
+    Loads a checkpoint and returns its state dict along with the class
+    mapping it was trained on, if the checkpoint carries one.
+    Plain state dicts from older runs are still accepted.
+    """
+    # Load only tensor weights and plain containers to avoid executing
+    # arbitrary code via pickle.
+    checkpoint = torch.load(
         model_path,
         map_location=device,
         weights_only=True,
     )
 
+    if not isinstance(checkpoint, dict):
+        logging.error("Checkpoint has an unexpected format.")
+        sys.exit(1)
+
+    if "model_state_dict" not in checkpoint:
+        logging.info("Checkpoint contains no class mapping.")
+        return checkpoint, None
+
+    state_dict = checkpoint["model_state_dict"]
+    class_to_idx = checkpoint.get("class_to_idx")
+
+    epoch = checkpoint.get("epoch")
+    f1 = checkpoint.get("f1")
+    if epoch is not None and f1 is not None:
+        logging.info(f"Checkpoint from epoch {epoch} with validation F1: {f1:.4f}")
+
+    return state_dict, class_to_idx
+
+
+def create_model(
+    state_dict: Dict[str, Any],
+    device: torch.device,
+) -> Tuple[nn.Module, int]:
+    """
+    Creates the ResNet50 model architecture, infers number of classes
+    from the state dict, loads weights, and returns the model and class count.
+    """
     if "fc.weight" not in state_dict:
         logging.error("Checkpoint does not contain fc.weight.")
         sys.exit(1)
 
     num_classes = state_dict["fc.weight"].shape[0]
-    # Use new API: weights=None instead of deprecated pretrained=False
     model = models.resnet50(weights=None)
-    model.fc = nn.Linear(2048, num_classes)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
     model.load_state_dict(state_dict)
     model = model.to(device)
     model.eval()
+    logging.info(f"Loaded model with {num_classes} classes.")
     return model, num_classes
 
 
@@ -242,30 +292,47 @@ def create_dataloader(
         shuffle=False,
         num_workers=num_workers,
         pin_memory=pin_memory,
+        collate_fn=collate_skip_failed,
     )
     return loader
 
 
 def resolve_class_names(
     arg_class_names: List[str] | None,
+    class_to_idx: Dict[str, int] | None,
     num_classes: int,
 ) -> List[str]:
     """
-    Resolves class names based on provided arguments and number of classes.
+    Resolves class names, preferring the command-line argument over the
+    mapping stored in the checkpoint, and falling back to generated names.
     """
-    if arg_class_names is None:
-        return [f"class_{i}" for i in range(num_classes)]
+    if arg_class_names is not None:
+        if len(arg_class_names) != num_classes:
+            logging.error(
+                "Number of provided class names (%d) does not match number of "
+                "classes in model (%d).",
+                len(arg_class_names),
+                num_classes,
+            )
+            sys.exit(1)
+        return arg_class_names
 
-    if len(arg_class_names) != num_classes:
-        logging.error(
-            "Number of provided class names (%d) does not match number of "
-            "classes in model (%d).",
-            len(arg_class_names),
-            num_classes,
-        )
-        sys.exit(1)
+    if class_to_idx:
+        if len(class_to_idx) != num_classes:
+            logging.warning(
+                "Class mapping in checkpoint has %d entries but the model has "
+                "%d outputs; falling back to generated names.",
+                len(class_to_idx),
+                num_classes,
+            )
+        else:
+            # Sort by index so position in the list matches the model output.
+            return [
+                name
+                for name, _ in sorted(class_to_idx.items(), key=lambda item: item[1])
+            ]
 
-    return arg_class_names
+    return [f"class_{i}" for i in range(num_classes)]
 
 
 def predict(
@@ -281,7 +348,11 @@ def predict(
     softmax = nn.Softmax(dim=1)
 
     with torch.no_grad():
-        for inputs, paths in dataloader:
+        for batch in dataloader:
+            if batch is None:
+                continue
+
+            inputs, paths = batch
             inputs = inputs.to(device)
             outputs = model(inputs)
             probs = softmax(outputs)
@@ -331,8 +402,9 @@ def main() -> None:
     image_paths = collect_image_paths(args.input)
     dataloader = create_dataloader(image_paths, transform, args.batch_size, device)
 
-    model, num_classes = create_model(args.model, device)
-    class_names = resolve_class_names(args.class_names, num_classes)
+    state_dict, class_to_idx = load_checkpoint(args.model, device)
+    model, num_classes = create_model(state_dict, device)
+    class_names = resolve_class_names(args.class_names, class_to_idx, num_classes)
 
     predict(model, dataloader, class_names, device)
 
